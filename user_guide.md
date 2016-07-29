@@ -1,0 +1,188 @@
+Method5 User Guide
+==================
+
+In theory, Method5 makes it trivial to run any statement anywhere.  In practice, querying hundreds of databases at the same time creates some complications.  The parameters and features below will help you deal with those complications.
+
+
+Summary of Features
+-------------------
+
+Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables  to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
+
+Method5 parameters (the function version only supports the first two parameters):
+
+* P_CODE (required) - Any SQL or PL/SQL statement.
+* P_TARGETS (optional, defaults to all databases) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business) or a query that returns database names.
+* P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
+* P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
+* P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
+
+For ad hoc statements you can use the `M5_%` database links created in your schema.  There are also some nightly-generated tables with useful data, such as M5_DBA_USERS and M5_V$PARAMETER.
+
+Read below for more thorough details on these features.
+
+
+Function or Procedure
+---------------------
+
+Method5 can be called as either a function or a procedure.  The function is `M5`, and the procedure is `M5_PROC`.
+
+The function `M5` is the simplest method, and can start displaying values in less than a second.  Wrap any statement in this text: `select * from table(m5(q'[  ...  ]'));`.  The function accepts two parameters, `P_CODE` and `P_TARGETS`, which are explained more thoroughly later.
+
+	SQL> select * from table(m5(q'[  select 'Hello, World!' hello_world from dual  ]'));
+	
+	DATABASE_NAME                  HELLO_WORLD
+	------------------------------ -------------
+	SOMEDB01                       Hello, World!
+	SOMEDB02                       Hello, World!
+	....
+
+The procedure `M5_PROC` makes it possible to more programmatically run queries and save results.
+
+	begin
+		m5_proc(
+			p_code =>                'select * from dual',
+			p_targets =>             'pqdwdv01',
+			p_table_name =>          'my_results',
+			p_asynchronous =>        false,
+			p_table_exists_action => 'DROP'
+		);
+	end;
+	/
+
+	SQL> select * from my_results;
+	
+	DATABASE_NAME                  DUMMY
+	------------------------------ -----
+	SOMEDB01                       X
+	SOMEDB02                       X
+	....
+
+
+Simplify Strings with Alternative Quoting Mechanism
+---------------------------------------------------
+
+Use the `q'[` syntax to embed SQL statements without needing to escape quotation marks.  In this alternative quoting mechanism, strings begin with `q'[` and end with `]'`.  You can also use `<>`, `()`, or `{}`.  Or if you use another character, simply repeat the character at the end.  For example, `q'! It's not necessary to add extra quotation marks now.!'`.
+
+
+Where is the data stored?
+-------------------------
+
+Every Method5 execution stores data in three tables - results, metadata, and errors.
+
+The result table contains the results of the query, or a feedback message for other statement types.  Every row also contains the database name.  The table name can be specified with the parameter `p_table_name`.  If that parameter is left blank, a name will be automatically chosen.
+
+The metadata table contains one row for each execution.  It contains the date started, is the job finished yet, the count of jobs expected and completed and with errors, and the code and targets used.  This table has the same name as the results table but with the suffix `_meta`.
+
+The errors table contains any Oracle errors generated during the execution, along with the database name.  With a large enough number of databases it's not unusual for at least one of them to be unavailable because of maintenance or an unexpected error.  Tracking errors lets you ignore the troublesome databases and deal with them later.  This table has the same name as the results table but with the suffix `_err`.
+
+(One unexpected benefit of Method5 is that constantly polling all databases will make you keenly aware of which ones are unreliable.  Some databases are just full of gremlins.)
+
+To simplify queries, Method5 always creates 3 views in your schema that refer to the latest tables.  Instead of worrying about the table names just run these statements:
+
+	select * from m5_results;
+	select * from m5_metadata;
+	select * from m5_errors;
+
+
+Parameter: P_CODE (1st parameter, required)
+----------------------------
+
+`P_CODE` can be any single SQL or PL/SQL statement.  `SELECT`, `INSERT`, `ALTER USER`, `BEGIN ...`, etc.
+
+For `SELECT`, the tables in the statement must exist on the server running the jobs.  This is necessary in order to get the metadata for the results.  In practice this isn't a big deal because most of the queries will be against the data dictionary, which is very uniform across versions and editions.
+
+PL/SQL blocks are convenient if you want to run multiple statements and package them in one call.  You can use DBMS_OUTPUT.PUT_LINE to display information.
+
+	begin
+		m5_proc(q'[  begin dbms_output.put_line('Hello, World!'); end;  ]', 'pqdwdv01');
+	end;
+	/
+
+	SQL> select * from m5_results;
+
+	DATABASE_NAME                  RESULT
+	------------------------------ -------------
+	SOMEDB01                       Hello, World!
+	...
+
+DML, DDL, and other statement types will return a message similar to their SQL*Plus feedback message.
+
+	SQL> select * from table(m5('alter user jheller profile some_profile'));
+
+	DATABASE_NAME                  RESULT
+	------------------------------ -------------
+	SOMEDB01                       User altered.
+	...
+
+
+Parameter: P_TARGETS (2nd parameter, optional)
+----------------------------------------------
+
+`P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
+
+If the value is a SELECT statement it must return only one column that contains the database names.  You may want to use the table METHOD5_APP.M5_DATABASE to find relevant database names.
+
+	select * from table(m5(
+		q'[ select * from dual; ]',
+		q'[
+			select database_name
+			from method5_app.m5_database
+			where lifecycle_status = 'QA'
+				and lower(database_name) like 'p%'
+		]'
+	));
+
+	DATABASE_NAME                  D
+	------------------------------ -
+	porcl123                       X
+	porcl234                       X
+	...
+
+If the value is not a SELECT statement then it will be evaluated as a comma-separated list of values.  The values will match any database that shares the same name, host name, line of business, or lifecycle status.  Those columns are all configured in M5_DATABASE, and may be derived from Oracle Enterprise Manager.
+
+For example, if you want all development databases, as well as ones on the ACME contract (line of business), and one other custom database:
+
+	p_targets => 'dev,acme,coyote1'
+
+
+Parameter: P_TABLE_NAME (3rd parameter, optional)
+----------------------------------------------
+
+`P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` will also be created to store the metadata and errors.
+
+If this parameter is not specified then a sequence will be used to generate a unique name.  If the sequence is used, all but the last of those temporary tables will be dropped by a nightly job.
+
+
+Parameter: P_ASYNCHRONOUS (4th parameter, optional)
+---------------------------------------------------
+
+By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will return immediately even if the results are not finished yet.
+
+This lets you examine some of the results before a slow database is finished processing.
+
+
+Parameter: P_TABLE_EXISTS_ACTION (5th parameter, optional)
+----------------------------------------------------------
+
+One of these values:
+
+* ERROR - (DEFAULT) Raise an error if the table already exists.  This doesn't apply to functions, they always have a unique name.
+* APPEND - Add new rows to the existing table.
+* DELETE - Delete existing rows and then add new rows.
+* DROP - Drop existing tables and re-create them for new results.
+
+
+M5_ Links
+---------
+
+Method5 automatically creates database links in your schema to all databases that it connects to.  The links are named like `M5_` plus the database name.  Those links can be useful for ad hoc statements.
+
+
+M5_ tables
+----------
+
+Method5 automatically gathers some common tables every night.  These tables can be useful for troubleshooting, it's handy to have the values so easily accessible.
+
+* M5_DBA_USERS
+* M5_V$PARAMETER
