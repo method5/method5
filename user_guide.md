@@ -35,7 +35,7 @@ The function `M5` is the simplest method, and can start displaying values in les
 	------------------------------ -------------
 	SOMEDB01                       Hello, World!
 	SOMEDB02                       Hello, World!
-	....
+	...
 
 The procedure `M5_PROC` makes it possible to more programmatically run queries and save results.
 
@@ -56,7 +56,7 @@ The procedure `M5_PROC` makes it possible to more programmatically run queries a
 	------------------------------ -----
 	SOMEDB01                       X
 	SOMEDB02                       X
-	....
+	...
 
 
 Simplify Strings with Alternative Quoting Mechanism
