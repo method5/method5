@@ -16,7 +16,7 @@ Run a query on all databases:
     DB1            Hello, World!
     DB2            Hello, World!
     DB3            Hello, World!
-    ....    
+    ...    
 
 Lock a user on all QA databases:
 
@@ -34,7 +34,7 @@ Run a PL/SQL block on DEV, QA, and a list of other databases:
     DATABASE_NAME  RESULT
     -------------  --------------------
     DEVDB01        A PL/SQL Hello World
-    ....
+    ...
 
 You can run any SQL or PL/SQL statement inside `select * from table(m5(q'[ ... ]'));`.
 
