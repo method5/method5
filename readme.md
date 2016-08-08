@@ -27,13 +27,13 @@ Lock a user on all QA databases:
     QA01           User altered.
     ...
 
-Run a PL/SQL block on DEV, QA, and a list of other databases:
+Run a PL/SQL block on DEV, QA, and one more databases:
 
-    SQL> select * from table(m5(q'[ begin dbms_output.put_line('A PL/SQL Hello World'); end; ]', 'pqdwdv01'));
+    SQL> select * from table(m5(q'[ begin dbms_output.put_line('PL/SQL Hello World'); end; ]', 'dev,qa,db1'));
 
     DATABASE_NAME  RESULT
     -------------  --------------------
-    DEVDB01        A PL/SQL Hello World
+    DEVDB01        PL/SQL Hello World
     ...
 
 You can run any SQL or PL/SQL statement inside `select * from table(m5(q'[ ... ]'));`.
