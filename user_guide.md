@@ -86,7 +86,7 @@ To simplify queries, Method5 always creates 3 views in your schema that refer to
 
 
 Parameter: P_CODE (1st parameter, required)
-----------------------------
+-------------------------------------------
 
 `P_CODE` can be any single SQL or PL/SQL statement.  `SELECT`, `INSERT`, `ALTER USER`, `BEGIN ...`, etc.
 
@@ -147,7 +147,7 @@ For example, if you want all development databases, as well as ones on the ACME 
 
 
 Parameter: P_TABLE_NAME (3rd parameter, optional)
-----------------------------------------------
+-------------------------------------------------
 
 `P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` will also be created to store the metadata and errors.
 
@@ -186,3 +186,15 @@ Method5 automatically gathers some common tables every night.  These tables can 
 
 * M5_DBA_USERS
 * M5_V$PARAMETER
+
+
+Creating services for non-DBA users
+-----------------------------------
+
+Method5 goes to great lengths to protect access and ensure that only configured DBAs can use it.  But sometimes it may be useful to provide other users with a limited, carefully controlled access to Method5.
+
+Read-only access to specific query results is fairly straight-forward.  Create a job with DBMS_SCHEDULER to gather results into a specific table, then grant access on that table to roles or users.  The job should probably set `P_TABLE_EXISTS_ACTION` to either `DELETE` or `APPEND`, to ensure that the privileges are not dropped with the object.
+
+DDL and write access is more complicated.  It requires creating a scheduled job to pass authentication and authorization checks, a custom procedure that alters the JOB_ACTION based on input from a user, running the job with `use_current_session => false`, and then waiting and checking the _META table for it to complete.  See the script "Lock User Everywhere.sql" for an example.  *TODO - add script.*
+
+Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 always runs as an individual user, never a generic account.  If that DBA's account is de-activated, their jobs must be dropped and re-created by an active DBA.
