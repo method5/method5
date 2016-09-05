@@ -1,7 +1,7 @@
 Method5 User Guide
 ==================
 
-In theory, Method5 makes it trivial to run any statement anywhere.  In practice, querying hundreds of databases at the same time creates some complications.  The parameters and features below will help you deal with those complications.
+In theory, Method5 makes it trivial to run any statement anywhere.  In practice, querying hundreds of databases at the same time can be inherently complicated.  The parameters and features below will help you deal with those complications.
 
 
 Summary of Features
@@ -14,8 +14,8 @@ Method5 parameters (the function version only supports the first two parameters)
 * P_CODE (required) - Any SQL or PL/SQL statement.
 * P_TARGETS (optional, defaults to all databases) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business) or a query that returns database names.
 * P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
-* P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
 * P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
+* P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
 
 For ad hoc statements you can use the `M5_%` database links created in your schema.  There are also some nightly-generated tables with useful data, such as M5_DBA_USERS and M5_V$PARAMETER.
 
@@ -44,8 +44,8 @@ The procedure `M5_PROC` makes it possible to more programmatically run queries a
 			p_code =>                'select * from dual',
 			p_targets =>             'pqdwdv01',
 			p_table_name =>          'my_results',
-			p_asynchronous =>        false,
-			p_table_exists_action => 'DROP'
+			p_table_exists_action => 'DROP',
+			p_asynchronous =>        false
 		);
 	end;
 	/
@@ -70,11 +70,13 @@ Where is the data stored?
 
 Every Method5 execution stores data in three tables - results, metadata, and errors.
 
-The result table contains the results of the query, or a feedback message for other statement types.  Every row also contains the database name.  The table name can be specified with the parameter `p_table_name`.  If that parameter is left blank, a name will be automatically chosen.
+The result table contains either the results of the query, the DBMS_OUTPUT for a PL/SQL block, or a feedback message for other statement types.  Every row also contains the database name.  The table name can be specified with the parameter `p_table_name`.  If that parameter is left blank, a name will be automatically chosen.
 
-The metadata table contains one row for each execution.  It contains the date started, is the job finished yet, the count of jobs expected and completed and with errors, and the code and targets used.  This table has the same name as the results table but with the suffix `_meta`.
+The metadata table contains one row for each execution.  It contains the date started, is the process finished yet, the count of targets expected and completed and with errors, and the code and targets used.  This table has the same name as the results table but with the suffix `_meta`.
 
 The errors table contains any Oracle errors generated during the execution, along with the database name.  With a large enough number of databases it's not unusual for at least one of them to be unavailable because of maintenance or an unexpected error.  Tracking errors lets you ignore the troublesome databases and deal with them later.  This table has the same name as the results table but with the suffix `_err`.
+
+Serious errors during a run may make the metadata counts partially incorrect.  For example, if a database crashes in the middle of processing, the error may not be counted.  It's unlikely, but possible, for `IS_COMPLETE` to be `No` even though there are no more jobs running.  When that happens the column `TARGETS_EXPECTED` will not be equal to the sum of `TARGETS_COMPLETED` and `TARGETS_WITH_ERRORS`.
 
 (One unexpected benefit of Method5 is that constantly polling all databases will make you keenly aware of which ones are unreliable.  Some databases are just full of gremlins.)
 
@@ -154,15 +156,7 @@ Parameter: P_TABLE_NAME (3rd parameter, optional)
 If this parameter is not specified then a sequence will be used to generate a unique name.  If the sequence is used, all but the last of those temporary tables will be dropped by a nightly job.
 
 
-Parameter: P_ASYNCHRONOUS (4th parameter, optional)
----------------------------------------------------
-
-By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will return immediately even if the results are not finished yet.
-
-This lets you examine some of the results before a slow database is finished processing.
-
-
-Parameter: P_TABLE_EXISTS_ACTION (5th parameter, optional)
+Parameter: P_TABLE_EXISTS_ACTION (4th parameter, optional)
 ----------------------------------------------------------
 
 One of these values:
@@ -171,6 +165,14 @@ One of these values:
 * APPEND - Add new rows to the existing table.
 * DELETE - Delete existing rows and then add new rows.
 * DROP - Drop existing tables and re-create them for new results.
+
+
+Parameter: P_ASYNCHRONOUS (5th parameter, optional)
+---------------------------------------------------
+
+By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will return immediately even if the results are not finished yet.
+
+This lets you examine some of the results before a slow database is finished processing.
 
 
 M5_ Links
