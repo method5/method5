@@ -143,9 +143,11 @@ If the value is a SELECT statement it must return only one column that contains 
 
 If the value is not a SELECT statement then it will be evaluated as a comma-separated list of values.  The values will match any database that shares the same name, host name, line of business, or lifecycle status.  Those columns are all configured in M5_DATABASE, and may be derived from Oracle Enterprise Manager.
 
-For example, if you want all development databases, as well as ones on the ACME contract (line of business), and one other custom database:
+The value may also use the Oracle pattern matching syntax, `%` and `_`.
 
-	p_targets => 'dev,acme,coyote1'
+For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
+
+	p_targets => 'dev,acme,coyote%'
 
 
 Parameter: P_TABLE_NAME (3rd parameter, optional)
@@ -181,13 +183,17 @@ M5_ Links
 Method5 automatically creates database links in your schema to all databases that it connects to.  The links are named like `M5_` plus the database name.  Those links can be useful for ad hoc statements.
 
 
-M5_ tables
-----------
+Global Data Dictionary
+----------------------
 
-Method5 automatically gathers some common tables every night.  These tables can be useful for troubleshooting, it's handy to have the values so easily accessible.
+Method5 automatically gathers data for some common data dictionary tables.  These tables can be useful for rapid troubleshooting.  For example, if you're not sure which database contains a schema you can quickly query `select * from m5_dba_users` to look at the users for all databases.
 
 * M5_DBA_USERS
 * M5_V$PARAMETER
+* M5_DBA_TAB_PRIVS, M5_DBA_ROLE_PRIVS, M5_DBA_SYS_PRIVS
+* M5_USER$
+
+You can add your own easily by following the examples in `code/install_method5_global_data_dictionary.sql`.
 
 
 Creating services for non-DBA users
