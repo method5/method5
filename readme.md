@@ -1,4 +1,4 @@
-Method5 v7.0.1
+Method5 v7.7.0
 ===============
 
 Method5 is an Oracle database automation program that lets administrators easily run SQL statements quickly and securely on hundreds of databases.
@@ -27,7 +27,7 @@ Lock a user on all QA databases:
     QA01           User altered.
     ...
 
-Run a PL/SQL block on DEV, QA, and one more databases.  To run this inside a program: 1) call Method5 as a procedure,  `M5_PROC`, 2) store the results in a specific table, `P_TABLE_NAME`, 3) drop and re-create that table if it already exists, `P_TABLE_EXISTS_ACTION`, and 4) wait for all results are done before returning, `P_ASYNCHRONOUS`.
+Run a PL/SQL block on DEV, QA, and one more databases.  To run this inside a program: 1) call Method5 as a procedure, `M5_PROC`, 2) store the results in a specific table, `P_TABLE_NAME`, 3) drop and re-create that table if it already exists, `P_TABLE_EXISTS_ACTION`, and 4) wait for all results are done before returning, `P_ASYNCHRONOUS`.
 
     begin
         m5_proc(
