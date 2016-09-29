@@ -123,13 +123,13 @@ Parameter: P_TARGETS (2nd parameter, optional)
 
 `P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
 
-If the value is a SELECT statement it must return only one column that contains the database names.  You may want to use the table METHOD5_APP.M5_DATABASE to find relevant database names.
+If the value is a SELECT statement it must return only one column that contains the database names.  You may want to use the table M5_DATABASE to find relevant database names.
 
 	select * from table(m5(
 		q'[ select * from dual; ]',
 		q'[
 			select database_name
-			from method5_app.m5_database
+			from m5_database
 			where lifecycle_status = 'QA'
 				and lower(database_name) like 'p%'
 		]'
@@ -206,3 +206,34 @@ Read-only access to specific query results is fairly straight-forward.  Create a
 DDL and write access is more complicated.  It requires creating a scheduled job to pass authentication and authorization checks, a custom procedure that alters the JOB_ACTION based on input from a user, running the job with `use_current_session => false`, and then waiting and checking the _META table for it to complete.  See the script "Lock User Everywhere.sql" for an example.  *TODO - add script.*
 
 Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 always runs as an individual user, never a generic account.  If that DBA's account is de-activated, their jobs must be dropped and re-created by an active DBA.
+
+
+Possible Uses
+-------------
+
+Method5 was built to help database administrators change their approach to solving database problems.
+
+Many good DBAs spend most of their time fighting fires one-database-at-a-time.  We say to ourselves, "it probably hasn't happened on other databases and it probably won't happen again".  When what we really mean is "it's not worth the effort to check every other database".
+
+With Method5 that extra effort is trivial and there are no more excuses to avoid root cause analysis.  Every time you encounter a problem, ask yourself if you can find it and prevent it on all other databases.
+
+Here are a few examples of ways that Method5 is already used:
+
+* Account Management - Lock, unlock, create accounts, etc.
+* Root Cause Analysis - Track down rare problems by checking for them on all databases.
+* Space Management - Save a few gigabytes here and there and it can add up to terabytes.
+* Security Rules - Enforce security rules more easily by keeping databases consistent, such as through standard profiles.
+* Performance Tuning - Check the queries running on all databases on the same host.
+* Environment Comparisons - Compare parameters or objects across all databases at the same time.
+* Global Data Dictionary - Store common data used for rapid troubleshooting, such as a list of users.
+* Preventive Maintenance - Save common diagnostic steps and periodically re-run them against all databases.
+* Global Jobs - Run jobs from a single database instead of managing hundreds of crontabs or database jobs.
+* Monitoring - Check database status with simple SQL statements.
+
+There are a few DBA tasks that Method5 cannot fully automate.  However, Method5 can still assist with these tasks.
+
+* Upgrading and Patching - These tasks need to be handled by a specialized tool; or they may be too fragile to automate at all.  Method5 can still help you verify the database state after patches and upgrades.
+* Host and SYSDBA actions - Activities like installing software and starting a database won't work since Method5 only exists inside a database.  Method5 can still be used to check the status afterwards.
+* Deployments - Developers will want to use their own specialized tools for this.  But Method5 can help harmonize environments and can compare all objects, in all databases, in a single view.
+
+At least one DBA on your team should use Method5 if your organization is serious about database automation.
