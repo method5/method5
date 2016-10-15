@@ -1,4 +1,4 @@
-Method5 v8.0.1
+Method5 v8.0.2
 ===============
 
 Method5 is an Oracle database automation program that lets administrators easily run SQL statements quickly and securely on hundreds of databases.
