@@ -161,20 +161,49 @@ is
 			--Prevent Method5 from connecting directly.
 			create or replace trigger sys.m5_prevent_direct_logon
 			after logon on method5.schema
+			/*
+				Purpose: Prevent anyone from connecting directly as Method5.
+					All Method5 connections must be authenticated by the Method5
+					program and go through a database link.
+
+				Note: These checks are not foolproof and it's possible to spoof some
+					of these values.  The primary protection of the Method5 comes from
+					only using password hashes and nobody ever knowing the password.
+					This trigger is another layer of protection, but not a great one.
+			*/
 			declare
+				--Only an ORA-600 error can stop logons for users with either
+				--"ADMINISTER DATABASE TRIGGER" or "ALTER ANY TRIGGER".
+				--The ORA-600 alsos generate an alert log entry and may warn an adin.
 				internal_exception exception;
 				pragma exception_init( internal_exception, -600 );
+
+				procedure check_module_for_link is
+				begin
+					--TODO: This is not tested!
+					if sys_context('userenv','module') not like 'oracle@%' then
+						raise internal_exception;
+					end if;
+				end;
 			begin
+				--Check that the connection comes from the management server.
 				if sys_context('userenv', 'session_user') = 'METHOD5'
 				   and lower(sys_context('userenv', 'host')) not like '%#HOST#%' then
-					--This isn't a very helpful error message, but it's the only one
-					--that will stop the user from connecting.
-					--Users with "ADMINISTER DATABASE TRIGGER" or "ALTER ANY TRIGGER" can
-					--logon even with a regular error.  Only an ORA-600 can stop them.
 					raise internal_exception;
-					--I wish this worked:
-					--raise_application_error(-20001, 'Method5 can only logon from the central management server.');
 				end if;
+
+				--Check that the connection comes over a database link.
+				$if dbms_db_version.ver_le_9 $then
+					check_module_for_link;
+				$elsif dbms_db_version.ver_le_10 $then
+					check_module_for_link;
+				$elsif dbms_db_version.ver_le_11_1 $then
+					check_module_for_link;
+				$else
+					if sys_context('userenv', 'dblink_info') is null then
+						raise internal_exception;
+					end if;
+				$end
 			end;
 			/]'||chr(10)
 		,'#HOST#', lower(sys_context('userenv', 'server_host')))
