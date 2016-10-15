@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.0.1';
+C_VERSION constant varchar2(10) := '8.0.2';
 
 /******************************************************************************
 RUN
