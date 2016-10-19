@@ -1,7 +1,11 @@
 Method5 User Guide
 ==================
 
-In theory, Method5 makes it trivial to run any statement anywhere.  In practice, querying hundreds of databases at the same time can be inherently complicated.  The parameters and features below will help you deal with those complications.
+Method5 is an Oracle database automation program that lets administrators easily run SQL and PL/SQL statements quickly and securely on hundreds of databases.
+
+Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
+
+Some users will only need the `select * from table(m5('...'));` syntax.  For more advanced users, this guide explains all available Method5 features.  These features can be used to precisely control what is run, how it's run, and where it's run.
 
 
 Summary of Features
