@@ -1,11 +1,21 @@
 Method5 User Guide
 ==================
 
-Method5 is an Oracle database automation program that lets administrators easily run SQL and PL/SQL statements quickly and securely on hundreds of databases.
+Method5 is a remote execution program for Oracle databases. It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
 
 Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
 
 Some users will only need the `select * from table(m5('...'));` syntax.  For more advanced users, this guide explains all available Method5 features.  These features can be used to precisely control what is run, how it's run, and where it's run.
+
+
+Why Do You Need Method5?
+------------------------
+
+Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tool are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is still stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
+
+The ideal solution is to make it trivial to query and change all databases simultaneously.  Dynamic SQL is sometimes classified as Method 1, 2, 3, or 4, depending on how dynamic it is.  DBAs need a new type of dynamic SQL, a Method 5, that allows them to specify the targets as easily as they specify the code.  A new syntax that allows any statement to run anywhere, in any SQL tool.  Something like the Oracle 12c `CONTAINERS` clause, but much more powerful.  Existing tools have failed to transform the way DBAs work because those tools are slow, insecure, and not relational.
+
+With Method5 you will be able to perform some administration tasks orders of magnitude faster.
 
 
 Summary of Features
