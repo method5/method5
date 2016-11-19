@@ -40,6 +40,7 @@ create table method5.m5_database
 	target_version   varchar2(64),
 	operating_system varchar2(256),
 	user_comment     varchar2(1024),
+	cluster_name     varchar2(1024),
 	refresh_date     date
 );
 

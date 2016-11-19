@@ -7,14 +7,15 @@ All of these steps must be run on the configuration server as a DBA configured t
 
 Run these steps, in this order, when installing Method5 for the first time:
 
-* 9: Configure administrator email addresses.
-* 4: Access control.
-* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
-* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
-* 7: Add and test database links.
+* 09: Configure administrator email addresses.
+* 04: Access control.
+* 01: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
+* 03: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
+* 10: Configure Target Groups.
+* 07: Add and test database links.
 
 
-1: Install Method5 on remote database.
+01: Install Method5 on remote database.
 --------------------------------------
 
 Run this command on the management server as a DBA, but run the output on the remote server as SYSDBA.
@@ -22,7 +23,7 @@ Run this command on the management server as a DBA, but run the output on the re
 	select method5.method5_admin.generate_remote_install_script() from dual;
 
 
-2: Reset Method5 password one-at-a-time.
+02: Reset Method5 password one-at-a-time.
 ----------------------------------------
 
 Run this command on the management server as a DBA, but then run the output on the remote server as a DBA.
@@ -30,7 +31,7 @@ Run this command on the management server as a DBA, but then run the output on t
 	select method5.method5_admin.generate_password_reset_one_db() from dual;
 
 
-3: Ad hoc statements to customize database links.
+03: Ad hoc statements to customize database links.
 -------------------------------------------------
 
 This command generates PL/SQL blocks to test database links.  Enter the database name, host name, and port number before running it.
@@ -40,10 +41,10 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 	select method5.method5_admin.generate_link_test_script('&database', '&host', '&port') from dual;
 
 
-4: Access control.
+04: Access control.
 ------------------
 
-4A: Add users to the 2-step authentication table.  First fine your connect information with a query like this:
+04A: Add users to the 2-step authentication table.  First fine your connect information with a query like this:
 
 	select user, sys_context('userenv', 'os_user') from dual;
 
@@ -53,7 +54,7 @@ Then insert the permitted values into the 2-step authentication table like this:
 	values('&oracle_username1','&os_username1');
 
 
-4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
+04B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - Username has _DBA suffix';
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has DBA role';
@@ -63,7 +64,7 @@ Then insert the permitted values into the 2-step authentication table like this:
 	commit;
 
 
-5: Drop M5_ database links for a user.
+05: Drop M5_ database links for a user.
 --------------------------------------
 
 Drop all links for a user who should no longer have access to Method5.
@@ -74,19 +75,19 @@ Drop all links for a user who should no longer have access to Method5.
 	/
 
 
-6: Change Method5 passwords.
+06: Change Method5 passwords.
 ----------------------------
 
 Follow the below steps to change the Method5 passwords on all databases.  For individual problems with remote databases see the section "Reset Method5 password one-at-a-time.".
 
-6A: Change the Method5 user password on the management server.
+06A: Change the Method5 user password on the management server.
 
 	begin
 		method5.method5_admin.change_m5_user_password;
 	end;
 	/
 
-6B: Change the remote Method5 passwords.
+06B: Change the remote Method5 passwords.
 
 	begin
 		method5.method5_admin.change_remote_m5_passwords;
@@ -99,19 +100,19 @@ Check the results below while the background jobs are running.  If there are con
 	select * from m5_metadata;
 	select * from m5_errors;
 
-6C: Change the Method5 database link passwords.  This step may take about a minute.
+06C: Change the Method5 database link passwords.  This step may take about a minute.
 
 	begin
 		method5.method5_admin.change_local_m5_link_passwords;
 	end;
 	/
 
-6D: Refresh all user Method5 database links.
+06D: Refresh all user Method5 database links.
 
 	select method5.method5_admin.refresh_all_user_m5_db_links() from dual;
 
 
-7: Add and test database links.
+07: Add and test database links.
 -------------------------------
 
 Run a simple against every database.  The first time this is run it may take a few minutes to create the database links.
@@ -125,7 +126,7 @@ Check the results, metadata, and errors:
 	select * from m5_errors;
 
 
-8: Audit Method5 activity.
+08: Audit Method5 activity.
 --------------------------
 
 Use a query like this to display recent Method5 activity.  (The CLOBs are converted to VARCHAR2 to work better in some IDEs.)
@@ -150,7 +151,7 @@ Use a query like this to display recent Method5 activity.  (The CLOBs are conver
 	order by create_date desc;
 
 
-9: Configure administrator email addresses.
+09: Configure administrator email addresses.
 -------------------------------------------
 
 Create an Access Control List for Method5 so that it can send emails through a definer's rights procedure.
@@ -166,3 +167,37 @@ Add one or more email addresses for a simple intrusion detection system.  This s
 	values (method5.m5_config_seq.nextval, 'Administrator Email Address', '&EMAIL_ADDRESS');
 	commit;
 
+
+10: Configure Target Groups.
+----------------------------
+
+Create Target Groups so you don't have to repeat complicated SQL in the P_TARGETS parameter.
+
+The target group name is defined in the text that comes after "Target Group - ".  The query can be any valid SELECT statement that returns one column with targets.
+
+For example, querying ASM views like V$ASM_DISK is tricky because so many databases may share the same ASM instance.  The query below assumes you have one ASM instance per host for standalones, and one ASM instance per cluster for RAC.
+
+	--Add Target Alias
+	insert into method5.m5_config(config_id, config_name, string_value)
+	select
+		method5.m5_config_seq.nextval,
+		'Target Group - ASM',
+		q'[
+			--ASM - Choose one database per host (for standalone) or per cluster (for RAC).
+			select min(database_name) database_name
+			from m5_database
+			where cluster_name is null
+				and lifecycle_status in ('DEV', 'TEST', 'PROD')
+			group by host_name
+			union
+			select min(database_name) database_name
+			from m5_database
+			where cluster_name is not null
+				and lifecycle_status in ('DEV', 'TEST', 'PROD')
+		]'
+	from dual;
+	commit;
+
+To use target groups reference them with a "$" at the beginning of the name in the target parammeter:
+
+	select * from table(m5('select * from dual', '$asm'));

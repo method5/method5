@@ -155,13 +155,21 @@ If the value is a SELECT statement it must return only one column that contains 
 	porcl234                       X
 	...
 
-If the value is not a SELECT statement then it will be evaluated as a comma-separated list of values.  The values will match any database that shares the same name, host name, line of business, or lifecycle status.  Those columns are all configured in M5_DATABASE, and may be derived from Oracle Enterprise Manager.
+If the value is not a SELECT statement then it will be evaluated as a comma-separated list of values.  The values will match any database that shares the same name, host name, line of business, lifecycle status, or cluster name.  Those columns are all configured in M5_DATABASE, and may be derived from Oracle Enterprise Manager.
 
 The value may also use the Oracle pattern matching syntax, `%` and `_`.
 
 For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
 
 	p_targets => 'dev,acme,coyote%'
+
+The value may also use an optional Target Group, which is identified by starting with a `$`.  Target Groups are pre-defined queries so complicated logic doesn't need to be repeated.
+
+For example, it can be tricky to query only one database per ASM instance.  Once you set up the target group with the name `ASM`, it can be used like this:
+
+	select * from table(m5('select * from v$asm_disk', '$asm'));
+
+See `administer_method5.md` for how to setup a Target Group.
 
 
 Parameter: P_TABLE_NAME (3rd parameter, optional)

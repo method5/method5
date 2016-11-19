@@ -815,7 +815,7 @@ procedure send_daily_summary_email is
 				with m5_databases as
 				(
 					--Only select INSTANCE_NUMBER = 1 to avoid RAC duplicates.
-					select database_name, host_name, lifecycle_status, line_of_business
+					select database_name, host_name, lifecycle_status, line_of_business, cluster_name
 					from
 					(
 						#DATABASE_NAME_QUERY#
@@ -833,8 +833,16 @@ procedure send_daily_summary_email is
 						select distinct trim(upper(database_name))    object_name from m5_databases where database_name    is not null union all
 						select distinct trim(upper(host_name))        object_name from m5_databases where host_name        is not null union all
 						select distinct trim(upper(lifecycle_status)) object_name from m5_databases where lifecycle_status is not null union all
-						select distinct trim(upper(line_of_business)) object_name from m5_databases where line_of_business is not null
-						--Test datat to create an artificial duplicate.
+						select distinct trim(upper(line_of_business)) object_name from m5_databases where line_of_business is not null union all
+						select distinct trim(upper(cluster_name))     object_name from m5_databases where cluster_name     is not null union all
+						--Duplicate within database names.
+						--Unless you're using RAC you cannot have the same database name on different hosts.
+						select trim(upper(database_name)) database_name
+						from m5_database
+						where cluster_name is null
+						group by trim(upper(database_name))
+						having count(*) >= 2
+						--Test data to create an artificial duplicate.
 						--union all select 'PQRS' from dual
 					)
 					group by object_name

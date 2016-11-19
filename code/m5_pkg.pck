@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.0.2';
+C_VERSION constant varchar2(10) := '8.1.0';
 
 /******************************************************************************
 RUN
@@ -923,6 +923,38 @@ procedure run(
 			end if;
 		end get_unterminated_select;
 
+		procedure add_target_group(p_item varchar2, p_target_items in out string_table) is
+			v_query clob;
+			v_targets method5.string_table := method5.string_table();
+		begin
+			--Get query for target group.
+			begin
+				select string_value query
+				into v_query
+				from method5.m5_config
+				where replace(trim(lower(config_name)), '$') like 'target group -%' || replace(trim(lower(p_item)), '$');
+			exception when no_data_found then
+				raise_application_error(-20025, 'Could not find the target group "'||p_item||'" in METHOD5.M5_CONFIG.'||
+					'  Either fix the target group name or add the target group to the configuration.');
+			end;
+
+			--Get the targets
+			begin
+				execute immediate v_query bulk collect into v_targets;
+				exception when others then raise_application_error(-20026,
+					'There was an error retrieving the targets for the target group "'||p_item||'".'||
+					'  Check the query in METHOD5.M5_CONFIG for valid syntax and sure it only '||
+					' returns one column.'||chr(10)||
+					sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+			end;
+
+			--Add them to the existing list of targets.
+			for i in 1 .. v_targets.count loop
+				p_target_items.extend;
+				p_target_items(p_target_items.count) := lower(trim(v_targets(i)));
+			end loop;
+		end add_target_group;
+
 	begin
 		--Get SQL to run (without a semicolon), if it's a SELECT.
 		v_clean_select_sql := get_unterminated_select(p_target_string);
@@ -950,7 +982,7 @@ procedure run(
 
 		--Split P_TARGET_STRING into attributes if it's not a SELECT statement.
 		--Else treat P_TARGET_STRING as comma-separated-values that may identify database,
-		--host, lifecycle, or line of business.
+		--host, lifecycle, line of business, or cluster name.
 		else
 			--Get database configuration from the configuration table.
 			begin
@@ -985,6 +1017,10 @@ procedure run(
 				select 'line_of_business' row_type, lower(line_of_business) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 				from config
 				group by line_of_business
+				union all
+				select 'cluster_name' row_type, lower(cluster_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+				from config
+				group by cluster_name
 			]', '##CONFIG_QUERY##', v_database_name_query);
 
 			--Gather configuration data.
@@ -1006,12 +1042,24 @@ procedure run(
 			end loop;
 
 			--Convert comma-separated list of targets into nested table.
-			loop
-				v_item := regexp_substr(p_target_string, '[^,]+', 1, v_target_items.count+1);
-				exit when v_item is null;
-				v_target_items.extend();
-				v_target_items(v_target_items.count) := lower(trim(v_item));
-			end loop;
+			declare
+				v_target_index number := 0;
+			begin
+				loop
+					v_target_index := v_target_index + 1;
+					v_item := regexp_substr(p_target_string, '[^,]+', 1, v_target_index);
+					exit when v_item is null;
+
+					--Replace target groups if necessary.
+					if trim(v_item) like '$%' then
+						add_target_group(v_item, v_target_items);
+					--Else use regular name.
+					else
+						v_target_items.extend();
+						v_target_items(v_target_items.count) := lower(trim(v_item));
+					end if;
+				end loop;
+			end;
 
 			--Map target items to configuration items, create a nested table with all data.
 			for i in 1 .. v_target_items.count loop

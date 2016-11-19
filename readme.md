@@ -1,7 +1,7 @@
-Method5 v8.0.2
-===============
+Method5 v8.1.0
+==============
 
-Method5 is an Oracle database automation program that lets administrators easily run SQL statements quickly and securely on hundreds of databases.
+Method5 is a remote execution program for Oracle databases.  It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
 
 
 Example
@@ -47,10 +47,10 @@ Pre-built scripts can help with common problems.
 How to Install and Administer
 -----------------------------
 
-See `install_method5.md` and `administer_method5.md` for details.
+On the GitHub repository click on the "Clone or download" button.  Download and extract the zip file.  Then follow the steps in `install_method5.md` and `administer_method5.md`.
 
 
 License
---------
+-------
 
 Method5 is licensed under the LGPLv3.

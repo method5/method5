@@ -15,7 +15,7 @@ These steps must be run on the management server by a user with the DBA role.
 
 2. The management server should be at least version 11.2.0.3.  Lower versions have security issues with database links.
 
-3. You must have SYSDBA access to all databases to install and administer Method5.  Most steps only require DBA.  Access requirements are labeled on each step.
+3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
 4. Check that PURGE_LOG job exists, is enabled, and scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
 
@@ -47,7 +47,7 @@ These steps must be run on the management server by a user with the DBA role.
 
 6. Check that UTL_MAIL is installed.
 
-	select case when count(*) = 0 then 'FAIL - you must install UTL_MAIL' else 'PASS' end
+	select case when count(*) = 0 then 'FAIL - you must install UTL_MAIL' else 'PASS' end utl_mail_check
 	from dba_objects
 	where object_name = 'UTL_MAIL';
 
@@ -78,6 +78,7 @@ This script must be run on the management server by the user SYS.  It's a small 
 	C:\Method5> sqlplus / as sysdba
 	...
 	SQL> @code/install_method5_sys_components.sql
+	SQL> quit
 
 
 3: Install Method5 objects.
@@ -136,10 +137,17 @@ This may be the trickiest part of the installation, especially if you have dupli
 						properties.target_version,
 						properties.operating_system,
 						properties.user_comment,
+						rac_topology.cluster_name,
 						sysdate refresh_date
 					from sysman.mgmt$db_dbninstanceinfo instance
 					join sysman.em_global_target_properties properties
 						on instance.target_guid = properties.target_guid
+					left join
+					(
+						select distinct cluster_name, db_instance_name
+						from sysman.mgmt$rac_topology
+					) rac_topology
+						on instance.target_name = rac_topology.db_instance_name
 					where instance.target_type = 'oracle_database'
 					order by instance.host_name, instance.database_name, instance.instance_name;
 
@@ -214,10 +222,10 @@ This may be the trickiest part of the installation, especially if you have dupli
 		--DATABASE_NAME: Used for the link name.  Cannot be null.
 		--CONNECT_STRING: Used to create the link.  Cannot be null.
 		--INSTANCE_NUMBER: Used to only select one database in a cluster.  Cannot be null.
-		--HOST_NAME/LIFECYCLE_STATUS/LINE_OF_BUSINESS: Used to identify databases by
-		--  an atribute.  These can  be null.  There should not be any duplicates
-		--  between the columns.  For example, you should not have a database called
-		--  "prod" as well as a LIFECYCLE_STATUS named "prod" with other databases.
+		--HOST_NAME/LIFECYCLE_STATUS/LINE_OF_BUSINESS/CLUSTER_NAME: Used to identify
+		--  databases by an atribute.  These can  be null.  There should not be any
+		--  duplicates between the columns.  For example, you should not have a database
+		--  called "prod" as well as a LIFECYCLE_STATUS named "prod" with other databases.
 		--
 		select
 			database_name
@@ -226,6 +234,7 @@ This may be the trickiest part of the installation, especially if you have dupli
 			,host_name
 			,lifecycle_status
 			,line_of_business
+			,cluster_name
 		from
 		(
 			select
@@ -241,6 +250,7 @@ This may be the trickiest part of the installation, especially if you have dupli
 				,host_name
 				,lifecycle_status
 				,line_of_business
+				,cluster_name
 			from method5.m5_database
 			where lower(database_name) not in
 				(
