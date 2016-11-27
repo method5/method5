@@ -1,25 +1,50 @@
 Method5 User Guide
 ==================
 
-Method5 is a remote execution program for Oracle databases. It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
+**Contents**
+
+1. [Introduction to Method5](#introduction)
+2. [Why Do You Need Method5?](#why)
+3. [Feature Summmary](#feature_summary)
+4. [Function or Procedure](#function_or_procedure)
+5. [Alternative Quoting Mechanism](#alternative_quoting_mechanism)
+6. [Where is the Data Stored?](#where_is_the_data_stored)
+7. [Parameter: P_CODE](#parameter_p_code)
+8. [Parameter: P_TARGETS](#parameter_p_targets)
+9. [Parameter: P_TABLE_NAME](#parameter_p_table_name)
+10. [Parameter: P_TABLE_EXISTS_ACTION](#parameter_p_table_exists_action)
+11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
+12. [M5 Links](#m5_links)
+13. [Services for Non-DBAs](#services_for_non_dbas)
+14. [Security](#security)
+15. [Possible Uses](#possible_uses)
+
+
+<a name="introduction"/>
+Introduction to Method5
+-----------------------
+
+Method5 extends Oracle SQL to allow parallel remote execution.  It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
 
 Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
 
-Some users will only need the `select * from table(m5('...'));` syntax.  For more advanced users, this guide explains all available Method5 features.  These features can be used to precisely control what is run, how it's run, and where it's run.
+Some users will only need the `select * from table(m5('...'));` syntax.  For more advanced users, this guide explains all Method5 features.  These features can precisely control what is run, how it's run, and where it's run.
 
 
+<a name="why"/>
 Why Do You Need Method5?
 ------------------------
 
-Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tool are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is still stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
+Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tool are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
 
 The ideal solution is to make it trivial to query and change all databases simultaneously.  Dynamic SQL is sometimes classified as Method 1, 2, 3, or 4, depending on how dynamic it is.  DBAs need a new type of dynamic SQL, a Method 5, that allows them to specify the targets as easily as they specify the code.  A new syntax that allows any statement to run anywhere, in any SQL tool.  Something like the Oracle 12c `CONTAINERS` clause, but much more powerful.  Existing tools have failed to transform the way DBAs work because those tools are slow, insecure, and not relational.
 
 With Method5 you will be able to perform some administration tasks orders of magnitude faster.
 
 
-Summary of Features
--------------------
+<a name="feature_summary"/>
+Feature Summary
+---------------
 
 Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables  to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
 
@@ -36,6 +61,7 @@ For ad hoc statements you can use the `M5_%` database links created in your sche
 Read below for more thorough details on these features.
 
 
+<a name="function_or_procedure"/>
 Function or Procedure
 ---------------------
 
@@ -73,12 +99,14 @@ The procedure `M5_PROC` makes it possible to more programmatically run queries a
 	...
 
 
+<a name="alternative_quoting_mechanism"/>
 Simplify Strings with Alternative Quoting Mechanism
 ---------------------------------------------------
 
 Use the `q'[` syntax to embed SQL statements without needing to escape quotation marks.  In this alternative quoting mechanism, strings begin with `q'[` and end with `]'`.  You can also use `<>`, `()`, or `{}`.  Or if you use another character, simply repeat the character at the end.  For example, `q'! It's not necessary to add extra quotation marks now.!'`.
 
 
+<a name="where_is_the_data_stored"/>
 Where is the data stored?
 -------------------------
 
@@ -101,8 +129,9 @@ To simplify queries, Method5 always creates 3 views in your schema that refer to
 	select * from m5_errors;
 
 
-Parameter: P_CODE (1st parameter, required)
--------------------------------------------
+<a name="parameter_p_code"/>
+Parameter 1: P_CODE (required)
+------------------------------
 
 `P_CODE` can be any single SQL or PL/SQL statement.  `SELECT`, `INSERT`, `ALTER USER`, `BEGIN ...`, etc.
 
@@ -132,8 +161,9 @@ DML, DDL, and other statement types will return a message similar to their SQL*P
 	...
 
 
-Parameter: P_TARGETS (2nd parameter, optional)
-----------------------------------------------
+<a name="parameter_p_targets"/>
+Parameter 2: P_TARGETS (optional)
+---------------------------------
 
 `P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
 
@@ -172,16 +202,18 @@ For example, it can be tricky to query only one database per ASM instance.  Once
 See `administer_method5.md` for how to setup a Target Group.
 
 
-Parameter: P_TABLE_NAME (3rd parameter, optional)
--------------------------------------------------
+<a name="parameter_p_table_name"/>
+Parameter 3: P_TABLE_NAME (optional)
+------------------------------------
 
 `P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` will also be created to store the metadata and errors.
 
 If this parameter is not specified then a sequence will be used to generate a unique name.  If the sequence is used, all but the last of those temporary tables will be dropped by a nightly job.
 
 
-Parameter: P_TABLE_EXISTS_ACTION (4th parameter, optional)
-----------------------------------------------------------
+<a name="parameter_p_table_exists_action"/>
+Parameter 4: P_TABLE_EXISTS_ACTION (optional)
+---------------------------------------------
 
 One of these values:
 
@@ -191,20 +223,23 @@ One of these values:
 * DROP - Drop existing tables and re-create them for new results.
 
 
-Parameter: P_ASYNCHRONOUS (5th parameter, optional)
----------------------------------------------------
+<a name="parameter_p_asynchronous"/>
+Parameter 5: P_ASYNCHRONOUS (optional)
+--------------------------------------
 
 By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will return immediately even if the results are not finished yet.
 
 This lets you examine some of the results before a slow database is finished processing.
 
 
+<a name="m5_links"/>
 M5_ Links
 ---------
 
 Method5 automatically creates database links in your schema to all databases that it connects to.  The links are named like `M5_` plus the database name.  Those links can be useful for ad hoc statements.
 
 
+<a name="global_data_dictionary"/>
 Global Data Dictionary
 ----------------------
 
@@ -218,6 +253,7 @@ Method5 automatically gathers data for some common data dictionary tables.  Thes
 You can add your own easily by following the examples in `code/install_method5_global_data_dictionary.sql`.
 
 
+<a name="services_for_non_dbas"/>
 Creating services for non-DBA users
 -----------------------------------
 
@@ -230,6 +266,7 @@ DDL and write access is more complicated.  It requires creating a scheduled job 
 Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 always runs as an individual user, never a generic account.  If that DBA's account is de-activated, their jobs must be dropped and re-created by an active DBA.
 
 
+<a name="security"/>
 Security
 --------
 
@@ -246,6 +283,7 @@ It's important that Method5 itself does not create any security issues.  To keep
 7. **Open Source.**  All code is available for inspection.  Method5 does not rely on security through obscurity.
 
 
+<a name="possible_uses"/>
 Possible Uses
 -------------
 
