@@ -3,19 +3,33 @@ Administer Method5
 
 Method5 administration only needs to be performed by one person.  The configuration will automatically apply to all other users.
 
-All of these steps must be run on the configuration server as a DBA configured to use Method5.  Except for "Reset Method5 password one-at-a-time." and "Install Method5 on remote database.", where the output must be run on a remote database.
+These steps must be run on the configuration server as a DBA configured to use Method5.  However, the output for "Reset Method5 password one-at-a-time." and "Install Method5 on remote database.", must be run on a remote database.
 
-Run these steps, in this order, when installing Method5 for the first time:
+If you're installing Method5, run these steps in this order:
 
-* 09: Configure administrator email addresses.
-* 04: Access control.
-* 01: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
-* 03: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
+* 9: Configure administrator email addresses.
+* 4: Access control.
+* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
+* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
 * 10: Configure Target Groups.
-* 07: Add and test database links.
+* 7: Add and test database links.
+
+**Contents**
+
+1. [Install Method5 on remote database.](#install_method5_on_remote_database)
+2. [Reset Method5 password one-at-a-time.](#reset_method5_password)
+3. [Ad hoc statements to customize database links.](#customize_database_links)
+4. [Access control.](#access_control)
+5. [Drop M5_ database links for a user.](#drop_m5_links)
+6. [Change Method5 passwords.](#change_method5_passwords)
+7. [Add and test database links.](#add_and_test_database_links)
+8. [Audit Method5 activity.](#audit_method5_activity)
+9. [Configure administrator email addresses.](#configure_email_addresses)
+10. [Configure Target Groups.](#configure_target_groups)
 
 
-01: Install Method5 on remote database.
+<a name="install_method5_on_remote_database"/>
+1: Install Method5 on remote database.
 --------------------------------------
 
 Run this command on the management server as a DBA, but run the output on the remote server as SYSDBA.
@@ -23,7 +37,8 @@ Run this command on the management server as a DBA, but run the output on the re
 	select method5.method5_admin.generate_remote_install_script() from dual;
 
 
-02: Reset Method5 password one-at-a-time.
+<a name="reset_method5_password"/>
+2: Reset Method5 password one-at-a-time.
 ----------------------------------------
 
 Run this command on the management server as a DBA, but then run the output on the remote server as a DBA.
@@ -31,7 +46,8 @@ Run this command on the management server as a DBA, but then run the output on t
 	select method5.method5_admin.generate_password_reset_one_db() from dual;
 
 
-03: Ad hoc statements to customize database links.
+<a name="customize_database_links"/>
+3: Ad hoc statements to customize database links.
 -------------------------------------------------
 
 This command generates PL/SQL blocks to test database links.  Enter the database name, host name, and port number before running it.
@@ -41,10 +57,11 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 	select method5.method5_admin.generate_link_test_script('&database', '&host', '&port') from dual;
 
 
-04: Access control.
+<a name="access_control"/>
+4: Access control.
 ------------------
 
-04A: Add users to the 2-step authentication table.  First fine your connect information with a query like this:
+4A: Add users to the 2-step authentication table.  First fine your connect information with a query like this:
 
 	select user, sys_context('userenv', 'os_user') from dual;
 
@@ -54,7 +71,7 @@ Then insert the permitted values into the 2-step authentication table like this:
 	values('&oracle_username1','&os_username1');
 
 
-04B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
+4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - Username has _DBA suffix';
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has DBA role';
@@ -64,7 +81,8 @@ Then insert the permitted values into the 2-step authentication table like this:
 	commit;
 
 
-05: Drop M5_ database links for a user.
+<a name="drop_m5_links"/>
+5: Drop M5_ database links for a user.
 --------------------------------------
 
 Drop all links for a user who should no longer have access to Method5.
@@ -75,7 +93,8 @@ Drop all links for a user who should no longer have access to Method5.
 	/
 
 
-06: Change Method5 passwords.
+<a name="change_method5_passwords"/>
+6: Change Method5 passwords.
 ----------------------------
 
 Follow the below steps to change the Method5 passwords on all databases.  For individual problems with remote databases see the section "Reset Method5 password one-at-a-time.".
@@ -87,7 +106,7 @@ Follow the below steps to change the Method5 passwords on all databases.  For in
 	end;
 	/
 
-06B: Change the remote Method5 passwords.
+6B: Change the remote Method5 passwords.
 
 	begin
 		method5.method5_admin.change_remote_m5_passwords;
@@ -100,19 +119,20 @@ Check the results below while the background jobs are running.  If there are con
 	select * from m5_metadata;
 	select * from m5_errors;
 
-06C: Change the Method5 database link passwords.  This step may take about a minute.
+6C: Change the Method5 database link passwords.  This step may take about a minute.
 
 	begin
 		method5.method5_admin.change_local_m5_link_passwords;
 	end;
 	/
 
-06D: Refresh all user Method5 database links.
+6D: Refresh all user Method5 database links.
 
 	select method5.method5_admin.refresh_all_user_m5_db_links() from dual;
 
 
-07: Add and test database links.
+<a name="add_and_test_database_links"/>
+7: Add and test database links.
 -------------------------------
 
 Run a simple against every database.  The first time this is run it may take a few minutes to create the database links.
@@ -126,7 +146,8 @@ Check the results, metadata, and errors:
 	select * from m5_errors;
 
 
-08: Audit Method5 activity.
+<a name="audit_method5_activity"/>
+8: Audit Method5 activity.
 --------------------------
 
 Use a query like this to display recent Method5 activity.  (The CLOBs are converted to VARCHAR2 to work better in some IDEs.)
@@ -151,7 +172,8 @@ Use a query like this to display recent Method5 activity.  (The CLOBs are conver
 	order by create_date desc;
 
 
-09: Configure administrator email addresses.
+<a name="configure_email_addresses"/>
+9: Configure administrator email addresses.
 -------------------------------------------
 
 Create an Access Control List for Method5 so that it can send emails through a definer's rights procedure.
@@ -168,6 +190,7 @@ Add one or more email addresses for a simple intrusion detection system.  This s
 	commit;
 
 
+<a name="configure_target_groups"/>
 10: Configure Target Groups.
 ----------------------------
 
