@@ -1,19 +1,6 @@
 Administer Method5
 ==================
 
-Method5 administration only needs to be performed by one person.  The configuration will automatically apply to all other users.
-
-These steps must be run on the configuration server as a DBA configured to use Method5.  However, the output for "Reset Method5 password one-at-a-time." and "Install Method5 on remote database.", must be run on a remote database.
-
-If you're installing Method5, run these steps in this order:
-
-* 9: Configure administrator email addresses.
-* 4: Access control.
-* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
-* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
-* 10: Configure Target Groups.
-* 7: Add and test database links.
-
 **Contents**
 
 1. [Install Method5 on remote database.](#install_method5_on_remote_database)
@@ -26,6 +13,19 @@ If you're installing Method5, run these steps in this order:
 8. [Audit Method5 activity.](#audit_method5_activity)
 9. [Configure administrator email addresses.](#configure_email_addresses)
 10. [Configure Target Groups.](#configure_target_groups)
+
+Method5 administration only needs to be performed by one person.  The configuration will automatically apply to all other users.
+
+These steps must be run on the configuration server as a DBA configured to use Method5.  However, the output for "Reset Method5 password one-at-a-time." and "Install Method5 on remote database.", must be run on a remote database.
+
+If you're installing Method5, run these steps in this order:
+
+* 9: Configure administrator email addresses.
+* 4: Access control.
+* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
+* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
+* 10: Configure Target Groups.
+* 7: Add and test database links.
 
 
 <a name="install_method5_on_remote_database"/>
