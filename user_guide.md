@@ -16,8 +16,9 @@ Method5 User Guide
 11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
 12. [M5 Links](#m5_links)
 13. [Services for Non-DBAs](#services_for_non_dbas)
-14. [Security](#security)
-15. [Possible Uses](#possible_uses)
+14. [Job Timeout](#job_timeout)
+15. [Security](#security)
+16. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
@@ -251,6 +252,21 @@ Method5 automatically gathers data for some common data dictionary tables.  Thes
 * M5_USER$
 
 You can add your own easily by following the examples in `code/install_method5_global_data_dictionary.sql`.
+
+
+<a name="#job_timeout"/>
+Job Timeout
+-----------
+
+Method5 jobs will automatically timeout and be stopped after 23 hours.  When querying a large number of databases it's not uncommon for one of them to be so broken that even a trivial query will never finish.  Identifying and stopping these jobs will help daily jobs that need to re-run even if some databases are broken.
+
+If you need queries to run longer than 23 hours you can configure the timeout like this:
+
+	update method5.m5_config
+	set number_value = $NEW_NUMBER
+	where config_name = 'Job Timeout (seconds)';
+
+When jobs time out they are recorded in the table METHOD5.M5_JOB_TIMEOUT.  That table can be useful for identifying misbehaving databases.
 
 
 <a name="services_for_non_dbas"/>

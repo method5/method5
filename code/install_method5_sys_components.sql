@@ -160,9 +160,10 @@ begin
 	--10 and 11g.
 	$if dbms_db_version.ver_le_11_2 $then
 		select
+			spare4,
 			spare4 hash_without_des,
 			spare4||';'||password hash_with_des
-		into p_11g_hash_without_des, p_11g_hash_with_des
+		into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des
 		from sys.user$
 		where name = 'METHOD5';
 	--12c.

@@ -1,7 +1,7 @@
-Method5 v8.1.0
+Method5 v8.2.0
 ==============
 
-Method5 is a remote execution program for Oracle databases.  It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
+Method5 extends Oracle SQL to allow parallel remote execution.  It lets database administrators easily run SQL statements quickly and securely on hundreds of databases.
 
 
 Example

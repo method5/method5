@@ -123,6 +123,9 @@ is
 				--Grant DBA to method5.
 				grant dba to method5;
 
+				--Grant access to a table useful for password management and synchronization.
+				grant select on sys.user$ to method5;
+
 				--Direct grants for objects that are frequently revoked from PUBLIC, as
 				--recommended by the Security Technical Implementation Guide (STIG).
 				--Use "with grant option" these will probably also need to be granted to users.
@@ -632,7 +635,7 @@ begin
 	, '#12C_HASH#', v_12c_hash)
 	, '#11G_HASH_WITHOUT_DES#', v_11g_hash_without_des)
 	, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
-	, '#DATABASE_NAME#', sys_context('userenv', 'db_name'));
+	, '#DATABASE_NAME#', lower(sys_context('userenv', 'db_name')));
 
 	--Change password on all databases.
 	method5.m5_pkg.run(p_code => v_password_change_plsql);
@@ -763,7 +766,7 @@ procedure send_daily_summary_email is
 			</style>
 		</head>
 		<body>
-			<h4>1: Duplicate configuration data</h4>
+			<h4>1: Duplicate Configuration Data</h4>
 		##DUPLICATES##
 			<h4>2: Housekeeping Jobs</h4>
 		##HOUSEKEEPING##
@@ -771,7 +774,9 @@ procedure send_daily_summary_email is
 		##GLOBAL_DATA_DICTIONARY##
 			<h4>4: Invalid Access Attempts</h4>
 		##INVALID_ACCESS_ATTEMPTS##
-			<h4>5: Statistics</h4>
+			<h4>5: Timed-Out Jobs</h4>
+		##TIMED_OUT_JOBS##
+			<h4>6: Statistics</h4>
 				In the past 24 hours:<br><br>
 				<table>
 					<tr><td>Jobs Ran</td><td>##JOBS_RAN##</td></tr>
@@ -876,7 +881,8 @@ procedure send_daily_summary_email is
 			'		CLEANUP_M5_TEMP_TABLES_JOB: '   ||case when temp_tables    = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_tables   ||'</span>' end||'<br>'||chr(10)||
 			'		CLEANUP_M5_TEMP_TRIGGERS_JOB: ' ||case when temp_triggers  = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_triggers ||'</span>' end||'<br>'||chr(10)||
 			'		CLEANUP_REMOTE_M5_OBJECTS_JOB: '||case when remote_objects = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||remote_objects||'</span>' end||'<br>'||chr(10)||
-			'		DIRECT_M5_GRANTS_JOB: '         ||case when direct_grants  = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||direct_grants ||'</span>' end||'<br>'||chr(10)
+			'		DIRECT_M5_GRANTS_JOB: '         ||case when direct_grants  = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||direct_grants ||'</span>' end||'<br>'||chr(10)||
+			'		STOP_TIMED_OUT_JOBS_JOB: '      ||case when timed_out_jobs = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||timed_out_jobs||'</span>' end||'<br>'||chr(10)
 			job_status
 		into v_job_status
 		from
@@ -886,7 +892,8 @@ procedure send_daily_summary_email is
 				nvl(max(case when job_name = 'CLEANUP_M5_TEMP_TABLES_JOB'    then status else null end), 'Job did not run') temp_tables,
 				nvl(max(case when job_name = 'CLEANUP_M5_TEMP_TRIGGERS_JOB'  then status else null end), 'Job did not run') temp_triggers,
 				nvl(max(case when job_name = 'CLEANUP_REMOTE_M5_OBJECTS_JOB' then status else null end), 'Job did not run') remote_objects,
-				nvl(max(case when job_name = 'DIRECT_M5_GRANTS_JOB'          then status else null end), 'Job did not run') direct_grants
+				nvl(max(case when job_name = 'DIRECT_M5_GRANTS_JOB'          then status else null end), 'Job did not run') direct_grants,
+				nvl(max(case when job_name = 'STOP_TIMED_OUT_JOBS_JOB'       then status else null end), 'Job did not run') timed_out_jobs
 			from
 			(
 				--Job status.
@@ -899,7 +906,8 @@ procedure send_daily_summary_email is
 						'CLEANUP_M5_TEMP_TABLES_JOB',
 						'CLEANUP_M5_TEMP_TRIGGERS_JOB',
 						'CLEANUP_REMOTE_M5_OBJECTS_JOB',
-						'DIRECT_M5_GRANTS_JOB'
+						'DIRECT_M5_GRANTS_JOB',
+						'STOP_TIMED_OUT_JOBS_JOB'
 					)
 			)
 			where last_when_1 = 1
@@ -985,6 +993,84 @@ procedure send_daily_summary_email is
 		p_email_body := replace(p_email_body, '##INVALID_ACCESS_ATTEMPTS##', v_html);
 	end add_invalid_access_attempts;
 
+
+	---------------------------------------
+	procedure add_timed_out_jobs(p_email_body in out clob) is
+		v_html varchar2(32767);
+		v_count number;
+	begin
+		--Count the number of timeouts.
+		select count(*)
+		into v_count
+		from method5.m5_job_timeout
+		where stop_date > systimestamp - 1;
+
+		--If there are none then there is nothing to display.
+		if v_count = 0 then
+			v_html := '		<span class="ok">None</span><br>';
+		--Else display some of the timeouts.
+		else
+			--Print number of timed out jobs.
+			v_html := '		<span class="error">'||v_count||' jobs took too long and timed out.  '||
+				'You may want to check the jobs or the databases.<br><br>'||chr(10)||chr(10);
+
+			--Print Top N warning if necessary.
+			if v_count > 10 then
+				v_html := v_html || '		Only the last 10 stopped jobs are displayed below:<br><br>'||chr(10)||chr(10);
+			end if;
+
+			--Table header.
+			v_html := v_html||'		<table border="1">'||chr(10);
+			v_html := v_html||'			<tr>'||chr(10);
+			v_html := v_html||'				<th>Job Name</th>'||chr(10);
+			v_html := v_html||'				<th>Owner</th>'||chr(10);
+			v_html := v_html||'				<th>Database Name</th>'||chr(10);
+			v_html := v_html||'				<th>Table Name</th>'||chr(10);
+			v_html := v_html||'				<th>Start Date</th>'||chr(10);
+			v_html := v_html||'				<th>Stop Date</th>'||chr(10);
+			v_html := v_html||'			</tr>'||chr(10);
+
+			--Table data.
+			for rows in
+			(
+				--Last 10 timed-out jobs.
+				--
+				--#3: Add HTML.
+				select '<tr><td>'||job_name||'</td><td>'||owner||'</td><td>'||database_name||
+					'</td><td>'||table_name||'</td><td>'||start_date||'</td><td>'||stop_date||'</td></tr>' v_row
+				from
+				(
+					--#2: Top 10 timed out jobs.
+					select job_name, owner, database_name, table_name, start_date, stop_date
+					from
+					(
+						--#1: Timed out jobs.
+						select job_name, owner, database_name, table_name
+							,to_char(start_date, 'YYYY-MM-DD HH24:MI:SS TZH:TZM') start_date
+							,to_char(stop_date, 'YYYY-MM-DD HH24:MI:SS TZH:TZM') stop_date
+							,row_number() over (order by stop_date desc) rownumber
+						from method5.m5_job_timeout
+						where stop_date > systimestamp - 1
+					)
+					where rownumber <= 10
+				)
+				order by stop_date desc
+			) loop
+				v_html := v_html||'			'||rows.v_row||chr(10);
+			end loop;
+
+			--Table footer.
+			v_html := v_html||'		</table>'||chr(10);
+
+			--End the ERROR.
+			v_html := v_html || '		</span>'||chr(10);
+		end if;
+
+		--Add the HTML.
+		p_email_body := replace(p_email_body, '##TIMED_OUT_JOBS##', v_html);
+
+	end add_timed_out_jobs;
+
 	---------------------------------------
 	procedure add_statistics(p_email_body in out clob) is
 		v_total_jobs varchar2(100);
@@ -1025,6 +1111,7 @@ begin
 	add_housekeeping(v_email_body);
 	add_global_data_dictionary(v_email_body);
 	add_invalid_access_attempts(v_email_body);
+	add_timed_out_jobs(v_email_body);
 	add_statistics(v_email_body);
 
 	--Send the email.

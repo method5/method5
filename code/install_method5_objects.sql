@@ -84,7 +84,28 @@ from
 	select 'Access Control - User has expected OS username' name, 'ENABLED' value from dual union all
 	select 'Default Targets'                                name, '%'       value from dual
 );
+
+insert into method5.m5_config(config_id, config_name, number_value)
+select method5.m5_config_seq.nextval, name, value
+from
+(
+	select 'Job Timeout (seconds)' name, 23*60*60 value from dual
+);
+
 commit;
+
+--Job timeouts.
+create table method5.m5_job_timeout
+(
+	job_name      varchar2(128),
+	owner         varchar2(128),
+	database_name varchar2(9),
+	table_name    varchar2(128),
+	start_date    timestamp(6) with time zone,
+	stop_date     timestamp(6) with time zone,
+	constraint m5_job_timeout_pk primary key (job_name, owner)
+);
+comment on table method5.m5_job_timeout is 'Used for slow or broken jobs that timed out.  The column names and types are similar to those in DBA_SCHEDULER_*.';
 
 --Create trigger to alert admin whenever the configuration changes.
 create or replace trigger method5.detect_changes_to_m5_config

@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.1.0';
+C_VERSION constant varchar2(10) := '8.2.0';
 
 /******************************************************************************
 RUN
@@ -1589,6 +1589,7 @@ procedure run(
 		v_code varchar2(32767);
 		v_sequence number;
 		v_pipe_count number;
+		v_jobs sys.job_definition_array := sys.job_definition_array();
 	begin
 		--Create a job to insert for each link.
 		for i in 1 .. p_links_owned_by_user.count loop
@@ -1666,8 +1667,10 @@ procedure run(
 				end loop;
 			end;
 
-			--Create scheduler job to run and drop procedure.
-			sys.dbms_scheduler.create_job
+			--Create scheduler job array to run and drop procedure.
+			--Using an array and CREATE_JOBS is faster than multiple calls to CREATE_JOB.
+			v_jobs.extend;
+			v_jobs(v_jobs.count) := job_definition
 			(
 				job_name   => p_links_owned_by_user(i).db_link_name||'_'||v_sequence,
 				job_type   => 'PLSQL_BLOCK',
@@ -1713,9 +1716,13 @@ procedure run(
 				start_date => systimestamp,
 				enabled    => true,
 				--Used to prevent the same user from writing to the same table with multiple processes.
-				comments   => p_table_name
+				comments   => p_table_name,
+				number_of_arguments => 0
 			);
 		end loop;
+
+		--Create jobs from the job array.
+		sys.dbms_scheduler.create_jobs(jobdef_array => v_jobs, commit_semantics => 'TRANSACTIONAL');
 	end create_jobs;
 
 	---------------------------------------------------------------------------
@@ -1835,8 +1842,8 @@ procedure run(
 			-- p_code                : #P_CODE#
 			-- p_targets             : #P_TARGETS#
 			-- p_table_name          : #P_TABLE_OWNER#.#P_TABLE_NAME#
-			-- p_asynchronous        : #P_ASYNCHRONOUS#
 			-- p_table_exists_action : #P_TABLE_EXISTS_ACTION#
+			-- p_asynchronous        : #P_ASYNCHRONOUS#
 			#PARALLEL_WARNING#
 			--------------------------------------------------------------------------------
 			--Query results, metadata, and errors:
@@ -1881,17 +1888,17 @@ procedure run(
 				select * from sys.dba_scheduler_running_jobs where owner = user;
 
 				--------------------------------------------------------------------------------
-				--Stop all jobs from this run:
-				begin
-				    method5.m5_pkg.stop_jobs(p_owner => user, p_table_name => '#P_TABLE_NAME#');
-				end;
-				#SLASH#]'
+				--Stop all jobs from this run (commented out so you don't run it by accident):
+				-- begin
+				--     method5.m5_pkg.stop_jobs(p_owner => user, p_table_name => '#P_TABLE_NAME#');
+				-- end;
+				-- #SLASH#]'
 			;
 		else
 			--Get final metadata.
 			execute immediate replace(replace(q'[
 				select
-					'FALSE - All results processed in '||round((date_updated - date_started) * 24 * 60 * 60)||' seconds.  '||
+					'FALSE - All results processed in '||nvl(round((date_updated - date_started) * 24 * 60 * 60), 0)||' seconds.  '||
 					'Out of '||targets_expected||' jobs, '||targets_completed||' succeeded and '||targets_with_errors||' failed.' message
 				from #P_TABLE_OWNER#.#P_TABLE_NAME#_meta
 				where date_started = (select max(date_started) from #P_TABLE_OWNER#.#P_TABLE_NAME#_meta)

@@ -3,8 +3,20 @@ Upgrade Method5
 
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
-8.0.2 --> 8.1.0
----------------
+8.1.0 --> 8.2.0: Performance improvement.
+-----------------------------------------
+
+1. Run the INSERT statement for "Job Timeout (seconds)" and create the table M5_JOB_TIMEOUT, from install_method5_objects.sql.
+
+2. Run the section "Create JOB to stop timed out jobs." in install_method5_housekeeping_jobs.sql.
+
+3. Re-create the procedure "SYS.GET_METHOD5_HASHES" from install_method5_sys_components.sql.
+
+4. Run these files to install new packages: /code/m5_pkg.pck, /code/method5_admin.pck.
+
+
+8.0.2 --> 8.1.0: Added Target Groups and CLUSTER_NAME.
+------------------------------------------------------
 
 Run all these steps on the central management server.
 
@@ -21,6 +33,7 @@ Run all these steps on the central management server.
 	update method5.m5_database_hist set refresh_date_temp = refresh_date;
 	alter table method5.m5_database_hist drop column refresh_date;
 	alter table method5.m5_database_hist rename column refresh_date_temp to refresh_date;
+
 
 2. Find the DDL to generate the job that refreshes the M5_DATABASE table.
 

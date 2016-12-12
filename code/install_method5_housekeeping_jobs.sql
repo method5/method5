@@ -241,7 +241,72 @@ end;
 
 
 ---------------------------------------
---#6: Run jobs immediately to test them.
+--#6: Create JOB to stop timed out jobs.
+begin
+	dbms_scheduler.create_job
+	(
+		job_name        => 'method5.stop_timed_out_jobs_job',
+		job_type        => 'PLSQL_BLOCK',
+		start_date      => systimestamp at time zone 'US/Eastern',
+		repeat_interval => 'freq=minutely; interval=5;',
+		enabled         => true,
+		comments        => 'Stop timed out Method5 jobs.',
+		job_action      =>
+		q'[
+			--Record and stop jobs that timd out.
+			declare
+				v_timeout_seconds number;
+				v_must_be_a_job exception;
+				pragma exception_init(v_must_be_a_job, -27475);
+			begin
+				--Get the timeout setting.
+				select number_value
+				into v_timeout_seconds
+				from method5.m5_config
+				where config_name = 'Job Timeout (seconds)';
+
+				--Record and kill Method5 jobs that are too old.
+				for jobs_to_kill in
+				(
+					select dba_scheduler_running_jobs.job_name, dba_scheduler_running_jobs.owner, comments, start_date
+						,lower(regexp_replace(dba_scheduler_running_jobs.job_name, 'M5\_(.*)\_.*', '\1')) database_name
+					from sys.dba_scheduler_running_jobs
+					join sys.dba_scheduler_jobs
+						on dba_scheduler_running_jobs.job_name = dba_scheduler_jobs.job_name
+						and dba_scheduler_running_jobs.owner = dba_scheduler_jobs.owner
+					where dba_scheduler_jobs.auto_drop = 'TRUE'
+						and dba_scheduler_running_jobs.job_name like 'M5%'
+						and dba_scheduler_running_jobs.owner <> 'METHOD5'
+						and dba_scheduler_jobs.comments is not null
+						and dba_scheduler_running_jobs.elapsed_time > v_timeout_seconds * interval '1' second
+					order by dba_scheduler_jobs.owner, dba_scheduler_jobs.job_name
+				) loop
+					--Create a record of the timeout.
+					insert into method5.m5_job_timeout(job_name, owner, database_name, table_name, start_date, stop_date)
+					values (jobs_to_kill.job_name, jobs_to_kill.owner, jobs_to_kill.database_name,
+						jobs_to_kill.comments, jobs_to_kill.start_date, systimestamp);
+					commit;
+					
+					--Stop the job.
+					begin
+						sys.dbms_scheduler.stop_job(
+							job_name => jobs_to_kill.owner||'.'||jobs_to_kill.job_name,
+							force => true
+						);
+					exception when v_must_be_a_job then
+						--Ignore errors caused when a job finishes between the query and the STOP_JOB.
+						null;
+					end;
+				end loop;
+			end;
+		]'
+	);
+end;
+/
+
+
+---------------------------------------
+--#7: Run jobs immediately to test them.
 --Run job immediately to test the job.
 prompt Running jobs...
 
@@ -263,6 +328,10 @@ end;
 /
 begin
 	dbms_scheduler.run_job('method5.email_m5_daily_summary_job');
+end;
+/
+begin
+	dbms_scheduler.run_job('method5.stop_timed_out_jobs_job');
 end;
 /
 
@@ -292,6 +361,11 @@ order by log_date desc;
 select log_date, status, additional_info
 from dba_scheduler_job_run_details
 where job_name = 'EMAIL_M5_DAILY_SUMMARY_JOB' and log_date > sysdate - 3
+order by log_date desc;
+
+select log_date, status, additional_info
+from dba_scheduler_job_run_details
+where job_name = 'STOP_TIMED_OUT_JOBS_JOB' and log_date > systimestamp - interval '20' minute
 order by log_date desc;
 
 
