@@ -15,15 +15,16 @@ Method5 User Guide
 10. [Parameter: P_TABLE_EXISTS_ACTION](#parameter_p_table_exists_action)
 11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
 12. [M5 Links](#m5_links)
-13. [Services for Non-DBAs](#services_for_non_dbas)
-14. [Job Timeout](#job_timeout)
-15. [Security](#security)
-16. [Possible Uses](#possible_uses)
+13. [Global Data Dictionary](#global_data_dictionary)
+14. [Services for Non-DBAs](#services_for_non_dbas)
+15. [Job Timeout](#job_timeout)
+16. [Security](#security)
+17. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
-Introduction to Method5
------------------------
+
+## Introduction to Method5
 
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
 
@@ -33,8 +34,8 @@ Some users will only need the `select * from table(m5('...'));` syntax.  For mor
 
 
 <a name="why"/>
-Why Do You Need Method5?
-------------------------
+
+## Why Do You Need Method5?
 
 Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tool are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
 
@@ -44,8 +45,8 @@ With Method5 you will be able to perform some administration tasks orders of mag
 
 
 <a name="feature_summary"/>
-Feature Summary
----------------
+
+## Feature Summary
 
 Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables  to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
 
@@ -63,8 +64,8 @@ Read below for more thorough details on these features.
 
 
 <a name="function_or_procedure"/>
-Function or Procedure
----------------------
+
+## Function or Procedure
 
 Method5 can be called as either a function or a procedure.  The function is `M5`, and the procedure is `M5_PROC`.
 
@@ -101,15 +102,15 @@ The procedure `M5_PROC` makes it possible to more programmatically run queries a
 
 
 <a name="alternative_quoting_mechanism"/>
-Simplify Strings with Alternative Quoting Mechanism
----------------------------------------------------
+
+## Simplify Strings with Alternative Quoting Mechanism
 
 Use the `q'[` syntax to embed SQL statements without needing to escape quotation marks.  In this alternative quoting mechanism, strings begin with `q'[` and end with `]'`.  You can also use `<>`, `()`, or `{}`.  Or if you use another character, simply repeat the character at the end.  For example, `q'! It's not necessary to add extra quotation marks now.!'`.
 
 
 <a name="where_is_the_data_stored"/>
-Where is the data stored?
--------------------------
+
+## Where is the data stored?
 
 Every Method5 execution stores data in three tables - results, metadata, and errors.
 
@@ -131,8 +132,8 @@ To simplify queries, Method5 always creates 3 views in your schema that refer to
 
 
 <a name="parameter_p_code"/>
-Parameter 1: P_CODE (required)
-------------------------------
+
+## Parameter 1: P_CODE (required)
 
 `P_CODE` can be any single SQL or PL/SQL statement.  `SELECT`, `INSERT`, `ALTER USER`, `BEGIN ...`, etc.
 
@@ -163,8 +164,8 @@ DML, DDL, and other statement types will return a message similar to their SQL*P
 
 
 <a name="parameter_p_targets"/>
-Parameter 2: P_TARGETS (optional)
----------------------------------
+
+## Parameter 2: P_TARGETS (optional)
 
 `P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
 
@@ -204,8 +205,8 @@ See `administer_method5.md` for how to setup a Target Group.
 
 
 <a name="parameter_p_table_name"/>
-Parameter 3: P_TABLE_NAME (optional)
-------------------------------------
+
+## Parameter 3: P_TABLE_NAME (optional)
 
 `P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` will also be created to store the metadata and errors.
 
@@ -213,8 +214,8 @@ If this parameter is not specified then a sequence will be used to generate a un
 
 
 <a name="parameter_p_table_exists_action"/>
-Parameter 4: P_TABLE_EXISTS_ACTION (optional)
----------------------------------------------
+
+## Parameter 4: P_TABLE_EXISTS_ACTION (optional)
 
 One of these values:
 
@@ -225,8 +226,8 @@ One of these values:
 
 
 <a name="parameter_p_asynchronous"/>
-Parameter 5: P_ASYNCHRONOUS (optional)
---------------------------------------
+
+## Parameter 5: P_ASYNCHRONOUS (optional)
 
 By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will return immediately even if the results are not finished yet.
 
@@ -234,15 +235,15 @@ This lets you examine some of the results before a slow database is finished pro
 
 
 <a name="m5_links"/>
-M5_ Links
----------
+
+## M5_ Links
 
 Method5 automatically creates database links in your schema to all databases that it connects to.  The links are named like `M5_` plus the database name.  Those links can be useful for ad hoc statements.
 
 
 <a name="global_data_dictionary"/>
-Global Data Dictionary
-----------------------
+
+## Global Data Dictionary
 
 Method5 automatically gathers data for some common data dictionary tables.  These tables can be useful for rapid troubleshooting.  For example, if you're not sure which database contains a schema you can quickly query `select * from m5_dba_users` to look at the users for all databases.
 
@@ -254,9 +255,9 @@ Method5 automatically gathers data for some common data dictionary tables.  Thes
 You can add your own easily by following the examples in `code/install_method5_global_data_dictionary.sql`.
 
 
-<a name="#job_timeout"/>
-Job Timeout
------------
+<a name="job_timeout"/>
+
+## Job Timeout
 
 Method5 jobs will automatically timeout and be stopped after 23 hours.  When querying a large number of databases it's not uncommon for one of them to be so broken that even a trivial query will never finish.  Identifying and stopping these jobs will help daily jobs that need to re-run even if some databases are broken.
 
@@ -270,8 +271,8 @@ When jobs time out they are recorded in the table METHOD5.M5_JOB_TIMEOUT.  That 
 
 
 <a name="services_for_non_dbas"/>
-Creating services for non-DBA users
------------------------------------
+
+## Creating services for non-DBA users
 
 Method5 goes to great lengths to protect access and ensure that only configured DBAs can use it.  But sometimes it may be useful to provide other users with a limited, carefully controlled access to Method5.
 
@@ -283,8 +284,8 @@ Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 alw
 
 
 <a name="security"/>
-Security
---------
+
+## Security
 
 Method5 is a great tool to help comply with security policies.  It enables rapid scanning and configuration on a large number of databases.  It allows security jobs to be stored and managed in a single location instead of scattered across hundreds of databases and crontabs.
 
@@ -300,8 +301,8 @@ It's important that Method5 itself does not create any security issues.  To keep
 
 
 <a name="possible_uses"/>
-Possible Uses
--------------
+
+## Possible Uses
 
 Method5 was built to help database administrators change their approach to solving database problems.
 
