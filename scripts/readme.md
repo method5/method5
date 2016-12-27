@@ -32,7 +32,7 @@ With a few clicks you can compare schemas between an *unlimited* number of datab
 
 The screenshot shows the output exported to a spreadsheet.  The dense output may look cryptic at first but eventually it will allow you to rapidly identify schema differences.  The letters refer to different versions of the same object.  The columns on the right-hand side contain the entire DDL if you click on the cell.
 
-<img src="/images/example_compare_everything_everywhere.png">
+<img src="images/example_compare_everything_everywhere.png">
 
 *Source: TODO (convert internal program to public)*
 
@@ -46,11 +46,11 @@ Now that collecting all the V$ASM_DISKGROUP data is trivial you can focus on mor
 
 This first chart shows a clear problem.  The diskgroup is only 50% full but it only took 15 days for all that growth.
 
-<img src="/images/example_asm_forecast_growing_quickly.png">
+<img src="images/example_asm_forecast_growing_quickly.png">
 
 This second chart shows a database at 99.9% capacity.  But don't freak out - it hasn't grown at all in the past 30 days so you probably don't need to add space.
 
-<img src="/images/example_asm_forecast_not_growing.png">
+<img src="images/example_asm_forecast_not_growing.png">
 
 *Source: TODO (convert internal program to public)*
 
@@ -65,7 +65,7 @@ This chart was created to solve the most painful performance problem - when conn
 
 When I aggregated session counts for 400 databases, for 60 hosts, it became obvious that activity spiked at the hour mark.  Drilling down it was clear the spikes were caused by AWR starting at the same time, and needed to be staggered.
 
-<img src="/images/example_active_sessions.png">
+<img src="images/example_active_sessions.png">
 
 *Source: TODO (convert internal program to public)*
 
@@ -76,7 +76,7 @@ When I aggregated session counts for 400 databases, for 60 hosts, it became obvi
 
 This report makes it trivial to compare all database parameters, for any set of databases, at one time.
 
-<img src="/images/example_compare_parameters.png">
+<img src="images/example_compare_parameters.png">
 
 *Source: TODO (convert internal program to public)*
 
@@ -87,7 +87,7 @@ This report makes it trivial to compare all database parameters, for any set of 
 
 These treemap visualizations help you discover exactly where your space is being used.
 
-<img src="/images/example_space_treemap.png">
+<img src="images/example_space_treemap.png">
 
 *Source: TODO (convert internal program to public)*
 
