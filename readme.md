@@ -4,8 +4,8 @@ Method5 v8.2.0
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets database administrators easily run SQL statements quickly and securely on hundreds of databases.
 
 
-Example
--------
+Examples
+--------
 
     SQL> select * from table(m5('select * from dual'));
     
@@ -18,7 +18,9 @@ Example
 
 You can run any SQL or PL/SQL statement inside the `M5` function.  The function works with any SQL client and runs on any currently-supported platform, version, or edition of Oracle.
 
-See `user_guide.md` for an explanation of all the features, such as: parameters that control the targets and how the statements are run; where the data, metadata, and errors are stored; running as a procedure; and many more features.
+See [the Method5 User Guide](user_guide.md) for an explanation of all the features, such as: parameters that control the targets and how the statements are run; where the data, metadata, and errors are stored; running as a procedure; and many more features.
+
+See [the scripts folder](scripts/readme.md) for more examples and pre-built solutions to some complex problems.
 
 
 Advantages
@@ -34,14 +36,6 @@ Method5 has many advantages over other tools and processes used to query multipl
 6.  **Exception handling and metadata**:  Exceptions and metadata are stored in tables.  When connecting to hundreds of databases there will usually be a few that are unavailable.  It's important to record the errors but not stop processing on other databases.
 
 There are no more excuses to avoid root cause analysis and massive environment comparisons.  Any diagnostic query or statement you can think of can be run against hundreds of databases in just a few seconds.
-
-
-Scripts
--------
-
-Pre-built scripts can help with common problems.
-
-*TODO*
 
 
 How to Install and Administer
