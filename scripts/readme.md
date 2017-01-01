@@ -14,6 +14,7 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 3. [Active Session Counts.sql](#active_session_counts)
 4. [Compare Parameters.sql](#compare_parameters)
 5. [Space Treemap.sql](#space_treemap)
+6. [Synchronize DBA Users Job.sql](#synchronize_dba_users_job)
 
 **Simple Examples**
 
@@ -91,6 +92,12 @@ These treemap visualizations help you discover exactly where your space is being
 
 *Source: TODO (convert internal program to public)*
 
+
+<a name="synchronize_dba_users_job"/>
+
+## Synchronize DBA Users Job
+
+Automatically synchronize DBA accounts, privileges, profiles, status, and profiles across all databases.
 
 <a name="account_maintenance"/>
 
