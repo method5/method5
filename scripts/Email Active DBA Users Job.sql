@@ -6,7 +6,7 @@
 --Prerequisites:
 --	1. The user running this script must be able to use Method5.
 --	2. The M5_DBA_USERS and M5_DBA_ROLE_PRIVS jobs must be installed and running.
---Version: 2.0.0
+--Version: 2.0.1
 
 
 
@@ -19,10 +19,10 @@ from dba_scheduler_job_run_details
 where job_name = 'EMAIL_ACTIVE_DBA_USERS_JOB'
 order by log_date desc;
 
---Check database results.  It should work about 99% of the time.
-select * from v_active_dba_users;
-select * from v_active_dba_users_meta;
-select * from v_active_dba_users_err;
+--Check global data dictionary results.  It should work about 99% of the time.
+select * from m5_dba_users;
+select * from m5_dba_users_meta;
+select * from m5_dba_users_err;
 
 
 
