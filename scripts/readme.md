@@ -11,7 +11,7 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 
 1. [Compare Everything Everywhere.sql](#compare_everything_everywhere)
 2. [ASM Forecast.sql](#asm_forecast)
-3. [Active Session Counts.sql](#active_session_counts)
+3. [Active Sessions.sql](#active_sessions)
 4. [Compare Parameters.sql](#compare_parameters)
 5. [Space Treemap.sql](#space_treemap)
 6. [Synchronize DBA Users Job.sql](#synchronize_dba_users_job)
@@ -58,7 +58,7 @@ This second chart shows a database at 99.9% capacity.  But don't freak out - it 
 
 <a name="active_session_counts"/>
 
-## Active Session Counts
+## Active Sessions
 
 Why tune one database when you can tune them all at the same time?  If you've built a query against a view like GV$ACTIVE_SESSION_HISTORY you can easily run it against hundreds of databases.
 
