@@ -20,8 +20,7 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 
 1. [Account Maintenance.sql](#account_maintenance)
 2. [Email Active DBA Users Job.sql](#email_active_dba_users_job)
-3. [Lock Users with Old Password Job.sql](#lock_users_with_old_password_job)
-4. [Global Database Statistics.sql](#global_database_statistics)
+3. [Global Database Statistics.sql](#global_database_statistics)
 
 ---
 
@@ -102,13 +101,6 @@ Before you spend a lot of time and money on an enterprise identity management so
 ## Email Active DBA Users Job
 
 Once it's trivial to gather data you can spend more time looking at potential access issues, such as a list of users with the DBA role.  No need to manage hundreds of crontabs or scheduler jobs.
-
-
-<a name="lock_users_with_old_password_job"/>
-
-## Lock Users with Old Password Job
-
-Did you know that Oracle accounts may automatically *expire* but never *lock*?  The security auditors do and they often expect a job to automatically lock old accounts.
 
 
 <a name="global_database_statistics"/>
