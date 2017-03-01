@@ -755,7 +755,9 @@ end refresh_all_user_m5_db_links;
 --Purpose: Send an email to the administrator to quickly see if Method5 is working.
 procedure send_daily_summary_email is
 
-	v_admin_email_address varchar2(4000);
+	v_admin_email_sender varchar2(4000);
+	v_admin_email_recipients varchar2(4000);
+
 	v_email_body varchar2(32767) := replace(q'[
 		<html>
 		<head>
@@ -776,7 +778,9 @@ procedure send_daily_summary_email is
 		##INVALID_ACCESS_ATTEMPTS##
 			<h4>5: Timed-Out Jobs</h4>
 		##TIMED_OUT_JOBS##
-			<h4>6: Statistics</h4>
+			<h4>6: Serious Errors</h4>
+		##SERIOUS_ERRORS##
+			<h4>7: Statistics</h4>
 				In the past 24 hours:<br><br>
 				<table>
 					<tr><td>Jobs Ran</td><td>##JOBS_RAN##</td></tr>
@@ -789,74 +793,69 @@ procedure send_daily_summary_email is
 	, chr(10)||'		', chr(10));
 
 	---------------------------------------
-	function get_admin_email_address return varchar2 is
-		v_email_address varchar2(4000);
+	procedure get_admin_email_addresses(p_sender_address out varchar2, p_recipient_addresses out varchar2)
+	is
 	begin
-		select string_value
-		into v_email_address
+		--Get configuration information.
+		select min(string_value) sender_address
+			,listagg(string_value, ',') within group (order by string_value) recipients
+		into p_sender_address, p_recipient_addresses
 		from method5.m5_config
 		where config_name = 'Administrator Email Address';
-
-		return v_email_address;
-	end get_admin_email_address;
+	end get_admin_email_addresses;
 
 	---------------------------------------
 	procedure add_duplicate_check(p_email_body in out clob) is
-		v_sql clob;
-		v_database_name_query varchar2(32767);
 		v_duplicates varchar2(4000);
 		v_html varchar2(32767);
 	begin
 		begin
-			--Get the database name query.
-			select string_value
-			into v_database_name_query
-			from method5.m5_config
-			where config_name = 'Database Name Query';
-
 			--Get duplicates, if any.
-			v_sql := replace(
-			q'[
-				with m5_databases as
-				(
-					--Only select INSTANCE_NUMBER = 1 to avoid RAC duplicates.
-					select database_name, host_name, lifecycle_status, line_of_business, cluster_name
-					from
-					(
-						#DATABASE_NAME_QUERY#
-					)
-					where instance_number = 1
-				)
-				--Concatenate duplicates.
-				select listagg(object_name, ', ') within group (order by object_name) object_names
+			with m5_databases as
+			(
+				--Only select INSTANCE_NUMBER = 1 to avoid RAC duplicates.
+				select database_name, host_name, lifecycle_status, line_of_business, cluster_name
 				from
 				(
-					--Find duplicates.
-					select object_name
-					from
-					(
-						select distinct trim(upper(database_name))    object_name from m5_databases where database_name    is not null union all
-						select distinct trim(upper(host_name))        object_name from m5_databases where host_name        is not null union all
-						select distinct trim(upper(lifecycle_status)) object_name from m5_databases where lifecycle_status is not null union all
-						select distinct trim(upper(line_of_business)) object_name from m5_databases where line_of_business is not null union all
-						select distinct trim(upper(cluster_name))     object_name from m5_databases where cluster_name     is not null union all
-						--Duplicate within database names.
-						--Unless you're using RAC you cannot have the same database name on different hosts.
-						select trim(upper(database_name)) database_name
-						from m5_database
-						where cluster_name is null
-						group by trim(upper(database_name))
-						having count(*) >= 2
-						--Test data to create an artificial duplicate.
-						--union all select 'PQRS' from dual
-					)
-					group by object_name
-					having count(*) > 1
-					order by 1
+					select
+						database_name,
+						host_name,
+						lifecycle_status,
+						line_of_business,
+						cluster_name,
+						to_char(row_number() over (partition by database_name order by instance_name)) instance_number
+					from method5.m5_database
 				)
-			]', '#DATABASE_NAME_QUERY#', v_database_name_query);
-
-			execute immediate v_sql into v_duplicates;
+				where instance_number = 1
+			)
+			--Concatenate duplicates.
+			select listagg(object_name, ', ') within group (order by object_name) object_names
+			into v_duplicates
+			from
+			(
+				--Find duplicates.
+				select object_name
+				from
+				(
+					select distinct trim(upper(database_name))    object_name from m5_databases where database_name    is not null union all
+					select distinct trim(upper(host_name))        object_name from m5_databases where host_name        is not null union all
+					select distinct trim(upper(lifecycle_status)) object_name from m5_databases where lifecycle_status is not null union all
+					select distinct trim(upper(line_of_business)) object_name from m5_databases where line_of_business is not null union all
+					select distinct trim(upper(cluster_name))     object_name from m5_databases where cluster_name     is not null union all
+					--Duplicate within database names.
+					--Unless you're using RAC you cannot have the same database name on different hosts.
+					select trim(upper(database_name)) database_name
+					from m5_database
+					where cluster_name is null
+					group by trim(upper(database_name))
+					having count(*) >= 2
+					--Test data to create an artificial duplicate.
+					--union all select 'PQRS' from dual
+				)
+				group by object_name
+				having count(*) > 1
+				order by 1
+			);
 
 			--Print duplicates, if any.
 			if v_duplicates is null then
@@ -1071,6 +1070,136 @@ procedure send_daily_summary_email is
 
 	end add_timed_out_jobs;
 
+
+	---------------------------------------
+	procedure add_serious_errors(p_email_body in out clob) is
+		v_html varchar2(32767);
+		type error_rec is record(database_name varchar2(128), error_date date, error_message varchar2(4000));
+		type error_tab is table of error_rec;
+		v_errors error_tab;
+		v_error_count number := 0;
+	begin
+		--Loop through all recent error tables and look for errors.
+		for error_tables in
+		(
+			--Tables from the audit trail.
+			select
+				--Check for a "." because tables may be stored in a different schema.
+				case
+					when instr(table_name, '.') > 0 then
+						regexp_substr(table_name, '[^\.]*')
+					else
+						username
+				end owner,
+				case
+					when instr(table_name, '.') > 0 then
+						substr(table_name, instr(table_name, '.') + 1)
+					else
+						table_name
+				end || '_ERR' table_name
+			from method5.m5_audit
+			where create_date > sysdate - 1
+			---------
+			intersect
+			---------
+			--Tables with all 3 Method5 error columns.
+			select owner, table_name
+			from
+			(
+				--Tables that contain the relevant Method5 error columns.
+				select owner, table_name, count(*) column_count
+				from dba_tab_columns
+				where table_name like '%\_ERR' escape '\'
+					and column_name in ('DATABASE_NAME', 'DATE_ERROR', 'ERROR_STACK_AND_BACKTRACE')
+				group by owner, table_name
+				order by owner, table_name
+			) tables_with_m5_err_columns
+			where column_count = 3
+			order by 1, 2
+		) loop
+			--Reset error collection;
+			v_errors := error_tab();
+
+			--Look for recent errors.
+			execute immediate replace(replace(
+				q'[
+					select
+						database_name,
+						date_error,
+						case
+							when error_stack_and_backtrace like '%ORA-00600%' then 'ORA-00600 (internal error) '
+							when error_stack_and_backtrace like '%ORA-07445%' then 'ORA-07445 (internal error) '
+							when error_stack_and_backtrace like '%ORA-00257%' then 'ORA-00257 (archiver error) '
+							when error_stack_and_backtrace like '%ORA-04031%' then 'ORA-04031 (shared memory error) '
+						end error_message
+					from #OWNER#.#TABLE_NAME#
+					where date_error > sysdate - 1 and
+						(
+							error_stack_and_backtrace like '%ORA-00600%' or
+							error_stack_and_backtrace like '%ORA-07445%' or
+							error_stack_and_backtrace like '%ORA-00257%' or
+							error_stack_and_backtrace like '%ORA-04031%'
+						)
+					order by error_message desc
+				]'
+				, '#OWNER#', error_tables.owner)
+				, '#TABLE_NAME#', error_tables.table_name)
+			bulk collect into v_errors;
+
+			--Print errors.
+			for i in 1 .. v_errors.count loop
+				--Count the errors.
+				v_error_count := v_error_count + 1;
+
+				--Display a special message for the first error.
+				if v_error_count = 1 then
+					--Start message.
+					v_html := v_html || '		<span class="error">These serious database errors were detected in a Method5 execution '||
+						'in the past day.  (Only the last 5 are displayed.)';
+
+					--End the span.
+					v_html := v_html || '</span>'||chr(10);
+
+					--Table header.
+					v_html := v_html||'		<table border="1">'||chr(10);
+					v_html := v_html||'			<tr>'||chr(10);
+					v_html := v_html||'				<th>Database Name</th>'||chr(10);
+					v_html := v_html||'				<th>Error Date</th>'||chr(10);
+					v_html := v_html||'				<th>Error Code</th>'||chr(10);
+					v_html := v_html||'				<th>Error Table</th>'||chr(10);
+					v_html := v_html||'				<th>Meta Table</th>'||chr(10);
+					v_html := v_html||'			</tr>'||chr(10);
+				end if;
+
+				--Only display the first 5 errors.
+				if v_error_count > 5 then
+					exit;
+				end if;
+
+				--Print the error: Database Name|Error Date|Error Code|Error Table|Meta Table
+				v_html := v_html||'			<tr>'||chr(10);
+				v_html := v_html||'				<td>'||v_errors(i).database_name||'</td>'||chr(10);
+				v_html := v_html||'				<td>'||to_char(v_errors(i).error_date, 'YYYY-MM-DD HH24:MI')||'</td>'||chr(10);
+				v_html := v_html||'				<td>'||v_errors(i).error_message||'</td>'||chr(10);
+				v_html := v_html||'				<td>'||error_tables.owner||'.'||error_tables.table_name||'</td>'||chr(10);
+				v_html := v_html||'				<td>'||replace(error_tables.owner||'.'||error_tables.table_name, '_ERR', '_META')||'</td>'||chr(10);
+				v_html := v_html||'			</tr>'||chr(10);
+			end loop;
+		end loop;
+
+		--End table, if there were errors.
+		if v_error_count > 0 then
+			v_html := v_html||'		</table>';
+		--Display "OK" if there were no errors
+		else
+			v_html := v_html||'		<span class="ok">None</span><br>';
+		end if;
+
+		--Add the HTML.
+		p_email_body := replace(p_email_body, '##SERIOUS_ERRORS##', v_html);
+	end add_serious_errors;
+
+
 	---------------------------------------
 	procedure add_statistics(p_email_body in out clob) is
 		v_total_jobs varchar2(100);
@@ -1112,13 +1241,14 @@ begin
 	add_global_data_dictionary(v_email_body);
 	add_invalid_access_attempts(v_email_body);
 	add_timed_out_jobs(v_email_body);
+	add_serious_errors(v_email_body);
 	add_statistics(v_email_body);
 
 	--Send the email.
-	v_admin_email_address := get_admin_email_address;
+	get_admin_email_addresses(v_admin_email_sender, v_admin_email_recipients);
 	utl_mail.send(
-		sender => v_admin_email_address,
-		recipients => v_admin_email_address,
+		sender => v_admin_email_sender,
+		recipients => v_admin_email_recipients,
 		subject => get_subject_line(v_email_body),
 		message => v_email_body,
 		mime_type => 'text/html'

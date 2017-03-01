@@ -28,12 +28,11 @@ create table method5.m5_audit
 	constraint m5_audit_pk primary key (username, create_date, table_name)
 );
 
---This table is very similar to sysman.mgmt$db_dbninstanceinfo and sysman.em_global_target_properties properties.
 create table method5.m5_database
 (
 	target_guid      raw(16),
 	host_name        varchar2(256),
-	database_name    varchar2(9),
+	database_name    varchar2(9) not null,
 	instance_name    varchar2(16),
 	lifecycle_status varchar2(256),
 	line_of_business varchar2(1024),
@@ -41,17 +40,55 @@ create table method5.m5_database
 	operating_system varchar2(256),
 	user_comment     varchar2(1024),
 	cluster_name     varchar2(1024),
-	refresh_date     date
+	connect_string   varchar2(4000) not null,
+	refresh_date     date,
+	constraint m5_database_ck_numbers_only check (regexp_like(target_version, '^[0-9\.]*$'))
 );
+
+comment on table method5.m5_database                   is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.';
+comment on column method5.m5_database.target_guid      is 'This GUID may be useful for matching to the Oracle Enterprise Manager GUID.';
+comment on column method5.m5_database.host_name        is 'The name of the machine the database instance runs on.';
+comment on column method5.m5_database.database_name    is 'A short string to identify a database.  This name will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.';
+comment on column method5.m5_database.instance_name    is 'A short string to uniquely identify a database instance.  For standalone databases this will probably be the same as the DATABASE_NAME.  For a Real Application Cluster (RAC) database this will probably be DATABASE_NAME plus a number at the end.';
+comment on column method5.m5_database.lifecycle_status is 'A value like "DEV" or "PROD".  (Your organization may refer to this as the "environment" or "tier".)';
+comment on column method5.m5_database.line_of_business is 'A value to identify a database by business unit, contract, company, etc.';
+comment on column method5.m5_database.target_version   is 'A value like "11.2.0.4.0" or "12.1.0.2.0".  This value may be used to select the lowest or highest version so only use numbers.';
+comment on column method5.m5_database.operating_system is 'A value like "SunOS" or "Windows".';
+comment on column method5.m5_database.user_comment     is 'Any additional comments.';
+comment on column method5.m5_database.cluster_name     is 'The Real Application Cluster (RAC) name for the cluster.';
+comment on column method5.m5_database.connect_string   is 'Used to create the database link.  You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column (for each entry, use the text after the first equal sign).  You may want to remove spaces and newlines, it is easier to compare the strings without them.  It is OK if not all CONNECT_STRING values are 100% perfect, problems can be manually adjusted later if necessary.';
+comment on column method5.m5_database.refresh_date     is 'The date this row was last refreshed.';
 
 create table method5.m5_database_hist as select * from method5.m5_database;
 
-create table method5.m5_database_not_queried
+--Create 4 sample rows.  Most data is fake but the connection information should work for most databases.
+insert into method5.m5_database
 (
-	database_name	varchar2(30),
-	reason			varchar2(4000),
-	constraint m5_database_not_queried_pk primary key (database_name)
-);
+	target_guid, host_name, database_name, instance_name, lifecycle_status, line_of_business,
+	target_version, operating_system, user_comment, cluster_name, connect_string, refresh_date
+)
+with database_info as
+(
+	select
+		null target_guid,
+		(select host_name version from v$instance) host_name,
+		(select version from v$instance) version,
+		(SELECT replace(replace(product, 'TNS for '), ':') FROM product_component_version where product like 'TNS%') operating_system,
+		null user_comment,
+		null cluster_name,
+		(
+			select '(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(sid='||instance_name||')))'
+			from v$instance
+		) connect_string,
+		sysdate refresh_date
+	from dual
+)
+select target_guid, host_name, 'devdb1'  database_name, 'devdb1'  instance_name, 'dev'  lifecycle_status, 'ACME' line_of_business,	version, operating_system, user_comment, cluster_name, connect_string, refresh_date from database_info union all
+select target_guid, host_name, 'testdb1' database_name, 'testdb1' instance_name, 'test' lifecycle_status, 'ACME' line_of_business,	version, operating_system, user_comment, cluster_name, connect_string, refresh_date from database_info union all
+select target_guid, host_name, 'devdb2'  database_name, 'devdb2'  instance_name, 'dev'  lifecycle_status, 'Ajax' line_of_business,	version, operating_system, user_comment, cluster_name, connect_string, refresh_date from database_info union all
+select target_guid, host_name, 'testdb2' database_name, 'testdb2' instance_name, 'test' lifecycle_status, 'Ajax' line_of_business,	version, operating_system, user_comment, cluster_name, connect_string, refresh_date from database_info;
+
+commit;
 
 create table method5.m5_2step_authentication
 (

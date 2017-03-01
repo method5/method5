@@ -1,15 +1,17 @@
 Install Method5
 ===============
 
-Installing Method5 is a one-time, semi-automated process.  Pick one person to install and administer Method5.  That person should have intermeidate DBA skills, and preferrably some development background.
+Installing Method5 is a one-time, semi-automated process.  Pick one person to install and administer Method5.  That person should have intermediate DBA skills, and preferably some development background.
 
-If there are problems with the installation please submit an issue to the Github repository, or send an email to Jon Heller at hjon@VentechSolutions.com.
+Testing Method5 only requires a single database.  A multi-database environment can be simulated by inserting fake values in step 4, "Configure M5_DATABASE".  Create rows with fake database names but set the connect strings to use the same database.
+
+If there are problems with the installation please submit an issue to the GitHub repository, or send an email to Jon Heller at hjon@VentechSolutions.com.
 
 
 1: Check pre-requisites.
 ------------------------
 
-These steps must be run on the management server by a user with the DBA role.
+Run these steps on the management server by a user with the DBA role.
 
 1. There must be a central management server that can connect to all databases.
 
@@ -17,7 +19,7 @@ These steps must be run on the management server by a user with the DBA role.
 
 3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
-4. Check that PURGE_LOG job exists, is enabled, and scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
+4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
 
 		select
 			case
@@ -35,7 +37,7 @@ These steps must be run on the management server by a user with the DBA role.
 			from dba_scheduler_jobs
 		);
 
-5. Check that JOB_QUEUE_PROCESSES is adaquate for DBMS_SCHEDULER parallelism.
+5. Run this SQL to check that JOB_QUEUE_PROCESSES is adequate for DBMS_SCHEDULER parallelism.
 
 		select
 			case
@@ -45,7 +47,7 @@ These steps must be run on the management server by a user with the DBA role.
 		from v$parameter
 		where name = 'job_queue_processes';
 
-6. Check that UTL_MAIL is installed.
+6. Run this SQL to check that UTL_MAIL is installed.
 
 	select case when count(*) = 0 then 'FAIL - you must install UTL_MAIL' else 'PASS' end utl_mail_check
 	from dba_objects
@@ -56,7 +58,7 @@ If it's missing, run these steps as SYS to install it:
 	SQL> @$ORACLE_HOME/rdbms/admin/utlmail.sql
 	SQL> @$ORACLE_HOME/rdbms/admin/prvtmail.plb
 
-7. Check that SMTP_OUT_SERVER is set.
+7. Run this SQL to check that SMTP_OUT_SERVER is set.
 
 	select
 		case
@@ -72,7 +74,7 @@ If it's missing, run these steps as SYS to install it:
 2: Install SYS components.
 --------------------------
 
-This script must be run on the management server by the user SYS.  It's a small script, you can either copy and paste the statements or run it in SQL*Plus.  It should not generate any errors.  For example:
+Run this script on the management server as SYS.  It's a small script, you can either copy and paste the statements or run it in SQL*Plus.  It should not generate any errors.  For example:
 
 	C:\> cd Method5
 	C:\Method5> sqlplus / as sysdba
@@ -84,35 +86,105 @@ This script must be run on the management server by the user SYS.  It's a small 
 3: Install Method5 objects.
 ---------------------------
 
-These scripts must be run on the management server by a user with the DBA role, in SQL*Plus.  It should not generate any errors.
+Run this script on the management server as a user with the DBA role, in SQL*Plus.  It should not generate any errors.
 
 	SQL> @code/install_method5_objects.sql
 	SQL> quit
 
 
-4: Configure M5_DATABASE job.
+4: Configure M5_DATABASE.
+-------------------------
+
+Run this step on the management server as a user with the DBA role.
+
+Manually add rows to the main configuration table, METHOD5.M5_DATABASE.  This table is critical to the configuration of the system, it is used for filtering databases and creating links.  Pay close attention to the details.
+
+*TIP* Four sample rows were inserted by default, use them to get started.  Don't worry about adding all your databases or getting it 100% perfect right away.  Come back to this step later after you've used Method5 for a while.
+
+
+5: Configure default targets.
 -----------------------------
 
-This code must be run on the management server by a user with the DBA role.
+Run this code on the management server as a user with the DBA role.
 
-This step is optional and is only useful if you want to populate M5_DATABASE from a source like Oracle Enterprise Manager (OEM).
+By default, Method5 runs against all targets.  This default can be changed from `%` to some other string like this:
 
-**DO NOT** run this PL/SQL block without modifying the `INSERT` and `UPDATE` statement and have them fit your environment.
+	update method5.m5_config
+	set string_value = 'DEV,TEST,PROD'  --Change this line
+	where config_name = 'Default Targets';
+	commit;
+
+
+6: Set Method5 profile.
+-----------------------
+
+Run this optional code on the management server as a user with the DBA role.
+
+You probably want to use a meaningful profile for Method5.  Whatever you select here will be used in remote databases.
+
+	alter user method5 profile &PROFILE_NAME ;
+
+
+7: Run steps in administer_method5.md.
+--------------------------------------
+
+See the file administer_method5.md for details.
+
+
+8: Install Method5 housekeeping jobs and global data dictionary.
+----------------------------------------------------------------
+
+Run these scripts on the management server as a user with the DBA role, in SQL*Plus.  They must NOT be run by SYS.  They should not generate any errors.
+
+	SQL> @code/install_method5_housekeeping_jobs.sql
+	SQL> @code/install_method5_global_data_dictionary.sql
+
+
+9: Run integration tests to verify installation.
+------------------------------------------------
+
+Run this code on the management server, as a user with the DBA role who is authorized to use Method5.
+
+Replace `&database1` and `&database2` with two configured databases.  Replace '&other_user' with another valid user name.  The tests should output "PASS".
+
+	--The tests will run for about a minute and print either "PASS" or "FAIL".
+	set serveroutput on;
+	begin
+		method5.method5_test.run(p_database_name_1 => '&database1', p_database_name_2 => '&database2', p_other_schema_name => '&other_user');
+	end;
+	/
+
+
+10: Configure M5_DATABASE job (optional).
+----------------------------------------
+
+Run this code on the management server as a user with the DBA role.
+
+This step is optional and is only useful if you want to automatically populate M5_DATABASE from a source like Oracle Enterprise Manager (OEM).
+
+**DO NOT** run the below PL/SQL block without modifying the `INSERT` statement to make it fit your environment.
 
 This may be the trickiest part of the installation, especially if you have duplicate or inconsistent names.
+
+Run these data dictionary queries to get detailed information about the table and each column:
+
+	SQL> select comments from dba_tab_comments where table_name = 'M5_DATABASE';
+	SQL> select column_name, comments from dba_col_comments where table_name = 'M5_DATABASE';
+
+Example job:
 
 	--Create job to periodically refresh M5_DATABASE and M5_DATABASE_HIST.
 	begin
 		dbms_scheduler.create_job
 		(
-			job_name        => 'method5.refresh_m5_database',
+			job_name        => 'method5.refresh_m5_database_job',
 			job_type        => 'PLSQL_BLOCK',
 			start_date      => systimestamp,
 			repeat_interval => 'freq=hourly; byminute=0; bysecond=0;',
 			enabled         => true,
 			comments        => 'Refreshes M5_DATABASE and M5_DATABASE_HIST from OEM tables.',
 			job_action      => q'<
-				--Refresh M5_DATABASE and save history every 24 hours.
+				--Refresh M5_DATABASE and save history.
 				declare
 					v_max_refresh_date date;
 				begin
@@ -128,37 +200,57 @@ This may be the trickiest part of the installation, especially if you have dupli
 					-- **CONFIGURE THIS**  This should probably be different for your environment. **
 					insert into method5.m5_database
 					select
-						instance.target_guid,
-						instance.host_name,
-						instance.database_name,
-						instance.instance_name, --may be case sensitive!
-						properties.lifecycle_status,
-						properties.line_of_business,
-						properties.target_version,
-						properties.operating_system,
-						properties.user_comment,
-						rac_topology.cluster_name,
-						sysdate refresh_date
-					from sysman.mgmt$db_dbninstanceinfo instance
-					join sysman.em_global_target_properties properties
-						on instance.target_guid = properties.target_guid
-					left join
+						target_guid,
+						host_name,
+						database_name,
+						instance_name,
+						lifecycle_status,
+						line_of_business,
+						target_version,
+						operating_system,
+						user_comment,
+						cluster_name,
+						lower(replace(replace(
+								'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
+								--service_name may work better for some organizations: '$instance_name=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$global_name))) ',
+							'$instance_name', instance_name)
+							,'$host_name', host_name)
+						) as connect_string,
+						refresh_date
+					from
 					(
-						select distinct cluster_name, db_instance_name
-						from sysman.mgmt$rac_topology
-					) rac_topology
-						on instance.target_name = rac_topology.db_instance_name
-					where instance.target_type = 'oracle_database'
-					order by instance.host_name, instance.database_name, instance.instance_name;
+						--Data from Oracle Enterprise Manager.
+						select
+							instance.target_guid,
+							instance.host_name,
+							instance.database_name,
+							instance.instance_name, --may be case sensitive!
+							properties.lifecycle_status,
+							properties.line_of_business,
+							properties.target_version,
+							properties.operating_system,
+							properties.user_comment,
+							rac_topology.cluster_name,
+							sysdate refresh_date
+						from sysman.mgmt$db_dbninstanceinfo instance
+						join sysman.em_global_target_properties properties
+							on instance.target_guid = properties.target_guid
+						left join
+						(
+							select distinct cluster_name, db_instance_name
+							from sysman.mgmt$rac_topology
+						) rac_topology
+							on instance.target_name = rac_topology.db_instance_name
+						where instance.target_type = 'oracle_database'
+						order by instance.host_name, instance.database_name, instance.instance_name
+					) oem_data
+					order by host_name, database_name, instance_name;
 
-					--Convert CDBs to PDB names.
-					-- **CONFIGURE THIS**  This should probably be different for your environment. **
-					update method5.m5_database
-					set database_name = replace(replace(database_name, 'CDB', null), 'cdb', null),
-						instance_name = replace(replace(instance_name, 'CDB', null), 'cdb', null)
-					where lower(database_name) like '%cdb' or lower(instance_name) like '%cdb';
+					--For 12c+: Convert CDBs to PDB names.
+					-- **CONFIGURE THIS**  This should probably be different for your environment.
+					-- (TODO, if you use containers)
 
-					--If the old max refresh date is null or older than 1 day, save history.
+					--Save history daily.
 					if v_max_refresh_date is null or sysdate - v_max_refresh_date > 1 then
 						insert into method5.m5_database_hist
 						select * from method5.m5_database;
@@ -171,7 +263,6 @@ This may be the trickiest part of the installation, especially if you have dupli
 	end;
 	/
 
-
 If you need to drop the job to re-create it:
 
 	begin
@@ -179,135 +270,19 @@ If you need to drop the job to re-create it:
 	end;
 	/
 
-
-Run the job immediately after it's configured and check that it was successful:
+Run the job immediately after it's configured:
 
 	begin
 		dbms_scheduler.run_job('method5.refresh_m5_database');
 	end;
 	/
 
+Check that it was successful and take a look at the data:
+
 	select status, additional_info
 	from dba_scheduler_job_run_details
 	where job_name = 'REFRESH_M5_DATABASE'
-		and log_date > systimestamp - interval '1' hour;
+		and log_date > systimestamp - interval '1' hour
+	order by log_date desc;
 
 	select * from method5.m5_database;
-
-
-5: Configure Database Name query.
----------------------------------
-
-This code must be run on the management server by a user with the DBA role.
-
-**DO NOT** run this PL/SQL block without modifying the `INSERT` statement to fit your environment.
-
-This may be the trickiest part of the installation, especially if you have duplicate or inconsistent names.
-
-
-	insert into method5.m5_config(config_id, config_name, string_value)
-	values(method5.m5_config_seq.nextval, 'Database Name Query', q'[
-		--Method5 uses this query to determine all possible database links and configuration.
-		--It's OK if this query returns some extra databases - they can be filtered out later.
-		--It's OK if the CONNECT_STRING is not perfect - if there's a problem with some of
-		-- them they can manually adjusted later.
-
-		--This query must return 5 columns: DATABASE_NAME, CONNECT_STRING,
-		--INSTANCE_NUMBER, HOST_NAME, LIFECYCLE_STATUS, and LINE_OF_BUSINESS.
-		--
-		--(Your organization may have different names for those items.  For example,
-		-- you might call it "Environment" instead of "LIFECYCLE_STATUS".  But for this
-		-- query to work you must use those pre-defined names.)
-		--
-		--DATABASE_NAME: Used for the link name.  Cannot be null.
-		--CONNECT_STRING: Used to create the link.  Cannot be null.
-		--INSTANCE_NUMBER: Used to only select one database in a cluster.  Cannot be null.
-		--HOST_NAME/LIFECYCLE_STATUS/LINE_OF_BUSINESS/CLUSTER_NAME: Used to identify
-		--  databases by an atribute.  These can  be null.  There should not be any
-		--  duplicates between the columns.  For example, you should not have a database
-		--  called "prod" as well as a LIFECYCLE_STATUS named "prod" with other databases.
-		--
-		select
-			database_name
-			,connect_string
-			,instance_number
-			,host_name
-			,lifecycle_status
-			,line_of_business
-			,cluster_name
-		from
-		(
-			select
-				database_name
-				,lower(replace(replace(
-						'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
-						--service_name does not always work :'$instance_name=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$global_name))) ',
-					'$instance_name', instance_name)
-					--Use CNAME for single-instance, use host_name for RAC since RACs don't have CNAMEs.
-					,'$host_name', case when lower(instance_name) = lower(database_name) then database_name||'_mgt' else host_name end)
-					) as connect_string
-				,to_char(row_number() over (partition by database_name order by instance_name)) instance_number
-				,host_name
-				,lifecycle_status
-				,line_of_business
-				,cluster_name
-			from method5.m5_database
-			where lower(database_name) not in
-				(
-					select lower(database_name) from method5.m5_database_not_queried
-				)
-		)
-	]');
-
-	commit;
-
-
-6: Configure default targets.
------------------------------
-
-This code must be run on the management server by a user with the DBA role.
-
-By default, Method5 runs against all targets.  This default can be changed from `%` to some other string like this:
-
-	update method5.m5_config
-	set string_value = 'DEV,TEST,PROD'  --Change this line
-	where config_name = 'Default Targets';
-	commit;
-
-
-7: Set Method5 profile.
------------------------
-
-This optional code must be run on the management server by a user with the DBA role.
-
-You probably want to use a meaningful profile for Method5.  Whatever you select here will be used in remote databases.
-
-	alter user method5 profile &PROFILE_NAME ;
-
-
-8: Run steps in administer_method5.md.
---------------------------------------
-
-
-9: Install Method5 housekeeping jobs and global data dictionary.
-----------------------------------------------------------------
-
-These scripts must be run on the management server by a user with the DBA role, in SQL*Plus.  They must NOT be run by SYS.  They should not generate any errors.
-
-	SQL> @code/install_method5_housekeeping_jobs.sql
-	SQL> @code/install_method5_global_data_dictionary.sql
-
-
-10: Run integration tests to verify installation.
-------------------------------------------------
-
-This code must be run on the management server, by a user with the DBA role, who is authorized to use Method5.
-
-Replace `&database1` and `&database2` with two configured databases.  Replace '&other_user' with another valid user name.  The tests should output "PASS".
-
-	--The tests will run for about a minute and print either "PASS" or "FAIL".
-	set serveroutput on;
-	begin
-		method5.method5_test.run(p_database_name_1 => '&database1', p_database_name_2 => '&database2', p_other_schema_name => '&other_user');
-	end;
-	/

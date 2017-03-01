@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.2.0';
+C_VERSION constant varchar2(10) := '8.3.0';
 
 /******************************************************************************
 RUN
@@ -682,19 +682,12 @@ procedure run(
 	end add_default_targets_if_null;
 
 	---------------------------------------------------------------------------
-	--Get database link configuration using the "Database Name Query" from the config table.
+	--Get database link configuration from M5_DATABASE configuration table.
 	function get_links(p_owner varchar2) return links_nt is
-		v_database_name_query varchar2(32767);
 		v_link_sql varchar2(32767);
 		v_link_query sys_refcursor;
 		v_link_results links_nt;
 	begin
-		--Get the "Database Name Query" from the configuration table.
-		select string_value
-		into v_database_name_query
-		from method5.m5_config
-		where config_name = 'Database Name Query';
-
 		--Add link and job data to database name query.
 		v_link_sql :=
 		q'[
@@ -707,16 +700,13 @@ procedure run(
 				case when dba_scheduler_running_jobs.owner is not null then 1 else 0 end is_running
 			from
 			(
+				--Format for link.
 				select
-					--DB_LINK_NAME must start with "M5_" and should be short to use in jobs.
 					'M5_'||upper(database_name) db_link_name,
 					lower(database_name) database_name,
 					connect_string,
-					instance_number
-				from
-				(
-					]'||v_database_name_query||q'[
-				)
+					to_char(row_number() over (partition by database_name order by instance_name)) instance_number
+				from method5.m5_database
 			) database_names
 			left join
 			(
@@ -744,8 +734,8 @@ procedure run(
 	exception when others then
 		dbms_output.put_line(':owner bind variable value: '||p_owner);
 		dbms_output.put_line('Database Name Query: '||chr(10)||v_link_sql);
-		raise_application_error(-20001, 'Error getting or running the "Database Name Query".'||
-			'  Check the query stored in M5_CONFIG.  Or check the DBMS_OUTPUT for the query.'||
+		raise_application_error(-20001, 'Error querying M5_DATABASE.'||
+			'  Check that table for configuration errors.  Or check the DBMS_OUTPUT for the query.'||
 			chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end get_links;
 
@@ -866,7 +856,6 @@ procedure run(
 	function get_databases_from_targets(p_target_string varchar2) return string_table is
 		--SQL statements:
 		v_clean_select_sql varchar2(32767);
-		v_database_name_query varchar2(32767);
 		v_configured_database_query varchar2(32767);
 
 		--Types and variables to hold database configuration attributes.
@@ -984,23 +973,13 @@ procedure run(
 		--Else treat P_TARGET_STRING as comma-separated-values that may identify database,
 		--host, lifecycle, line of business, or cluster name.
 		else
-			--Get database configuration from the configuration table.
-			begin
-				select string_value
-				into v_database_name_query
-				from method5.m5_config
-				where config_name = 'Database Name Query';
-			exception when others then
-				raise_application_error(-20007, 'Error retrieving "Database Name Query" from M5_CONFIG.'||
-					chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
-			end;
-
 			--Build query to retrieve database attributes as collections of strings.
-			v_configured_database_query := replace(q'[
-				--New query
+			v_configured_database_query := 
+			q'[
 				with config as
 				(
-					##CONFIG_QUERY##
+					select database_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
+					from method5.m5_database
 				)
 				select 'database_name' row_type, lower(database_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 				from config
@@ -1021,7 +1000,7 @@ procedure run(
 				select 'cluster_name' row_type, lower(cluster_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 				from config
 				group by cluster_name
-			]', '##CONFIG_QUERY##', v_database_name_query);
+			]';
 
 			--Gather configuration data.
 			begin
