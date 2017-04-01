@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.3.0';
+C_VERSION constant varchar2(10) := '8.4.0';
 
 /******************************************************************************
 RUN
@@ -95,38 +95,81 @@ procedure stop_jobs
 end;
 /
 create or replace package body method5.m5_pkg is
-/*
-Installation Requirements:
-	METHOD5 owner needs SELECT on these tables:
-		dba_tables, dba_db_links, dba_scheduler_running_jobs, dba_profiles, dba_scheduler_job_run_details,
-		v_$sql, v_$parameter, dba_role_privs, dba_users, dba_synonyms, dba_scheduler_jobs
-*/
-
---All printable ASCII characters, excluding ones that would look confusing (',",@),
---and ones that match, such as [], <>, (), {}.
---This is a global constant to avoid being executed with each function call.
-c_delimiter_candidates constant sys.odcivarchar2list := sys.odcivarchar2list(
-	'!','#','$','%','*','+',',','-','.','0','1','2','3','4','5','6','7','8','9',
-	':',';','=','?','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O',
-	'P','Q','R','S','T','U','V','W','X','Y','Z','^','_','`','a','b','c','d','e',
-	'f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x',
-	'y','z','|','~'
-);
 
 
---Collections to hold link data instead of re-fetching the cursor.
-type link_rec is record(
-	db_link_name varchar2(128),
-	database_name varchar2(30),
-	connect_string varchar2(4000),
-	link_exists number,
-	is_running number
-);
-type links_nt is table of link_rec;
+/******************************************************************************/
+--(See specification for description.)
+procedure stop_jobs
+(
+	p_owner varchar2 default null,
+	p_table_name varchar2 default null,
+	p_elapsed_minutes number default null
+) is
+	v_must_be_a_job exception;
+	pragma exception_init(v_must_be_a_job, -27475);
+begin
+	for jobs_to_kill in
+	(
+		select dba_scheduler_running_jobs.owner, dba_scheduler_running_jobs.job_name, comments, elapsed_time
+		from sys.dba_scheduler_running_jobs
+		join sys.dba_scheduler_jobs
+			on dba_scheduler_running_jobs.job_name = dba_scheduler_jobs.job_name
+			and dba_scheduler_running_jobs.owner = dba_scheduler_jobs.owner
+		where dba_scheduler_jobs.auto_drop = 'TRUE'
+			and dba_scheduler_running_jobs.job_name like 'M5%'
+			and (dba_scheduler_running_jobs.owner = upper(trim(p_owner)) or p_owner is null)
+			and (upper(dba_scheduler_jobs.comments) = upper(p_table_name) or p_table_name is null)
+			and (dba_scheduler_running_jobs.elapsed_time > p_elapsed_minutes * interval '1' minute or p_elapsed_minutes is null)
+		order by dba_scheduler_jobs.owner, dba_scheduler_jobs.job_name
+	) loop
+		begin
+			sys.dbms_scheduler.stop_job(
+				job_name => jobs_to_kill.owner||'.'||jobs_to_kill.job_name,
+				force => true
+			);
+		exception when v_must_be_a_job then
+			--Ignore errors caused when a job finishes between the query and the STOP_JOB.
+			null;
+		end;
+	end loop;
+end stop_jobs;
 
 
---Code templates.
-v_select_template constant varchar2(32767) := q'<
+/******************************************************************************/
+--(See specification for description.)
+procedure run(
+	p_code                varchar2,
+	p_targets             varchar2 default null,
+	p_table_name          varchar2 default null,
+	p_table_exists_action varchar2 default 'ERROR',
+	p_asynchronous        boolean default true
+) is
+
+	--All printable ASCII characters, excluding ones that would look confusing (',",@),
+	--and ones that match, such as [], <>, (), {}.
+	--This is a global constant to avoid being executed with each function call.
+	c_delimiter_candidates constant sys.odcivarchar2list := sys.odcivarchar2list(
+		'!','#','$','%','*','+',',','-','.','0','1','2','3','4','5','6','7','8','9',
+		':',';','=','?','A','B','C','D','E','F','G','H','I','J','K','L','M','N','O',
+		'P','Q','R','S','T','U','V','W','X','Y','Z','^','_','`','a','b','c','d','e',
+		'f','g','h','i','j','k','l','m','n','o','p','q','r','s','t','u','v','w','x',
+		'y','z','|','~'
+	);
+
+
+	--Collections to hold link data instead of re-fetching the cursor.
+	type link_rec is record(
+		db_link_name varchar2(128),
+		database_name varchar2(30),
+		connect_string varchar2(4000),
+		link_exists number,
+		is_running number
+	);
+	type links_nt is table of link_rec;
+
+
+	--Code templates.
+	v_select_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## is
 	v_dummy varchar2(1);
 begin
@@ -141,7 +184,7 @@ begin
 			--Use an extra inline view to avoid "ORA-00998: must name this expression with a column alias".
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
 				create table m5_temp_table_##SEQUENCE## nologging pctfree 0 as
-				select *
+				select ##STAR_OR_EXPLICIT_COLUMN_LIST##
 				from
 				(
 					##CODE##
@@ -195,7 +238,7 @@ end;
 >';
 
 
-v_plsql_template constant varchar2(32767) := q'<
+	v_plsql_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 begin
 	execute immediate q'##QUOTE_DELIMITER4##
@@ -365,54 +408,6 @@ begin
 end;
 >';
 
-
-/******************************************************************************/
---(See specification for description.)
-procedure stop_jobs
-(
-	p_owner varchar2 default null,
-	p_table_name varchar2 default null,
-	p_elapsed_minutes number default null
-) is
-	v_must_be_a_job exception;
-	pragma exception_init(v_must_be_a_job, -27475);
-begin
-	for jobs_to_kill in
-	(
-		select dba_scheduler_running_jobs.owner, dba_scheduler_running_jobs.job_name, comments, elapsed_time
-		from sys.dba_scheduler_running_jobs
-		join sys.dba_scheduler_jobs
-			on dba_scheduler_running_jobs.job_name = dba_scheduler_jobs.job_name
-			and dba_scheduler_running_jobs.owner = dba_scheduler_jobs.owner
-		where dba_scheduler_jobs.auto_drop = 'TRUE'
-			and dba_scheduler_running_jobs.job_name like 'M5%'
-			and (dba_scheduler_running_jobs.owner = upper(trim(p_owner)) or p_owner is null)
-			and (upper(dba_scheduler_jobs.comments) = upper(p_table_name) or p_table_name is null)
-			and (dba_scheduler_running_jobs.elapsed_time > p_elapsed_minutes * interval '1' minute or p_elapsed_minutes is null)
-		order by dba_scheduler_jobs.owner, dba_scheduler_jobs.job_name
-	) loop
-		begin
-			sys.dbms_scheduler.stop_job(
-				job_name => jobs_to_kill.owner||'.'||jobs_to_kill.job_name,
-				force => true
-			);
-		exception when v_must_be_a_job then
-			--Ignore errors caused when a job finishes between the query and the STOP_JOB.
-			null;
-		end;
-	end loop;
-end stop_jobs;
-
-
-/******************************************************************************/
---(See specification for description.)
-procedure run(
-	p_code                varchar2,
-	p_targets             varchar2 default null,
-	p_table_name          varchar2 default null,
-	p_table_exists_action varchar2 default 'ERROR',
-	p_asynchronous        boolean default true
-) is
 	---------------------------------------------------------------------------
 	--Get a sequence value to help ensure uniqueness.
 	function get_sequence_nextval return number is
@@ -1054,6 +1049,38 @@ procedure run(
 	end get_databases_from_targets;
 
 	---------------------------------------------------------------------------
+	procedure raise_exception_if_no_targets
+	(
+		p_database_names    in string_table,
+		p_original_targets  in varchar2,
+		p_processed_targets in varchar2
+	) is
+	begin
+		--Raise error if no targets are found.
+		if p_database_names.count = 0 then
+			--Display only one value if they are the same.
+			if
+			(
+				p_original_targets = p_processed_targets
+				or
+				(
+					p_original_targets is null
+					and
+					p_processed_targets is null
+				)
+			) then
+				raise_application_error(-20404, 'No targets were found.  Change P_TARGETS to fix '||
+					'this error.  '||chr(10)||'This was the P_TARGETS used: '||p_original_targets);
+			--Display both values if they are different.			
+			else
+				raise_application_error(-20404, 'No targets were found.  Change P_TARGETS to fix '||
+					'this error.  '||chr(10)||'This was the P_TARGETS used: '||p_original_targets||chr(10)||
+					'This was the transformed targets used: '||p_processed_targets);
+			end if;
+		end if;
+	end raise_exception_if_no_targets;
+
+	---------------------------------------------------------------------------
 	procedure check_if_already_running(p_table_name varchar2) is
 		v_table_name varchar2(128) := upper(trim(p_table_name));
 		v_conflicting_job_count number;
@@ -1094,6 +1121,50 @@ procedure run(
 	end find_available_quote_delimiter;
 
 	---------------------------------------------------------------------------
+	--Get a column list for a SELECT statement on a remote database.
+	function get_explicit_column_list(p_select_statement in clob, p_database_name in varchar2) return varchar2 is
+		v_column_list varchar2(32767);
+	begin
+		--Parse the column names on the remote database.
+		execute immediate replace(
+		q'[
+			declare
+				v_cursor_number integer;
+				v_column_count number;
+				v_columns sys.dbms_sql.desc_tab@m5_#DATABASE_NAME#;
+				v_column_list varchar2(32767);
+				p_code varchar2(32767);
+			begin
+				p_code := :p_transformed_code;
+
+				--Parse statement, get columns.
+				v_cursor_number := sys.dbms_sql.open_cursor@m5_#DATABASE_NAME#;
+				sys.dbms_sql.parse@m5_#DATABASE_NAME#(v_cursor_number, p_code, sys.dbms_sql.native);
+				sys.dbms_sql.describe_columns@m5_#DATABASE_NAME#(v_cursor_number, v_column_count, v_columns);
+
+				--Create column list and convert any LONGs to LOBs.
+				for i in 1 .. v_column_count loop
+					if v_columns(i).col_type in (8, 24) then
+						v_column_list := v_column_list || ',to_lob("'||v_columns(i).col_name || '") as "' || v_columns(i).col_name || '"';
+					else
+						v_column_list := v_column_list || ',"'||v_columns(i).col_name || '"';
+					end if;
+				end loop;
+
+				--Close the cursor.
+				sys.dbms_sql.close_cursor@m5_#DATABASE_NAME#(v_cursor_number);
+
+				--Create new SQL statement
+				:v_column_list := substr(v_column_list, 2);
+			end;
+		]',
+		'#DATABASE_NAME#', p_database_name)
+		using to_char(p_select_statement), out v_column_list;
+
+		return v_column_list;
+	end get_explicit_column_list;
+
+	---------------------------------------------------------------------------
 	--Transform the code so it is ready to run and return if it's SQL or PLSQL.
 	--The transformation will remove unnecessary terminators (so it can run in EXECUTE IMMEDIATE).
 	--SQL and PL/SQL blocks are ready to run.  Other statement types, like ALTER SYSTEM and
@@ -1102,27 +1173,189 @@ procedure run(
 	--later and converted into something similar to a SQL*Plus feedback message.
 	procedure get_transformed_code_and_type(
 		p_original_code             in clob,
+		p_database_names            in string_table,
 		p_transformed_code         out clob,
 		p_select_or_plsql          out varchar2,
 		p_is_first_column_sortable out boolean,
-		p_command_name             out varchar2
+		p_command_name             out varchar2,
+		p_explicit_column_list     out varchar2
 	) is
-		v_wrap_template   varchar2(32767) :=
-		q'[
-			begin
-				execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
-				dbms_output.put_line('M5_FEEDBACK_MESSAGE:COMMAND_NAME=##COMMAND_NAME##;ROWCOUNT='||sql%rowcount);
-				commit;
-			end;
-		]';
 
 		v_tokens          method5.token_table;
 
-		v_category        varchar2(100);
-		v_statement_type  varchar2(100);
-		v_command_type    number;
-		v_lex_sqlcode     number;
-		v_lex_sqlerrm     varchar2(4000);
+		v_category              varchar2(100);
+		v_statement_type        varchar2(100);
+		v_command_type          number;
+		v_lex_sqlcode           number;
+		v_lex_sqlerrm           varchar2(4000);
+
+		v_version_star_position number;
+
+		---------------------------------------------------------------------------
+		--Look for the version star, "**", and return the position.
+		--Return 0 if it is not found or does not apply.
+		function get_version_star_position(p_transformed_code in clob, p_command_name in varchar2, p_tokens method5.token_table)
+		return number is
+			v_version_star_position number := 0;
+		begin
+			--Only bother to look for SELECTs.
+			if p_command_name = 'SELECT' then
+				--Check the CLOB as a string first.
+				--This is inaccurate but fast, and can quickly discard most code without a version star.
+				if sys.dbms_lob.instr(lob_loc => p_transformed_code, pattern => '**') > 0 then
+					--Look for "**" preceeded by "SELECT".  Ignore whitespace and comments.
+					--May need to add an extra space around the star.
+					for i in 1 .. p_tokens.count-1 loop
+						--Look for a SELECT.
+						if p_tokens(i).type = method5.plsql_lexer.C_WORD and lower(p_tokens(i).value) = 'select' then
+							--Look for the next "**".
+							for j in i+1 .. p_tokens.count loop
+								--Ignore whitespace and comments.
+								if p_tokens(j).type in (method5.plsql_lexer.C_WHITESPACE, method5.plsql_lexer.C_COMMENT) then
+									null;
+								--Return position if "**" found.
+								elsif p_tokens(j).type = method5.plsql_lexer."C_**" then
+									v_version_star_position := p_tokens(j).first_char_position;
+									exit;
+								--Quit this loop if something else was found.
+								else
+									exit;
+								end if;
+							end loop;
+						end if;
+					end loop;
+				end if;
+			end if;
+
+			return v_version_star_position;
+		end get_version_star_position;
+
+		---------------------------------------------------------------------------
+		--Replace the "**" with a regular "*".  We'll need to run this version to get the column list first.
+		procedure transform_version_star_to_star(p_transformed_code in out clob, p_version_star_position in number) is
+		begin
+			if p_version_star_position <> 0 then
+				p_transformed_code :=
+					substr(p_transformed_code, 1, p_version_star_position-1) ||
+					'*' ||
+					substr(p_transformed_code, p_version_star_position + 2);
+			end if;
+		end transform_version_star_to_star;
+
+		---------------------------------------------------------------------------
+		--Get the column list (for the lowest version of the database) that will be used instead of a "*" later.
+		function get_low_explicit_column_list(
+			p_transformed_code      in clob,
+			p_version_star_position in number,
+			p_database_names        in string_table
+		) return varchar2 is
+			v_databases_ordered_by_version string_table;
+			type number_nt is table of number;
+			v_distinct_version_count number_nt;
+			v_column_list varchar2(32767);
+		begin
+			--Only change things if a version star was used.
+			if p_version_star_position > 0 then
+
+				--Order the database names by lowest version first.
+				execute immediate
+				q'[
+					select
+						database_name, distinct_version_count
+					from
+					(
+						select
+							database_name,
+							target_version,
+							to_number(regexp_substr(target_version, '[0-9]+', 1, 1)) version_1,
+							to_number(regexp_substr(target_version, '[0-9]+', 1, 2)) version_2,
+							to_number(regexp_substr(target_version, '[0-9]+', 1, 3)) version_3,
+							to_number(regexp_substr(target_version, '[0-9]+', 1, 4)) version_4,
+							to_number(regexp_substr(target_version, '[0-9]+', 1, 5)) version_5,
+							count(distinct target_version) over () distinct_version_count
+						from m5_database
+						where target_version is not null
+							and lower(database_name) in
+							(
+								select lower(column_value) database_name
+								from table(:database_names) database_names
+							)
+					)
+					order by version_1, version_2, version_3, version_4, version_5, database_name
+				]'
+				bulk collect into v_databases_ordered_by_version, v_distinct_version_count
+				using p_database_names;
+
+				--SPECIAL CASE: Do nothing if no targets were specified.
+				if v_databases_ordered_by_version.count = 0 then
+					return null;
+				end if;
+
+				--SPECIAL CASE: Do nothing if there is only one version.
+				if v_distinct_version_count(1) = 1 then
+					return null;
+				end if;
+
+				--Get column list from lowest version using DBMS_SQL over the database link.
+				declare
+					v_successful_database_index number;
+					v_failed_database_list varchar2(32767);
+					c_max_database_attempts constant number := 3;
+					v_last_sqlerrm varchar2(32767);
+				begin
+					--Try to create the temporary table on the first N databases.
+					for i in 1 .. least(c_max_database_attempts, v_databases_ordered_by_version.count) loop
+						begin
+							--Parse the column names on the remote database.
+							v_column_list := get_explicit_column_list(p_transformed_code, v_databases_ordered_by_version(i));
+
+							--Record a success and quit the loop if it got this far.
+							v_successful_database_index := i;
+							exit;
+
+						--If it fails on one database we'll try again on another.
+						exception when others then
+							v_last_sqlerrm := sqlerrm;
+							v_failed_database_list := v_failed_database_list || ',' || v_databases_ordered_by_version(i);
+						end;
+					end loop;
+
+					--Raise an error if none of the databases worked.
+					if v_successful_database_index is null then
+						raise_application_error(-20027, 'The SELECT statement was not valid, please check the syntax'||
+							' and that the objects exist.  The statement was tested on '||substr(v_failed_database_list,2)||
+							'.  If the objects only exist on a small number of'||
+							' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
+							' objects.  The SQL raised this error: '||chr(10)||v_last_sqlerrm);
+					end if;
+				end;
+			end if;
+
+			--Return the final column list.
+			return v_column_list;
+		end get_low_explicit_column_list;
+
+		---------------------------------------------------------------------------
+		procedure version_star_set_code_and_list
+		(
+			p_transformed_code     in out clob,
+			p_command_name         in     varchar,
+			p_tokens               in     method5.token_table,
+			p_explicit_column_list in out varchar2,
+			p_database_names       in     method5.string_table
+		) is
+			v_version_star_position number;
+		begin
+			--Check for the version star, "-*".
+			v_version_star_position := get_version_star_position(p_transformed_code, p_command_name, p_tokens);
+
+			--Convert the version star back into a regular star, if necessary.
+			transform_version_star_to_star(p_transformed_code, v_version_star_position);
+
+			--Convert the "*" to a list of columns if necessary.
+			p_explicit_column_list := get_low_explicit_column_list(p_transformed_code, v_version_star_position, p_database_names);
+		end version_star_set_code_and_list;
+
 	begin
 		--Assume the first column is sortable, unless proven false elsewhere.
 		p_is_first_column_sortable := true;
@@ -1148,26 +1381,74 @@ procedure run(
 		--Put tokens back together.
 		p_transformed_code := method5.plsql_lexer.concatenate(v_tokens);
 
+		--Handle version star by transforming the code from "**" to "*" and setting an explicit column list.
+		version_star_set_code_and_list(p_transformed_code, p_command_name, v_tokens, p_explicit_column_list, p_database_names);
+
 		--Change the output depending on the type.
 		--
 		--Do nothing to SELECT.
 		if p_command_name = 'SELECT' then
-			p_transformed_code := p_transformed_code;
 			p_select_or_plsql := 'SELECT';
-		--Do nothing to PL/SQL.
+		--Do nothing to PL/SQL and CALL METHOD.
 		elsif p_command_name = 'PL/SQL EXECUTE' then
 			p_select_or_plsql := 'PLSQL';
 			p_is_first_column_sortable := false;
+		--CALL METHOD needs to be wrapped in PL/SQL.
+		elsif p_command_name = 'CALL METHOD' then
+			p_select_or_plsql := 'PLSQL';
+			p_is_first_column_sortable := false;
+			p_transformed_code :=
+				replace(replace(
+					q'[
+						begin
+							execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
+							commit;
+						end;
+					]'
+					, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+					, '##CODE##', p_transformed_code);
 		--Raise error if unexpected statement type.
 		elsif p_command_name in ('Invalid', 'Nothing') then
+			--Raise special error if the user makes the somewhat common mistake of submitting SQL*Plus commands.
+			for i in 1 .. v_tokens.count loop
+				--Ignore whitespace and comments.
+				if v_tokens(i).type in (plsql_lexer.c_whitespace, plsql_lexer.c_comment) then
+					null;
+				--Look at concrete tokens for SQL*Plus keywords.
+				elsif upper(v_tokens(i).value) in
+				(
+					'@','@@','ACCEPT','APPEND','ARCHIVE','ATTRIBUTE','BREAK','BTITLE','CHANGE',
+					'CLEAR','COLUMN','COMPUTE','CONNECT','COPY','DEFINE','DEL','DESCRIBE',
+					'DISCONNECT','EDIT','EXECUTE','EXIT','GET','HELP','HISTORY','HOST','INPUT',
+					'LIST','PASSWORD','PAUSE','PRINT','PROMPT','RECOVER','REMARK','REPFOOTER',
+					'REPHEADER','RUN','SAVE','SET','SHOW','SHUTDOWN','SPOOL','START','STARTUP',
+					'STORE','TIMING','TTITLE','UNDEFINE','VARIABLE','WHENEVER','XQUERY'
+				) then
+					raise_application_error(-20004, 'The code is not a valid SQL or PL/SQL statement.'||
+						'  It looks like a SQL*Plus command and Method5 does not yet run SQL*Plus.'||
+						'  Try wrapping the script in a PL/SQL block, like this: begin <statements> end;');
+					exit;
+				--Not SQL*Plus, exit and raise generic error message later.
+				else
+					exit;
+				end if;
+			end loop;
+
+			--Raise a generic error message, not sure what the problem is.
 			raise_application_error(-20014, 'The code submitted does not look like a '||
-				'valid statement.  Fix the syntax and try again.');
-		--Wrap everything else in PL/SQL.
+				'valid SQL or PL/SQL statement.  Fix the syntax and try again.');
+		--Wrap everything else in PL/SQL and handle the feedback message.
 		else
 			p_select_or_plsql := 'PLSQL';
 			p_transformed_code :=
 				replace(replace(replace(
-					v_wrap_template
+					q'[
+						begin
+							execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
+							dbms_output.put_line('M5_FEEDBACK_MESSAGE:COMMAND_NAME=##COMMAND_NAME##;ROWCOUNT='||sql%rowcount);
+							commit;
+						end;
+					]'
 					, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
 					, '##CODE##', p_transformed_code)
 					, '##COMMAND_NAME##', p_command_name);
@@ -1277,6 +1558,7 @@ procedure run(
 		p_table_owner                     varchar2,
 		p_table_name                      varchar2,
 		p_code                            varchar2,
+		p_explicit_column_list     in out varchar2,
 		p_select_or_plsql                 varchar2,
 		p_command_name                    varchar2,
 		p_database_names                  string_table,
@@ -1289,107 +1571,124 @@ procedure run(
 		--For SELECTS create a result table to fit columns.
 		if p_select_or_plsql = 'SELECT' then
 			declare
+				v_create_table_ddl varchar(32767);
+				v_temp_table_name varchar2(128);
+				v_successful_database_index number;
+				v_failed_database_list varchar2(32767);					
+				c_max_database_attempts constant number := 3;
+				v_last_sqlerrm varchar2(32767);
+
 				v_illegal_use_of_long exception;
 				pragma exception_init(v_illegal_use_of_long, -00997);
-				v_create_table_ddl varchar2(32767);
+				v_database_index number := 0;
+				v_retry_counter_for_longs number := 0;
 			begin
-				v_create_table_ddl := '
-					create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
-					select cast(''database name'' as varchar2(30)) database_name, subquery.*
-					from
-					(
-						'||p_code||'
-					) subquery
-					where 1 = 0 and rownum < 0';
+				--Generate a temporary table name.
+				v_temp_table_name := 'm5_temp_table_'||get_sequence_nextval;
 
-				--Try to create the table using the management database.
-				--99% of all queries are for the data dictionary and should work anywhere.
-				execute immediate v_create_table_ddl;
-			--If it already exists, do nothing.
-			exception when v_name_already_used then
-				null;
-			--If there is a LONG, print some useful information about the columns.
-			when v_illegal_use_of_long then
-				declare
-					v_cursor_number integer;
-					v_column_count number;
-					v_columns sys.dbms_sql.desc_tab3;
-					v_unsupported_types varchar2(32767) := 'The SELECT statement contains unsupported data types.'||
-						'  Please remove these columns from the query and try again: ';
-				begin
-					--Parse statement, get columns.
-					v_cursor_number := sys.dbms_sql.open_cursor;
-					sys.dbms_sql.parse(v_cursor_number, p_code, sys.dbms_sql.native);
-					sys.dbms_sql.describe_columns3(v_cursor_number, v_column_count, v_columns);
-
-					--Loop through columns and record unsupported types.
-					for i in 1 .. v_column_count loop
-						if v_columns(i).col_type in (8, 24) then
-							v_unsupported_types := v_unsupported_types ||
-								v_columns(i).col_name || ' ( '||v_columns(i).col_type||' ) ';
-						end if;
-					end loop;
-
-					--Make the type numbers more user-friendly.
-					v_unsupported_types := replace(v_unsupported_types, ' ( 8 ) ', ' (RAW) ');
-					v_unsupported_types := replace(v_unsupported_types, ' ( 24 ) ', ' (LONG RAW) ');
-
-					--Close the cursor and raise an error.
-					sys.dbms_sql.close_cursor(v_cursor_number);
-					raise_application_error(-20019, v_unsupported_types);
-				end;
-			when others then
-				--Raise an error if there are no valid targets.
-				if p_database_names.count = 0 then
-					raise_application_error(-20020, 'The SELECT statement was not valid, please check the syntax.  '||
-						'The SQL raised this error: '||sqlerrm);
+				--Create a table to hold the required table structure.
+				if p_explicit_column_list is null then
+					v_create_table_ddl := '
+						create table '||v_temp_table_name||' nologging pctfree 0 as
+						select cast(''database name'' as varchar2(30)) database_name, subquery.*
+						from
+						(
+							'||p_code||'
+						) subquery
+						where 1 = 0 and rownum < 0';
+				else
+					v_create_table_ddl := '
+						create table '||v_temp_table_name||' nologging pctfree 0 as
+						select cast(''database name'' as varchar2(30)) database_name, '||p_explicit_column_list||'
+						from
+						(
+							'||p_code||'
+						) subquery
+						where 1 = 0 and rownum < 0';
 				end if;
 
-				--Try to create the table on a target database - maybe the objects only exist there.
-				declare
-					v_temp_table_name varchar2(128);
+				--Try to create the temporary table on the first N databases.
+				loop
+					--Increment and test for limits.
+					v_database_index := v_database_index + 1;
+					exit when v_database_index > least(c_max_database_attempts, p_database_names.count);
+
+					--Try to create the table, handle errors.
+					begin
+						--Create the table.
+						execute immediate replace(replace(replace(q'[
+							begin
+								dbms_utility.exec_ddl_statement@m5_##DATABASE_NAME##(q'##QUOTE_DELIMITER1##
+									##CTAS##
+								##QUOTE_DELIMITER1##');
+							end;
+						]'
+						, '##DATABASE_NAME##', p_database_names(v_database_index))
+						, '##CTAS##', v_create_table_ddl)
+						, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
+
+						--Record the successful database index and exit the loop.
+						v_successful_database_index := v_database_index;
+						exit;
+
+					--If it fails on one database we'll try again on another.
+					exception
+					when v_illegal_use_of_long then
+						--Try again with an explicit column list to avoid LONG issues.
+						--But only if it doesn't already have a column list and it hasn't already retried.
+						if p_explicit_column_list is null and v_retry_counter_for_longs = 0 then
+							--Recreate the CTAS based on an explicit column listGet new list
+							p_explicit_column_list := get_explicit_column_list(p_code, p_database_names(v_database_index));
+							v_create_table_ddl := '
+								create table '||v_temp_table_name||' nologging pctfree 0 as
+								select cast(''database name'' as varchar2(30)) database_name, '||p_explicit_column_list||'
+								from
+								(
+									'||p_code||'
+								) subquery
+								where 1 = 0 and rownum < 0';
+
+							--Only try this once.
+							v_retry_counter_for_longs := v_retry_counter_for_longs + 1;
+
+							--Lower the counter to ensure we'll try the database again.
+							v_database_index := v_database_index - 1;
+						--Else it's just another failure for some weird reason.
+						else
+							v_last_sqlerrm := sqlerrm;
+							v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
+						end if;
+					when others then
+						v_last_sqlerrm := sqlerrm;
+						v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
+					end;
+				end loop;
+
+				--Raise an error if none of the databases worked.
+				if v_successful_database_index is null then
+					raise_application_error(-20027, 'The SELECT statement was not valid, please check the syntax'||
+						' and that the objects exist.  The statement was tested on '||substr(v_failed_database_list,2)||
+						'.  If the objects only exist on a small number of'||
+						' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
+						' objects.  The SQL raised this error: '||chr(10)||v_last_sqlerrm);
+				end if;
+
+				--Create a local table based on the remote table.
 				begin
-					--Generate a temporary table name.
-					v_temp_table_name := 'm5_temp_table_'||get_sequence_nextval;
-
-					--Replace the user-selected name with the temporary table name.
-					v_create_table_ddl := replace(
-						v_create_table_ddl,
-						'create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as',
-						'create table '||v_temp_table_name||' nologging pctfree 0 as'
-					);
-
-					--Create the temporary table on the first database.
-					execute immediate replace(replace(replace(q'[
-						begin
-							dbms_utility.exec_ddl_statement@m5_##DATABASE_NAME##(q'##QUOTE_DELIMITER1##
-								##CTAS##
-							##QUOTE_DELIMITER1##');
-						end;
-					]'
-					, '##DATABASE_NAME##', p_database_names(1))
-					, '##CTAS##', v_create_table_ddl)
-					, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
-
-					--Create a local table based on the remote table.
 					execute immediate '
 						create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
-						select * from '||v_temp_table_name||'@m5_'||p_database_names(1);
-
-				--Catch all errors.  We tried on two databases, it's not worth trying again.
-				exception when others then
-					raise_application_error(-20020, 'The SELECT statement was not valid, please check the syntax'||
-						' and that the objects exist.  The statement was tested on '||sys_context('userenv', 'DB_NAME')||
-						' as well as '||p_database_names(1)||'.  If the objects only exist on a small number of'||
-						' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
-						' objects.  The SQL raised this error: '||sqlerrm);
+						select * from '||v_temp_table_name||'@m5_'||p_database_names(v_successful_database_index);
+				--Do nothing if the table already exists.
+				--This can happen if they use "DELETE" or "APPEND".
+				exception when v_name_already_used then
+					null;
 				end;
 			end;
 
 			--Find out if the second column is an unsortable type.
 			select data_type
 			into v_data_type
-			from dba_tab_columns
+			from sys.dba_tab_columns
 			where owner = p_table_owner
 				and table_name = p_table_name
 				and column_id = 2;
@@ -1557,13 +1856,14 @@ procedure run(
 
 	---------------------------------------------------------------------------
 	procedure create_jobs(
-		p_table_owner         varchar2,
-		p_table_name          varchar2,
-		p_code                varchar2,
-		p_select_or_plsql     varchar2,
-		p_links_owned_by_user links_nt,
-		p_database_names      string_table,
-		p_command_name        varchar2
+		p_table_owner          varchar2,
+		p_table_name           varchar2,
+		p_explicit_column_list varchar2,
+		p_code                 varchar2,
+		p_select_or_plsql      varchar2,
+		p_links_owned_by_user  links_nt,
+		p_database_names       string_table,
+		p_command_name         varchar2
 	) is
 		v_code varchar2(32767);
 		v_sequence number;
@@ -1584,12 +1884,13 @@ procedure run(
 			--Build procedure string.
 			begin
 				if p_select_or_plsql = 'SELECT' then
-					v_code := replace(replace(replace(replace(replace(replace(v_select_template
+					v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
 						,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
 						,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+						,'##STAR_OR_EXPLICIT_COLUMN_LIST##', nvl(p_explicit_column_list, '*'))
 						,'##CODE##', p_code);
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
@@ -1869,7 +2170,7 @@ procedure run(
 				--------------------------------------------------------------------------------
 				--Stop all jobs from this run (commented out so you don't run it by accident):
 				-- begin
-				--     method5.m5_pkg.stop_jobs(p_owner => user, p_table_name => '#P_TABLE_NAME#');
+				--   method5.m5_pkg.stop_jobs(p_owner=> user, p_table_name=> '#P_TABLE_NAME#');
 				-- end;
 				-- #SLASH#]'
 			;
@@ -1889,7 +2190,7 @@ procedure run(
 
 		--Set v_table_exists_action.  The option "ERROR" could use some explaining.
 		if upper(p_table_exists_action) = 'ERROR' then
-			v_table_exists_action := p_table_exists_action || ' (An error would have displayed if the table already existed.)';
+			v_table_exists_action := p_table_exists_action || ' (Raise error if table already exists.)';
 		else
 			v_table_exists_action := p_table_exists_action;
 		end if;
@@ -1917,26 +2218,42 @@ procedure run(
 			, '#SLASH#', '/')
 			, chr(9), null);
 
-		--Print message.
-		sys.dbms_output.put_line(v_message);
+		--Print the message.
+		--Split it into individual lines to look better in SQL*Plus.
+		--(SQL*Plus sucks for running Method5 but people will use it anyway.)
+		declare
+			v_line_index number := 0;
+			v_lines string_table := string_table();
+		begin
+			for v_line_index in 1 .. regexp_count(v_message, chr(10))+1 loop
+				v_lines.extend();
+				v_lines(v_lines.count) := regexp_substr(v_message, '^.*$', 1, v_line_index, 'm');
+			end loop;
+
+			for i in 1 .. v_lines.count loop
+				sys.dbms_output.put_line(v_lines(i));
+			end loop;
+		end;
+
 	end print_useful_sql;
 
 --Main procedure.
 begin
 	declare
-		v_start_timestamp  timestamp with time zone := systimestamp;
-		v_transformed_code clob;
-		v_select_or_plsql  varchar2(6); --Will be either "SELECT" or "PLSQL".
+		v_start_timestamp          timestamp with time zone := systimestamp;
+		v_transformed_code         clob;
+		v_select_or_plsql          varchar2(6); --Will be either "SELECT" or "PLSQL".
 		v_is_first_column_sortable boolean;
-		v_command_name varchar2(100);
-		v_table_name varchar2(128);
-		v_table_owner varchar2(128);
-		v_original_targets varchar2(32767) := p_targets;
-		v_processed_targets varchar2(32767);
-		v_table_exists_action varchar2(100) := upper(trim(p_table_exists_action));
-		v_audit_rowid rowid;
-		v_links_owned_by_user links_nt;
-		v_database_names string_table;
+		v_command_name             varchar2(100);
+		v_explicit_column_list     varchar2(32767);
+		v_table_name               varchar2(128);
+		v_table_owner              varchar2(128);
+		v_original_targets         varchar2(32767) := p_targets;
+		v_processed_targets        varchar2(32767);
+		v_table_exists_action      varchar2(100) := upper(trim(p_table_exists_action));
+		v_audit_rowid              rowid;
+		v_links_owned_by_user      links_nt;
+		v_database_names           string_table;
 	begin
 		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
 		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action);
@@ -1948,15 +2265,16 @@ begin
 		synchronize_links;
 		v_links_owned_by_user := get_links(sys_context('userenv', 'session_user'));
 		v_database_names := get_databases_from_targets(v_processed_targets);
+		raise_exception_if_no_targets(v_database_names, v_original_targets, v_processed_targets);
 		check_if_already_running(v_table_name);
-		get_transformed_code_and_type(p_code, v_transformed_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name);
+		get_transformed_code_and_type(p_code, v_database_names, v_transformed_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_explicit_column_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, v_explicit_column_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
 		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_database_names, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, v_transformed_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
+		create_jobs(v_table_owner, v_table_name, v_explicit_column_list, v_transformed_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;

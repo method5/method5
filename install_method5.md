@@ -55,8 +55,8 @@ Run these steps on the management server by a user with the DBA role.
 
 If it's missing, run these steps as SYS to install it:
 
-	SQL> @$ORACLE_HOME/rdbms/admin/utlmail.sql
-	SQL> @$ORACLE_HOME/rdbms/admin/prvtmail.plb
+	SQL> @?/rdbms/admin/utlmail.sql
+	SQL> @?/rdbms/admin/prvtmail.plb
 
 7. Run this SQL to check that SMTP_OUT_SERVER is set.
 
@@ -145,7 +145,7 @@ Run these scripts on the management server as a user with the DBA role, in SQL*P
 
 Run this code on the management server, as a user with the DBA role who is authorized to use Method5.
 
-Replace `&database1` and `&database2` with two configured databases.  Replace '&other_user' with another valid user name.  The tests should output "PASS".
+Replace `&database1` and `&database2` with two configured databases.  (If possible, pick two databases that use a different version of Oracle - that will more thoroughly test all features.)  Replace '&other_user' with another valid user name.  The tests should output "PASS".
 
 	--The tests will run for about a minute and print either "PASS" or "FAIL".
 	set serveroutput on;

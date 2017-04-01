@@ -5,7 +5,7 @@ Method5 User Guide
 
 1. [Introduction to Method5](#introduction)
 2. [Why Do You Need Method5?](#why)
-3. [Feature Summmary](#feature_summary)
+3. [Feature Summary](#feature_summary)
 4. [Function or Procedure](#function_or_procedure)
 5. [Alternative Quoting Mechanism](#alternative_quoting_mechanism)
 6. [Where is the Data Stored?](#where_is_the_data_stored)
@@ -16,10 +16,13 @@ Method5 User Guide
 11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
 12. [M5 Links](#m5_links)
 13. [Global Data Dictionary](#global_data_dictionary)
-14. [Services for Non-DBAs](#services_for_non_dbas)
-15. [Job Timeout](#job_timeout)
-16. [Security](#security)
-17. [Possible Uses](#possible_uses)
+14. [Version Star](#version_star)
+15. [Services for Non-DBAs](#services_for_non_dbas)
+16. [Job Timeout](#job_timeout)
+17. [LONG to CLOB conversion](#long_to_clob_conversion)
+18. [Administrator Daily Status Email](#administrator_daily_status_email)
+19. [Security](#security)
+20. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
@@ -169,10 +172,18 @@ DML, DDL, and other statement types will return a message similar to their SQL*P
 
 `P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
 
-If the value is a SELECT statement it must return only one column that contains the database names.  You may want to use the table M5_DATABASE to find relevant database names.
+The values in a comma-separated list will match any database that shares the same name, host name, line of business, lifecycle status, or cluster name.  Those columns are all configured in the table M5_DATABASE, and may be derived from Oracle Enterprise Manager.
+
+The value may also use the Oracle pattern matching syntax, `%` and `_`.
+
+For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
+
+	p_targets => 'dev,acme,coyote%'
+
+For advanced target list logic you can use a SQL query that returns database names.  You may want to use the table M5_DATABASE to find relevant database names.  For example:
 
 	select * from table(m5(
-		q'[ select * from dual; ]',
+		'select * from dual;',
 		q'[
 			select database_name
 			from m5_database
@@ -187,14 +198,6 @@ If the value is a SELECT statement it must return only one column that contains 
 	porcl234                       X
 	...
 
-If the value is not a SELECT statement then it will be evaluated as a comma-separated list of values.  The values will match any database that shares the same name, host name, line of business, lifecycle status, or cluster name.  Those columns are all configured in M5_DATABASE, and may be derived from Oracle Enterprise Manager.
-
-The value may also use the Oracle pattern matching syntax, `%` and `_`.
-
-For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
-
-	p_targets => 'dev,acme,coyote%'
-
 The value may also use an optional Target Group, which is identified by starting with a `$`.  Target Groups are pre-defined queries so complicated logic doesn't need to be repeated.
 
 For example, it can be tricky to query only one database per ASM instance.  Once you set up the target group with the name `ASM`, it can be used like this:
@@ -202,6 +205,18 @@ For example, it can be tricky to query only one database per ASM instance.  Once
 	select * from table(m5('select * from v$asm_disk', '$asm'));
 
 See `administer_method5.md` for how to setup a Target Group.
+
+Method5 will generate the error ORA-20404 if the target list does not match any configured databases.  If it is acceptable for your processes to occasionally not match any targets you can catch and ignore the exception like this:
+
+	declare
+		v_no_targets_were_found exception;
+		pragma exception_init(v_no_targets_were_found, -20404);
+	begin
+		m5_proc('select * from dual', 'thisDoesntMatchAnything');
+	exception when v_no_targets_were_found then
+		null;
+	end;
+	/
 
 
 <a name="parameter_p_table_name"/>
@@ -255,7 +270,22 @@ Method5 automatically gathers data for some common data dictionary tables.  Thes
 You can add your own easily by following the examples in `code/install_method5_global_data_dictionary.sql`.
 
 
-<a name="job_timeout"/>
+<a name="version_star"/>
+
+## Version Star
+
+Use `**` instead of `*` when querying targets that include multiple versions of Oracle:
+
+	SQL> select * from table(m5('select ** from v$parameter'));
+
+Querying the data dictionary can be tricky when the targets include multiple versions of Oracle.  A regular `*` will return different columns depending on the version.  Which means the query may return either "not enough values" or "too many values" depending on which version is used to determine the column list.
+
+When Method5 sees the version star, `**`, it will automatically scan all the databases in the target list, look at databases using the lowest version, and use them to generate the column list.
+
+The data dictionary is almost always backwards compatible.  The most likely version difference is the `CON_ID` column introduced in 12c.  If there is a mix of 11g and 12c databases, using the version star will ignore the `CON_ID` and other new columns.
+
+
+<a name="#job_timeout"/>
 
 ## Job Timeout
 
@@ -281,6 +311,38 @@ Read-only access to specific query results is fairly straight-forward.  Create a
 DDL and write access is more complicated.  It requires creating a scheduled job to pass authentication and authorization checks, a custom procedure that alters the JOB_ACTION based on input from a user, running the job with `use_current_session => false`, and then waiting and checking the _META table for it to complete.  See the script "Lock User Everywhere.sql" for an example.  *TODO - add script.*
 
 Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 always runs as an individual user, never a generic account.  If that DBA's account is de-activated, their jobs must be dropped and re-created by an active DBA.
+
+
+<a name="long_to_clob_conversion"/>
+
+## LONG to CLOB conversion
+
+LONG columns are automatically converted to CLOBs.  This can make some data dictionary querying simpler since LONGs are so difficult to use.
+
+For example, `DBA_TAB_COLS.DATA_DEFAULT` is a LONG and difficult to query.  Gather the data like this:
+
+	begin
+		m5_proc(
+			p_code       => 'select * from dba_tab_cols where data_default is not null',
+			p_targets    => 'SOME_DB',
+			p_table_name => 'columns_with_defaults'
+		);
+	end;
+	/
+
+Now use the results table to more easily query and filter the `DATA_DEFAULT` column:
+
+	select database_name, owner, table_name, column_name, to_char(data_default)
+	from columns_with_defaults
+	where to_char(data_default) = '0'
+	order by 1,2,3,4;
+
+
+<a name="administrator_daily_status_email"/>
+Administrator Daily Status Email
+--------------------------------
+
+An email is sent to the Method5 administrators every day.  This email contains information about potential problems with Method5 configuration, access, and jobs.  This can be a good extra way to monitor the environment.  Since Method5 connects as a regular user from a remote system it occasionally finds problems that monitoring applications like Oracle Enterprise Manager may miss.
 
 
 <a name="security"/>

@@ -24,6 +24,7 @@ end;
 --Run the unit tests and display the results in dbms output.
 --	P_DATABASE_NAME_1 - The name of a database to use for testing.
 --	P_DATABASE_NAME_2 - The name of a database to use for testing.
+--		To test the version star feature, the two databases should be on different versions of Oracle
 --	P_OTHER_SCHEMA_NAME - The name of a schema to put some temporary tables in to test
 --		the feature where P_TABLE_NAME is set to another user's schema.
 procedure run(
@@ -40,7 +41,36 @@ g_test_count number := 0;
 g_passed_count number := 0;
 g_failed_count number := 0;
 type string_table is table of varchar2(32767);
-g_report string_table := string_table();
+g_report string_table;
+
+
+--------------------------------------------------------------------------------
+function get_version_warning(p_database_name_1 varchar2, p_database_name_2 varchar2) return varchar2 is
+	v_version_1 varchar2(4000);
+	v_version_2 varchar2(4000);
+begin
+	--Get the two versions.
+	select
+		max(case when lower(database_name) = lower(p_database_name_1) then nvl(target_version, 'Not available.') end) version_1,
+		max(case when lower(database_name) = lower(p_database_name_2) then nvl(target_version, 'Not available.') end) version_2
+	into v_version_1, v_version_2
+	from m5_database where lower(database_name) in (lower(p_database_name_1), lower(p_database_name_2));
+
+	--Return results of the comparison.
+	if v_version_1 = 'Not available' then
+		return 'WARNING: Could not find version information for '||p_database_name_1||
+			' in M5_DATABASE.  Using different versions will produce more robust tests.'; 
+	elsif v_version_2 = 'Not available' then
+		return 'WARNING: Could not find version information for '||p_database_name_2||
+			' in M5_DATABASE.  Using different versions will produce more robust tests.'; 
+	elsif v_version_1 = v_version_2 then
+		return 'WARNING: '||p_database_name_1||' and '||p_database_name_2||' have the same '||
+			'version.  Using different versions will produce more robust tests.';
+	else
+		return null;
+	end if;
+end get_version_warning;
+
 
 --------------------------------------------------------------------------------
 procedure assert_equals(p_test nvarchar2, p_expected nvarchar2, p_actual nvarchar2) is
@@ -228,7 +258,6 @@ begin
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end;
 
-
 	begin
 		--Create a table that only exists on your schema in another database.
 		v_test_name := 'P_CODE 3 - Table that only exists in another database.';
@@ -261,6 +290,57 @@ begin
 		assert_equals(v_test_name, v_expected_results,
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end;
+
+	begin
+		v_test_name := 'P_CODE 4 - SQL*Plus commands generate a special error message.';
+		v_expected_results := 'Exception caught: ORA-20004: The code is not a valid SQL or PL/SQL statement.  '||
+			'It looks like a SQL*Plus command and Method5 does not yet run SQL*Plus.  '||
+			'Try wrapping the script in a PL/SQL block, like this: begin <statements> end;';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc('execute some_procedure();', '#DATABASE_1#', p_asynchronous => false);
+			end;
+		]'
+		, '#DATABASE_1#', p_database_name_1);
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
+	begin
+		v_test_name := 'P_CODE 5 - DBMS_OUTPUT from CALL';
+		v_expected_results := p_database_name_1||'-CALL DBMS_OUTPUT test';
+
+		--Create a temporary procedure that only exists on your schema in another database.
+		execute immediate replace(replace(q'[
+			begin
+				dbms_utility.exec_ddl_statement@m5_#DATABASE_1#
+				('
+					create or replace procedure #OWNER#.temp_proc_for_m5_testing is
+					begin
+						dbms_output.put_line(''CALL DBMS_OUTPUT test'');
+					end;
+				');
+			end;
+		]'
+		, '#DATABASE_1#', p_database_name_1)
+		, '#OWNER#', sys_context('userenv', 'current_user'));
+
+		execute immediate replace(replace(q'[
+			select database_name||'-'||result
+			from table(m5(q'!call #OWNER#.temp_proc_for_m5_testing()!', '#DATABASE_1#'))
+		]'
+		, '#DATABASE_1#', p_database_name_1)
+		, '#OWNER#', sys_context('userenv', 'current_user'))
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
 end test_p_code;
 
 
@@ -273,7 +353,7 @@ begin
 	--No targets.
 	begin
 		v_test_name := 'P_TARGETS - No targets';
-		v_expected_results := '0';
+		v_expected_results := 'Exception caught: -20404';
 
 		execute immediate q'[
 			begin
@@ -281,12 +361,9 @@ begin
 			end;
 		]';
 
-		execute immediate q'[select count(*) from m5_results]'
-		into v_actual_results;
-		assert_equals(v_test_name, v_expected_results, v_actual_results);
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
 	exception when others then
-		assert_equals(v_test_name, v_expected_results,
-			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlcode);
 	end;
 
 	--SELECT query.
@@ -577,8 +654,8 @@ procedure test_audit(p_database_name_1 in varchar2, p_database_name_2 in varchar
 begin
 
 	begin
-		v_table_name := get_custom_temp_table_name;
 		v_test_name := 'Audit 1 - From Procedure';
+		v_table_name := get_custom_temp_table_name;
 		v_expected_results := '2-2-0-2';
 
 		execute immediate replace(replace(replace(q'[
@@ -607,8 +684,8 @@ begin
 	end;
 
 	begin
-		v_table_name := get_custom_temp_table_name;
 		v_test_name := 'Audit 1 - From Function';
+		v_table_name := get_custom_temp_table_name;
 		v_expected_results := '1-1-0-1';
 
 		execute immediate replace(replace(q'[
@@ -638,6 +715,171 @@ end test_audit;
 
 
 --------------------------------------------------------------------------------
+procedure test_long(p_database_name_1 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+begin
+	begin
+		v_test_name := 'LONG - Convert LONG to CLOB';
+		--Big assumption!  This column default is not documented.
+		--I'm just guessing it's the same between versions.
+		--If it fails on some versions, any other default will work.
+		v_expected_results := '0 ';
+
+		execute immediate replace(q'[
+			select data_default
+			from table(m5(
+				q'!
+					select data_default
+					from dba_tab_columns
+					where owner = 'SYS'
+						and table_name = 'JOB$'
+						and column_name = 'FLAG'
+				!',
+				'#DATABASE_1#'))
+		]'
+		, '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_long;
+
+
+--------------------------------------------------------------------------------
+procedure test_version_star(p_database_name_1 in varchar2, p_database_name_2 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+	v_table_name varchar2(128);
+begin
+	begin
+		v_test_name := 'Version star 1 - only one version.';
+		v_table_name := get_custom_temp_table_name;
+		v_expected_results := '1-1-0-1';
+
+		execute immediate replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => 'select ** from v$session where rownum = 1',
+					p_targets => '#DATABASE_1#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#TABLE_NAME#', v_table_name);
+
+		execute immediate q'[
+			select targets_expected||'-'||targets_completed||'-'||targets_with_errors||'-'||num_rows
+			from method5.m5_audit
+			where table_name = :v_table_name
+		]'
+		into v_actual_results
+		using v_table_name;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Version star 2 - two different versions.';
+		v_table_name := get_custom_temp_table_name;
+		v_expected_results := '2-2-0-2';
+
+		execute immediate replace(replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => 'select ** from v$session where rownum = 1',
+					p_targets => '#DATABASE_1#,#DATABASE_2#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#DATABASE_2#', p_database_name_2), '#TABLE_NAME#', v_table_name);
+
+		execute immediate q'[
+			select targets_expected||'-'||targets_completed||'-'||targets_with_errors||'-'||num_rows
+			from method5.m5_audit
+			where table_name = :v_table_name
+		]'
+		into v_actual_results
+		using v_table_name;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Version star 3 - two different versions with weird column names and nested **.';
+		v_table_name := get_custom_temp_table_name;
+		v_expected_results := '2-2-0-2';
+
+		execute immediate replace(replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => 'select * from (select ** from (select v$session.*, 1+1 from v$session where rownum = 1)) ',
+					p_targets => '#DATABASE_1#,#DATABASE_2#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#DATABASE_2#', p_database_name_2), '#TABLE_NAME#', v_table_name);
+
+		execute immediate q'[
+			select targets_expected||'-'||targets_completed||'-'||targets_with_errors||'-'||num_rows
+			from method5.m5_audit
+			where table_name = :v_table_name
+		]'
+		into v_actual_results
+		using v_table_name;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Version star 4 - LONG.';
+		v_table_name := get_custom_temp_table_name;
+		v_expected_results := '2-2-0-2';
+
+		execute immediate replace(replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => 'select ** from dba_tab_columns where rownum <= 1',
+					p_targets => '#DATABASE_1#,#DATABASE_2#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#DATABASE_2#', p_database_name_2), '#TABLE_NAME#', v_table_name);
+
+		execute immediate q'[
+			select targets_expected||'-'||targets_completed||'-'||targets_with_errors||'-'||num_rows
+			from method5.m5_audit
+			where table_name = :v_table_name
+		]'
+		into v_actual_results
+		using v_table_name;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_version_star;
+
+
+--------------------------------------------------------------------------------
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
@@ -645,17 +887,26 @@ procedure run(
 ) is
 	v_database_name_1 varchar2(100) := lower(trim(p_database_name_1));
 	v_database_name_2 varchar2(100) := lower(trim(p_database_name_2));
+	v_version_warning varchar2(32767);
 begin
-	--Reset counters.
+	--Reset globals.
 	g_test_count := 0;
 	g_passed_count := 0;
 	g_failed_count := 0;
+	g_report := string_table();
 
 	--Print header.
 	g_report.extend; g_report(g_report.count) := null;
 	g_report.extend; g_report(g_report.count) := '----------------------------------------';
 	g_report.extend; g_report(g_report.count) := 'Method5 Test Summary';
 	g_report.extend; g_report(g_report.count) := '----------------------------------------';
+
+	--Get warning message if the two databases use the same version.
+	v_version_warning := get_version_warning(p_database_name_1, p_database_name_2);
+	if v_version_warning is not null then
+		g_report.extend; g_report(g_report.count) := null;
+		g_report.extend; g_report(g_report.count) := v_version_warning;
+	end if;
 
 	--Run the tests.
 	dbms_output.disable;
@@ -668,6 +919,8 @@ begin
 	test_p_asynchronous(v_database_name_1);
 	test_p_table_exists_action(v_database_name_1);
 	test_audit(v_database_name_1, v_database_name_2);
+	test_long(v_database_name_1);
+	test_version_star(v_database_name_1, v_database_name_2);
 
 	--Re-enable DBMS_OUTPUT.
 	--It had to be suppressed because Method5 prints some information that

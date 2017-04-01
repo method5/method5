@@ -4,6 +4,12 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.3.0 --> 8.4.0: Add version star.
+----------------------------------
+
+1. Run these files to install new packages: /code/m5_pkg.pck, /code/tests/method5_test.pck.
+
+
 8.2.0 --> 8.3.0: Improve admin email, simplify installation.
 ------------------------------------------------------------
 
