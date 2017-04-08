@@ -285,7 +285,7 @@ When Method5 sees the version star, `**`, it will automatically scan all the dat
 The data dictionary is almost always backwards compatible.  The most likely version difference is the `CON_ID` column introduced in 12c.  If there is a mix of 11g and 12c databases, using the version star will ignore the `CON_ID` and other new columns.
 
 
-<a name="#job_timeout"/>
+<a name="job_timeout"/>
 
 ## Job Timeout
 
@@ -339,8 +339,8 @@ Now use the results table to more easily query and filter the `DATA_DEFAULT` col
 
 
 <a name="administrator_daily_status_email"/>
-Administrator Daily Status Email
---------------------------------
+
+## Administrator Daily Status Email
 
 An email is sent to the Method5 administrators every day.  This email contains information about potential problems with Method5 configuration, access, and jobs.  This can be a good extra way to monitor the environment.  Since Method5 connects as a regular user from a remote system it occasionally finds problems that monitoring applications like Oracle Enterprise Manager may miss.
 
