@@ -29,6 +29,7 @@ If you're installing Method5, run these steps in this order:
 
 
 <a name="install_method5_on_remote_database"/>
+
 1: Install Method5 on remote database.
 --------------------------------------
 
@@ -38,6 +39,7 @@ Run this command on the management server as a DBA, but run the output on the re
 
 
 <a name="reset_method5_password"/>
+
 2: Reset Method5 password one-at-a-time.
 ----------------------------------------
 
@@ -47,6 +49,7 @@ Run this command on the management server as a DBA, but then run the output on t
 
 
 <a name="customize_database_links"/>
+
 3: Ad hoc statements to customize database links.
 -------------------------------------------------
 
@@ -58,6 +61,7 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 
 
 <a name="access_control"/>
+
 4: Access control.
 ------------------
 
@@ -82,6 +86,7 @@ Then insert the permitted values into the 2-step authentication table like this:
 
 
 <a name="drop_m5_links"/>
+
 5: Drop M5_ database links for a user.
 --------------------------------------
 
@@ -94,6 +99,7 @@ Drop all links for a user who should no longer have access to Method5.
 
 
 <a name="change_method5_passwords"/>
+
 6: Change Method5 passwords.
 ----------------------------
 
@@ -132,6 +138,7 @@ Check the results below while the background jobs are running.  If there are con
 
 
 <a name="add_and_test_database_links"/>
+
 7: Add and test database links.
 -------------------------------
 
@@ -147,6 +154,7 @@ Check the results, metadata, and errors:
 
 
 <a name="audit_method5_activity"/>
+
 8: Audit Method5 activity.
 --------------------------
 
@@ -173,6 +181,7 @@ Use a query like this to display recent Method5 activity.  (The CLOBs are conver
 
 
 <a name="configure_email_addresses"/>
+
 9: Configure administrator email addresses.
 -------------------------------------------
 
@@ -191,6 +200,7 @@ Add one or more email addresses for a simple intrusion detection system.  This s
 
 
 <a name="configure_target_groups"/>
+
 10: Configure Target Groups.
 ----------------------------
 
