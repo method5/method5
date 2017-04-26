@@ -16,13 +16,14 @@ Method5 User Guide
 11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
 12. [M5 Links](#m5_links)
 13. [Global Data Dictionary](#global_data_dictionary)
-14. [Version Star](#version_star)
-15. [Services for Non-DBAs](#services_for_non_dbas)
-16. [Job Timeout](#job_timeout)
-17. [LONG to CLOB conversion](#long_to_clob_conversion)
-18. [Administrator Daily Status Email](#administrator_daily_status_email)
-19. [Security](#security)
-20. [Possible Uses](#possible_uses)
+14. [Version Star - Column Differences Between Versions](#version_star)
+15. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
+16. [Services for Non-DBAs](#services_for_non_dbas)
+17. [Job Timeout](#job_timeout)
+18. [LONG to CLOB conversion](#long_to_clob_conversion)
+19. [Administrator Daily Status Email](#administrator_daily_status_email)
+20. [Security](#security)
+21. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
@@ -272,20 +273,72 @@ You can add your own easily by following the examples in `code/install_method5_g
 
 <a name="version_star"/>
 
-## Version Star
+## Version Star - Column Differences Between Versions
 
-Use `**` instead of `*` when querying targets that include multiple versions of Oracle:
+Using `**` instead of `*` when querying targets that include multiple versions of Oracle can avoid problems with column differences:
 
 	SQL> select * from table(m5('select ** from v$parameter'));
 
-Querying the data dictionary can be tricky when the targets include multiple versions of Oracle.  A regular `*` will return different columns depending on the version.  Which means the query may return either "not enough values" or "too many values" depending on which version is used to determine the column list.
+Querying the data dictionary can be tricky when the targets include multiple versions of Oracle.  A regular `*` will return different columns depending on the version.  Which means the process may throw either "not enough values" or "too many values" depending on which version is used to determine the column list.
 
-When Method5 sees the version star, `**`, it will automatically scan all the databases in the target list, look at databases using the lowest version, and use them to generate the column list.
+When Method5 sees the version star, `**`, it will automatically scan all the databases in the target list, look at databases using the lowest version, and use one of them to generate the column list.
 
 The data dictionary is almost always backwards compatible.  The most likely version difference is the `CON_ID` column introduced in 12c.  If there is a mix of 11g and 12c databases, using the version star will ignore the `CON_ID` and other new columns.
 
 
-<a name="job_timeout"/>
+<a name="dbms_xmlgen.getxml"/>
+
+## DBMS_XMLGEN.GETXML - Table Differences Between Versions
+
+Rarely a version difference makes it necessary to query different tables depending on the database version.  This complex situation can be solved with DBMS_XMLGEN.GETXML.
+
+The below code reads the latest patch from each database.  Due to an Oracle bug the data is not available in the same tables in 11g and 12c.  The function DBMS_XMLGEN.GETXML provides a way to conditionally run SQL.
+
+	begin
+		m5_proc(
+			p_table_name			=> 'patch_data',
+			p_targets				=> 'DEV',
+			p_table_exists_action	=> 'drop',
+			p_code					=> q'[
+				--Get patch data from any version of Oracle.
+				--Due to bug 25269268 the table DBA_REGISTRY_HISTORY is not populated in 12c.
+				--To workaround this we must query the 12c-only table DBA_REGISTRY_SQLPATCH.
+				--That requires using DBMS_XMLGEN.GETXML which can handle non-existing objects.
+
+				--11g table always exists, but may be empty in 12c.
+				select comments description, action_time
+				from dba_registry_history
+
+				union all
+
+				--12c table doesn't exist in 11g.  Only query it when it's available.
+				select description, to_date(action_time, 'YYYY-MM-DD HH24:MI:SS') action_time
+				from
+				(
+					select xmltype(dbms_xmlgen.getxml(q'!
+						select
+							description,
+							to_char(action_time, 'YYYY-MM-DD HH24:MI:SS') action_time
+						from dba_registry_sqlpatch
+					!')) xml_results
+					from dba_views
+					where owner = 'SYS' and view_name = 'DBA_REGISTRY_SQLPATCH'
+				) cross join
+				xmltable
+				(
+					'/ROWSET/ROW'
+					passing xml_results
+					columns
+						description varchar2(4000) path 'DESCRIPTION',
+						action_time varchar2(4000) path 'ACTION_TIME'
+				)
+			]'
+		);
+	end;
+	/
+
+
+<a name="#job_timeout"/>
 
 ## Job Timeout
 
@@ -339,8 +392,8 @@ Now use the results table to more easily query and filter the `DATA_DEFAULT` col
 
 
 <a name="administrator_daily_status_email"/>
-
-## Administrator Daily Status Email
+Administrator Daily Status Email
+--------------------------------
 
 An email is sent to the Method5 administrators every day.  This email contains information about potential problems with Method5 configuration, access, and jobs.  This can be a good extra way to monitor the environment.  Since Method5 connects as a regular user from a remote system it occasionally finds problems that monitoring applications like Oracle Enterprise Manager may miss.
 
