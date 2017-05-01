@@ -4,7 +4,7 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
-8.3.0 --> 8.4.0: Added 12.2 support.
+8.4.0 --> 8.5.1: Added 12.2 support.
 ------------------------------------
 
 1. Download new code and run these commands to install new versions of the components METHOD4 and PLSQL_LEXER:

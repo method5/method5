@@ -50,6 +50,44 @@ end assert_equals;
 
 --------------------------------------------------------------------------------
 procedure test_simple is
+	procedure test_small_identifiers is
+	begin
+		declare
+			actual number;
+		begin
+			execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
+			into actual;
+			assert_equals('Long, default column name with 30 bytes.', '1', actual);
+		end;
+
+		declare
+			actual number;
+		begin
+			execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
+			into actual;
+			assert_equals('Long, default column name with > 30 bytes.', '1', actual);
+		end;
+	end test_small_identifiers;
+
+	procedure test_long_identifiers is
+	begin
+		declare
+			actual number;
+		begin
+			execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
+			into actual;
+			assert_equals('Long, default column name with 30 bytes.', '1', actual);
+		end;
+
+		declare
+			actual number;
+		begin
+			execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
+			into actual;
+			assert_equals('Long, default column name with > 30 bytes.', '1', actual);
+		end;
+	end test_long_identifiers;
+
 begin
 	--Simple.
 	declare
@@ -75,21 +113,17 @@ begin
 	end;
 
 	--Long column names.
-	declare
-		actual number;
-	begin
-		execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
-		into actual;
-		assert_equals('Long, default column name with 30 bytes.', '1', actual);
-	end;
-
-	declare
-		actual number;
-	begin
-		execute immediate q'<select * from table(method4.query('select count(*)+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0+0 from dba_users where rownum = 1'))>'
-		into actual;
-		assert_equals('Long, default column name with > 30 bytes.', '1', actual);
-	end;
+	-- Test 30 bytes in 12.1 and lower.
+	$IF DBMS_DB_VERSION.ver_le_10 $THEN
+		test_small_identifiers;
+	$ELSIF DBMS_DB_VERSION.ver_le_11 $THEN
+		test_small_identifiers;
+	$ELSIF DBMS_DB_VERSION.ver_le_12_1 $THEN
+		test_small_identifiers;
+	-- Test 128 bytes in 12.2 and higher.
+	$ELSE
+		test_long_identifiers;
+	$END
 
 end test_simple;
 
