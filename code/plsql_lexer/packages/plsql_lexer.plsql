@@ -141,6 +141,14 @@ C_PREPROCESSOR_CONTROL_TOKEN constant varchar2(26) := 'preprocessor_control_toke
 C_EOF                        constant varchar2(26) := 'EOF';
 C_unexpected                 constant varchar2(10) := 'unexpected';
 
+/*
+Note:
+	"#" is not included.
+	The XMLSchema_spec clause in the manual implies that "#" is valid syntax but
+	testing shows that the "#" must still be enclosed in double quotes.
+
+*/
+
 end;
 /
 create or replace package body plsql_lexer is

@@ -115,8 +115,15 @@ begin
 			p_success_message := 'keystore altered.';
 		elsif p_command_name = 'ALTER DISK GROUP' then
 			p_success_message := 'Diskgroup altered.';
+		elsif p_command_name = 'ALTER INMEMORY JOIN GROUP' then
+			p_success_message := 'Join group altered.';
+		elsif p_command_name = 'ALTER LOCKDOWN PROFILE' then
+			p_success_message := 'Lockdown Profile altered.';
 		elsif p_command_name = 'ALTER MATERIALIZED VIEW ' then
 			p_success_message := 'Materialized view altered.';
+		elsif p_command_name = 'ALTER TABLESPACE SET' then
+			--TODO: I'm not 100% sure about this.
+			p_success_message := 'Tablespace altered.';
 		elsif p_command_name = 'ANALYZE CLUSTER' then
 			p_success_message := 'Cluster analyzed.';
 		elsif p_command_name = 'ANALYZE INDEX' then
@@ -135,12 +142,18 @@ begin
 			p_success_message := 'Commit complete.';
 		elsif p_command_name = 'CREATE DISK GROUP' then
 			p_success_message := 'Diskgroup created.';
+		elsif p_command_name = 'CREATE INMEMORY JOIN GROUP' then
+			p_success_message := 'Join group created.';
+		elsif p_command_name = 'CREATE LOCKDOWN PROFILE' then
+			p_success_message := 'Lockdown Profile created.';
 		elsif p_command_name = 'CREATE MATERIALIZED VIEW ' then
 			p_success_message := 'Materialized view created.';
 		elsif p_command_name = 'CREATE PFILE' then
 			p_success_message := 'File created.';
 		elsif p_command_name = 'CREATE SPFILE' then
 			p_success_message := 'File created.';
+		elsif p_command_name = 'CREATE TABLESPACE SET' then
+			p_success_message := 'Tablespace created.';
 		elsif p_command_name = 'DELETE' then
 			if p_rowcount is null then
 				p_success_message := 'ERROR: Unknown number of rows deleted.';
@@ -155,10 +168,17 @@ begin
 			p_success_message := 'Audit Policy dropped.';
 		elsif p_command_name = 'DROP DISK GROUP' then
 			p_success_message := 'Diskgroup dropped.';
+		elsif p_command_name = 'DROP INMEMORY JOIN GROUP' then
+			p_success_message := 'Join group deleted.';
+		elsif p_command_name = 'DROP LOCKDOWN PROFILE' then
+			p_success_message := 'Lockdown Profile dropped.';
 		elsif p_command_name = 'DROP MATERIALIZED VIEW  LOG' then
 			p_success_message := 'Materialized view log dropped.';
 		elsif p_command_name = 'DROP MATERIALIZED VIEW ' then
 			p_success_message := 'Materialized view dropped.';
+		elsif p_command_name = 'DROP TABLESPACE SET' then
+			--TODO: I'm not 100% sure about this.
+			p_success_message := 'Tablespace dropped.';
 		elsif p_command_name = 'EXPLAIN' then
 			p_success_message := 'Explained.';
 		elsif p_command_name = 'FLASHBACK DATABASE' then
@@ -188,6 +208,9 @@ begin
 		elsif p_command_name = 'PURGE TABLE' then
 			p_success_message := 'Table purged.';
 		elsif p_command_name = 'PURGE TABLESPACE' then
+			p_success_message := 'Tablespace purged.';
+		elsif p_command_name = 'PURGE TABLESPACE SET' then
+			--TODO: I'm not 100% sure about this.
 			p_success_message := 'Tablespace purged.';
 		elsif p_command_name = 'PURGE USER RECYCLEBIN' then
 			p_success_message := 'Recyclebin purged.';
@@ -256,12 +279,17 @@ begin
 
 
 		--Get compile warning message for PL/SQL objects
-		if p_command_name like 'ALTER%'
+		if p_command_name = 'ALTER ANALYTIC VIEW' then
+			p_compile_warning_message := 'Warning: Analytic view altered with compilation errors.';
+		elsif p_command_name = 'ALTER ATTRIBUTE DIMENSION' then
+			p_compile_warning_message := 'Warning: Attribute dimension altered with compilation errors.';
+		elsif p_command_name like 'ALTER%'
 			and
 			(
 				p_command_name like '%ASSEMBLY' or
 				p_command_name like '%DIMENSION' or
 				p_command_name like '%FUNCTION' or
+				p_command_name like '%HIERARCHY' or
 				p_command_name like '%JAVA' or
 				p_command_name like '%LIBRARY' or
 				p_command_name like '%PACKAGE' or
@@ -274,6 +302,10 @@ begin
 			) then
 				p_compile_warning_message := 'Warning: '||initcap(replace(p_command_name, 'ALTER '))
 					||' altered with compilation errors.';
+		elsif p_command_name = 'CREATE ANALYTIC VIEW' then
+			p_compile_warning_message := 'Warning: Analytic view created with compilation errors.';
+		elsif p_command_name = 'CREATE ATTRIBUTE DIMENSION' then
+			p_compile_warning_message := 'Warning: Attribute dimension created with compilation errors.';
 		elsif p_command_name like 'CREATE%'
 			and
 			(
@@ -283,6 +315,7 @@ begin
 				--For example if a column was changed since it was created.
 				--p_command_name like '%DIMENSION' or
 				p_command_name like '%FUNCTION' or
+				p_command_name like '%HIERARCHY' or
 				p_command_name like '%JAVA' or
 				p_command_name like '%LIBRARY' or
 				p_command_name like '%PACKAGE' or

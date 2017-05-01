@@ -131,15 +131,17 @@ CREATE OR REPLACE PACKAGE method4 AS
    , length    PLS_INTEGER
    , csid      PLS_INTEGER
    , csfrm     PLS_INTEGER
-   , schema    VARCHAR2(30)
+   , schema    VARCHAR2(128)
    , type      ANYTYPE
-   --This must be 31, not 30.
-   --For weird column names ANYTYPE.GetAttrElemInfo returns 31 bytes instead of 30.
-   , name      VARCHAR2(31)
+   --This must be 129, not 128.
+   --For weird column names ANYTYPE.GetAttrElemInfo returns 129 bytes instead of 128.
+   --(It did something similar in previous versions with the 30 byte limit.  In past
+   -- versions this value had to be 31 instead of 30.)
+   , name      VARCHAR2(129)
    , version   VARCHAR2(30)
    , attr_cnt  PLS_INTEGER
    , attr_type ANYTYPE
-   , attr_name VARCHAR2(128)
+   , attr_name VARCHAR2(129)
    , typecode  PLS_INTEGER
    );
 

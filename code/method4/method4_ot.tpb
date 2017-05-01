@@ -33,7 +33,12 @@ CREATE OR REPLACE TYPE BODY method4_ot AS
                           --If the length is more than 30 the query will generate the error
                           --"ORA-00902: invalid datatype" without a line number.
                           --I'm not sure why or where it breaks, but this fixes it.
-                          substr(r_sql.description(i).col_name, 1, 30),
+                          $IF DBMS_DB_VERSION.ver_le_10 or DBMS_DB_VERSION.ver_le_11 or DBMS_DB_VERSION.ver_le_12_1 $THEN
+                             substr(r_sql.description(i).col_name, 1, 30),
+                          --In 12.2 the same logic applies, but for 128 bytes instead of 30.
+                          $ELSE
+                             substr(r_sql.description(i).col_name, 1, 128),
+                          $END
                           CASE
                              --<>--
                              WHEN r_sql.description(i).col_type IN (1,96,11,208)

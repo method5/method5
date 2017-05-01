@@ -4,6 +4,22 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.3.0 --> 8.4.0: Added 12.2 support.
+------------------------------------
+
+1. Download new code and run these commands to install new versions of the components METHOD4 and PLSQL_LEXER:
+
+	alter session set current_schema=method5;
+
+	@code\plsql_lexer\packages\plsql_lexer.plsql
+	@code\plsql_lexer\packages\statement_classifier.plsql
+	@code\plsql_lexer\packages\statement_feedback.plsql
+
+	@code\method4\method4.spc
+	@code\method4\method4_dynamic_ot.tpb
+	@code\method4\method4_ot.tpb
+
+
 8.3.0 --> 8.4.0: Add version star.
 ----------------------------------
 

@@ -178,9 +178,13 @@ begin
 	--The results come from running commands in SQL*Plus.
 	feedback(q'[/*comment*/ adMINister /*asdf*/ kEy manaGEment create keystore 'asdf' identified by qwer]', v_success, v_warning); assert_equals('ADMINISTER KEY MANAGEMENT', 'keystore altered.|', v_success||'|'||v_warning);
 
+	feedback(q'[ alter analytic view emp_sales_av compile;]', v_success, v_warning); assert_equals('ALTER ANALYTIC VIEW', 'Analytic view altered.|Warning: Analytic view altered with compilation errors.', v_success||'|'||v_warning);
+
 	--I can't find a single real "alter assembly" command on Google so I'm guessing at the success message.
 	--It's possible to create the warning with "alter assembly some_assembly compile;".
 	feedback(q'[ alter assemBLY /*I don't think this is a real command but whatever*/]', v_success, v_warning); assert_equals('ALTER ASSEMBLY', 'Assembly altered.|Warning: Assembly altered with compilation errors.', v_success||'|'||v_warning);
+
+	feedback(q'[ alter attribute dimension mydim compile;]', v_success, v_warning); assert_equals('ALTER ATTRIBUTE DIMENSION', 'Attribute dimension altered.|Warning: Attribute dimension altered with compilation errors.', v_success||'|'||v_warning);
 
 	feedback(q'[ ALTEr AUDIt POLICY myPOLICY drop roles myRole; --comment]', v_success, v_warning); assert_equals('ALTER AUDIT POLICY', 'Audit policy altered.|', v_success||'|'||v_warning);
 
@@ -202,13 +206,19 @@ begin
 
 	feedback(q'[ALTER FUNCTION myschema.myfunction compile;]', v_success, v_warning); assert_equals('ALTER FUNCTION', 'Function altered.|Warning: Function altered with compilation errors.', v_success||'|'||v_warning);
 
+	feedback(q'[alter hierarchy myhieararchy compile;]', v_success, v_warning); assert_equals('ALTER HIERARCHY', 'Hierarchy altered.|Warning: Hierarchy altered with compilation errors.', v_success||'|'||v_warning);
+
 	feedback(q'[ alter index asdf rebuild parallel 8]', v_success, v_warning); assert_equals('ALTER INDEX', 'Index altered.|', v_success||'|'||v_warning);
+
+	feedback(q'[ ALTER INMEMORY JOIN GROUP imjg add (test1(b));]', v_success, v_warning); assert_equals('ALTER INMEMORY JOIN GROUP', 'Join group altered.|', v_success||'|'||v_warning);
 
 	feedback(q'[ALTER INDEXTYPE  my_schema.my_indextype compile;]', v_success, v_warning); assert_equals('ALTER INDEXTYPE', 'Indextype altered.|', v_success||'|'||v_warning);
 
 	feedback(q'[ALTER java  source my_schema.some_object compile;]', v_success, v_warning); assert_equals('ALTER JAVA', 'Java altered.|Warning: Java altered with compilation errors.', v_success||'|'||v_warning);
 
 	feedback(q'[alter library test_library editionable compile;]', v_success, v_warning); assert_equals('ALTER LIBRARY', 'Library altered.|Warning: Library altered with compilation errors.', v_success||'|'||v_warning);
+
+	feedback(q'[ALTER LOCKDOWN PROFILE compile;]', v_success, v_warning); assert_equals('ALTER LOCKDOWN PROFILE', 'Lockdown Profile altered.|', v_success||'|'||v_warning);
 
 	--Unlike most ALTERS with a COMPILE option, MATERIALIZED VIEWS will not display a warning if it is invalid.
 	feedback(q'[ALTER  MATERIALIZED  VIEW a_schema.mv_name cache consider fresh;]', v_success, v_warning); assert_equals('ALTER MATERIALIZED VIEW ', 'Materialized view altered.|', v_success||'|'||v_warning);
@@ -275,6 +285,8 @@ begin
 
 	feedback(q'[ALTER TABLESPACE some_tbs coalesce]', v_success, v_warning); assert_equals('ALTER TABLESPACE', 'Tablespace altered.|', v_success||'|'||v_warning);
 
+	feedback(q'[ALTER TABLESPACE SET my_set begin backup]', v_success, v_warning); assert_equals('ALTER TABLESPACE SET', 'Tablespace altered.|', v_success||'|'||v_warning);
+
 	--Undocumented by still runs in 12.1.0.2.
 	feedback(q'[ALTER TRACING enable;]', v_success, v_warning); assert_equals('ALTER TRACING', 'Tracing altered.|', v_success||'|'||v_warning);
 
@@ -330,9 +342,13 @@ begin
 	feedback(q'[ commit work comment 'some comment' write wait batch]', v_success, v_warning); assert_equals('COMMIT', 'Commit complete.|', v_success||'|'||v_warning);
 	feedback(q'[COMMIT force corrupt_xid_all]', v_success, v_warning); assert_equals('COMMIT', 'Commit complete.|', v_success||'|'||v_warning);
 
+	feedback(q'[Create or Replace force Analytic View emp_sales_av2 Using emp_sales2 Dimension By ...]', v_success, v_warning); assert_equals('COMMIT', 'Analytic view created.|Warning: Analytic view created with compilation errors.', v_success||'|'||v_warning);
+
 	--Is this a real command?  http://dba.stackexchange.com/questions/96002/what-is-an-oracle-assembly/
 	feedback(q'[create or replace assembly some_assembly is 'some string';
 	/]', v_success, v_warning); assert_equals('CREATE ASSEMBLY', 'Assembly created.|Warning: Assembly created with compilation errors.', v_success||'|'||v_warning);
+
+	feedback(q'[create or replace force attribute dimension date_dim using ...]', v_success, v_warning); assert_equals('CREATE ATTRIBUTE DIMENSION', 'Attribute dimension created.|Warning: Attribute dimension created with compilation errors.', v_success||'|'||v_warning);
 
 	feedback(q'[CREATE AUDIT POLICY my_policy actions update on oe.orders]', v_success, v_warning); assert_equals('CREATE AUDIT POLICY', 'Audit policy created.|', v_success||'|'||v_warning);
 
@@ -372,12 +388,16 @@ begin
 	feedback(q'[CREATE editionable FUNCTION my_schema.my_function() return number is begin return 1; end; /]', v_success, v_warning); assert_equals('CREATE FUNCTION 5', 'Function created.|Warning: Function created with compilation errors.', v_success||'|'||v_warning);
 	feedback(q'[CREATE noneditionable FUNCTION my_schema.my_function() return number is begin return 1; end; /]', v_success, v_warning); assert_equals('CREATE FUNCTION 6', 'Function created.|Warning: Function created with compilation errors.', v_success||'|'||v_warning);
 
+	feedback(q'[Create or replace force Hierarchy calendar_hier Using date_dim (cal_year);]', v_success, v_warning); assert_equals('CREATE HIERARCHY', 'Hierarchy created.|Warning: Hierarchy created with compilation errors.', v_success||'|'||v_warning);
+
 	feedback(q'[CREATE INDEX on table1(a);]', v_success, v_warning); assert_equals('CREATE INDEX', 'Index created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE unique INDEX on table1(a);]', v_success, v_warning); assert_equals('CREATE INDEX', 'Index created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE bitmap INDEX on table1(a);]', v_success, v_warning); assert_equals('CREATE INDEX', 'Index created.|', v_success||'|'||v_warning);
 
 	feedback(q'[CREATE INDEXTYPE my_schema.my_indextype for indtype(a number) using my_type;]', v_success, v_warning); assert_equals('CREATE INDEXTYPE', 'Indextype created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE or replace INDEXTYPE my_schema.my_indextype for indtype(a number) using my_type;]', v_success, v_warning); assert_equals('CREATE INDEXTYPE', 'Indextype created.|', v_success||'|'||v_warning);
+
+	feedback(q'[CREATE INMEMORY JOIN GROUP imjg (test1(a), test1(a));]', v_success, v_warning); assert_equals('CREATE INMEMORY JOIN GROUP', 'Join group created.|', v_success||'|'||v_warning);
 
 	--12 combinations of initial keywords.  COMPILE is optional here, but not elsewhere so it requires special handling.
 	feedback(q'[CREATE and resolve noforce JAVA CLASS USING BFILE (java_dir, 'Agent.class') --]'||chr(10)||'/', v_success, v_warning); assert_equals('CREATE JAVA', 'Java created.|Warning: Java created with compilation errors.', v_success||'|'||v_warning);
@@ -399,6 +419,8 @@ begin
 	feedback(q'[CREATE or replace noneditionable LIBRARY ext_lib AS 'ddl_1' IN ddl_dir;]'||chr(10)||'/', v_success, v_warning); assert_equals('CREATE LIBRARY', 'Library created.|Warning: Library created with compilation errors.', v_success||'|'||v_warning);
 	feedback(q'[CREATE editionable LIBRARY ext_lib AS 'ddl_1' IN ddl_dir;]'||chr(10)||'/', v_success, v_warning); assert_equals('CREATE LIBRARY', 'Library created.|Warning: Library created with compilation errors.', v_success||'|'||v_warning);
 	feedback(q'[CREATE noneditionable LIBRARY ext_lib AS 'ddl_1' IN ddl_dir;]'||chr(10)||'/', v_success, v_warning); assert_equals('CREATE LIBRARY', 'Library created.|Warning: Library created with compilation errors.', v_success||'|'||v_warning);
+
+	feedback(q'[create lockdown profile some_profile]'||chr(10)||'/', v_success, v_warning); assert_equals('CREATE LOCKDOWN PROFILE', 'Lockdown Profile created.|', v_success||'|'||v_warning);
 
 	feedback(q'[CREATE MATERIALIZED VIEW my_mv as select 1 a from dual;]', v_success, v_warning); assert_equals('CREATE MATERIALIZED VIEW ', 'Materialized view created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE SNAPSHOT my_mv as select 1 a from dual;]', v_success, v_warning); assert_equals('CREATE MATERIALIZED VIEW ', 'Materialized view created.|', v_success||'|'||v_warning);
@@ -478,8 +500,12 @@ begin
 	feedback(q'[CREATE or replace noneditionable SYNONYM my_synonym for other_schema.some_object@some_link;]', v_success, v_warning); assert_equals('CREATE SYNONYM', 'Synonym created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE or replace noneditionable public SYNONYM my_synonym for other_schema.some_object@some_link;]', v_success, v_warning); assert_equals('CREATE SYNONYM', 'Synonym created.|', v_success||'|'||v_warning);
 
-	feedback(q'[CREATE TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE', 'Table created.|', v_success||'|'||v_warning);
-	feedback(q'[CREATE global temporary TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE', 'Table created.|', v_success||'|'||v_warning);
+	feedback(q'[CREATE TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE 1', 'Table created.|', v_success||'|'||v_warning);
+	feedback(q'[CREATE global temporary TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE 2', 'Table created.|', v_success||'|'||v_warning);
+	feedback(q'[CREATE sharded TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE 3', 'Table created.|', v_success||'|'||v_warning);
+	feedback(q'[CREATE duplicated TABLE my_table(a number);]', v_success, v_warning); assert_equals('CREATE TABLE 4', 'Table created.|', v_success||'|'||v_warning);
+
+	feedback(q'[CREATE TABLESPACE SET myset in shardspace ss1 using template(datafile size 1g)]', v_success, v_warning); assert_equals('CREATE TABLESPACE SET', 'Tablespace created.|', v_success||'|'||v_warning);
 
 	feedback(q'[CREATE TABLESPACE my_tbs datafile '+mydg' size 100m autoextend on;]', v_success, v_warning); assert_equals('CREATE TABLESPACE', 'Tablespace created.|', v_success||'|'||v_warning);
 	feedback(q'[CREATE bigfile TABLESPACE my_tbs datafile '+mydg' size 100m autoextend on;]', v_success, v_warning); assert_equals('CREATE TABLESPACE', 'Tablespace created.|', v_success||'|'||v_warning);
@@ -555,7 +581,11 @@ begin
 
 	feedback(q'[DISASSOCIATE STATISTICS from columns mytable.a force;]', v_success, v_warning); assert_equals('DISASSOCIATE STATISTICS', 'Statistics disassociated.|', v_success||'|'||v_warning);
 
+	feedback(q'[drop analytic view myview;]', v_success, v_warning); assert_equals('DROP ANALYTIC VIEW', 'Analytic view dropped.|', v_success||'|'||v_warning);
+
 	feedback(q'[DROP ASSEMBLY my_assembly]', v_success, v_warning); assert_equals('DROP ASSEMBLY', 'Assembly dropped.|', v_success||'|'||v_warning);
+
+	feedback(q'[DROP ATTRIBUTE DIMENSION my_attribute_dimension]', v_success, v_warning); assert_equals('DROP ATTRIBUTE DIMENSION', 'Attribute dimension dropped.|', v_success||'|'||v_warning);
 
 	feedback(q'[DROP AUDIT POLICY my_policy;]', v_success, v_warning); assert_equals('DROP AUDIT POLICY', 'Audit Policy dropped.|', v_success||'|'||v_warning);
 
@@ -584,13 +614,19 @@ begin
 
 	feedback(q'[DROP FUNCTION my_schema.my_function;]', v_success, v_warning); assert_equals('DROP FUNCTION', 'Function dropped.|', v_success||'|'||v_warning);
 
+	feedback(q'[drop hierarchy my_hierarchy]', v_success, v_warning); assert_equals('DROP HIERARCHY', 'Hierarchy dropped.|', v_success||'|'||v_warning);
+
 	feedback(q'[DROP INDEX my_schema.my_index online force;]', v_success, v_warning); assert_equals('DROP INDEX', 'Index dropped.|', v_success||'|'||v_warning);
 
 	feedback(q'[DROP INDEXTYPE my_indextype force;]', v_success, v_warning); assert_equals('DROP INDEXTYPE', 'Indextype dropped.|', v_success||'|'||v_warning);
 
+	feedback(q'[drop inmemory join group my injg]', v_success, v_warning); assert_equals('DROP INMEMORY JOIN GROUP', 'Join group deleted.|', v_success||'|'||v_warning);
+
 	feedback(q'[DROP JAVA resourse some_resource;]', v_success, v_warning); assert_equals('DROP JAVA', 'Java dropped.|', v_success||'|'||v_warning);
 
 	feedback(q'[DROP LIBRARY my_library]', v_success, v_warning); assert_equals('DROP LIBRARY', 'Library dropped.|', v_success||'|'||v_warning);
+
+	feedback(q'[DROP LOCKDOWN PROFILE some_profile]', v_success, v_warning); assert_equals('DROP LOCKDOWN PROFILE', 'Lockdown Profile dropped.|', v_success||'|'||v_warning);
 
 	--Commands have an extra space in them.
 	feedback(q'[DROP MATERIALIZED VIEW my_mv preserve table]', v_success, v_warning); assert_equals('DROP MATERIALIZED VIEW', 'Materialized view dropped.|', v_success||'|'||v_warning);
@@ -636,6 +672,8 @@ begin
 	feedback(q'[DROP public SYNONYM my_synonym]', v_success, v_warning); assert_equals('DROP SYNONYM', 'Synonym dropped.|', v_success||'|'||v_warning);
 
 	feedback(q'[DROP TABLE my_schema.my_table cascade constraints purge]', v_success, v_warning); assert_equals('DROP TABLE', 'Table dropped.|', v_success||'|'||v_warning);
+
+	feedback(q'[DROP TABLESPACE SET my_set]', v_success, v_warning); assert_equals('DROP TABLESPACE SET', 'Tablespace dropped.|', v_success||'|'||v_warning);
 
 	feedback(q'[DROP TABLESPACE my_tbs including contents and datafiles cascade constraints;]', v_success, v_warning); assert_equals('DROP TABLESPACE', 'Tablespace dropped.|', v_success||'|'||v_warning);
 
@@ -688,6 +726,8 @@ begin
 	feedback(q'[PURGE INDEX my_index]', v_success, v_warning); assert_equals('PURGE INDEX', 'Index purged.|', v_success||'|'||v_warning);
 
 	feedback(q'[PURGE TABLE my_table]', v_success, v_warning); assert_equals('PURGE TABLE', 'Table purged.|', v_success||'|'||v_warning);
+
+	feedback(q'[PURGE TABLESPACE SET my_set]', v_success, v_warning); assert_equals('PURGE TABLESPACE SET', 'Tablespace purged.|', v_success||'|'||v_warning);
 
 	feedback(q'[PURGE TABLESPACE my_tbs user my_user]', v_success, v_warning); assert_equals('PURGE TABLESPACE', 'Tablespace purged.|', v_success||'|'||v_warning);
 

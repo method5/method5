@@ -1,4 +1,4 @@
-Method5 v8.4.0
+Method5 v8.5.0
 ==============
 
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets database administrators easily run SQL statements quickly and securely on hundreds of databases.
