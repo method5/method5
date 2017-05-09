@@ -26,8 +26,8 @@ begin
 	method5.compare_everything_everywhere(
 		--The schema to compare:
 		p_schema_name   => '&SCHEMA',
-		--Database list generated from above step.
-		--For exampe:   'birpif11','birpim11'
+		--Database target list generated from above step.
+		--For exampe:   acmedb1,acmedb2
 		p_database_list => '&DATABASE_LIST_FROM_STEP_1'
 	);
 end;
