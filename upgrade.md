@@ -4,6 +4,13 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.5.1 --> 8.6.0: Added M5_SYNCH_USER.
+-------------------------------------
+
+1. Run these files to install new packages: /code/m5_synch_user.prc
+2. Run this command to create a public synonym:
+	create public synonym m5_synch_user for method5.m5_synch_user;
+
 8.4.0 --> 8.5.1: Added 12.2 support.
 ------------------------------------
 
@@ -18,7 +25,6 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 	@code\method4\method4.spc
 	@code\method4\method4_dynamic_ot.tpb
 	@code\method4\method4_ot.tpb
-
 
 8.3.0 --> 8.4.0: Add version star.
 ----------------------------------

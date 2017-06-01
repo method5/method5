@@ -209,7 +209,7 @@ begin
 end;
 /
 
---Install package and type.
+--Install packages and types.
 alter session set current_schema=method5;
 @code/m5_pkg.pck
 @code/method4_m5_poll_table_ot.typ
@@ -245,12 +245,17 @@ end m5_proc;
 /
 
 
+--Install user synchronize procedure that depends on above objects.
+@code/m5_synch_user.prc
+
+
 ---------------------------------------
 --#5: Create public synonyms.
 create public synonym m5_database for method5.m5_database;
 create public synonym m5 for method5.m5;
 create public synonym m5_proc for method5.m5_proc;
 create public synonym m5_pkg for method5.m5_pkg;
+create public synonym m5_synch_user for method5.m5_synch_user;
 
 
 ---------------------------------------

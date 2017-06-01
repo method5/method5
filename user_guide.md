@@ -21,9 +21,10 @@ Method5 User Guide
 16. [Services for Non-DBAs](#services_for_non_dbas)
 17. [Job Timeout](#job_timeout)
 18. [LONG to CLOB conversion](#long_to_clob_conversion)
-19. [Administrator Daily Status Email](#administrator_daily_status_email)
-20. [Security](#security)
-21. [Possible Uses](#possible_uses)
+19. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
+20. [Administrator Daily Status Email](#administrator_daily_status_email)
+21. [Security](#security)
+22. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
@@ -391,9 +392,16 @@ Now use the results table to more easily query and filter the `DATA_DEFAULT` col
 	order by 1,2,3,4;
 
 
+<a name="m5_synch_user"/>
+
+## Account Maintenance with M5_SYNCH_USER
+
+The pre-built procedure `M5_SYNCH_USER` can help with many account maintenance and synchronization issues.  A single procedure call can create accounts, synch passwords, unlock, set profile, and grant role and system privileges.
+
+
 <a name="administrator_daily_status_email"/>
-Administrator Daily Status Email
---------------------------------
+
+## Administrator Daily Status Email
 
 An email is sent to the Method5 administrators every day.  This email contains information about potential problems with Method5 configuration, access, and jobs.  This can be a good extra way to monitor the environment.  Since Method5 connects as a regular user from a remote system it occasionally finds problems that monitoring applications like Oracle Enterprise Manager may miss.
 

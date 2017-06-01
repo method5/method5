@@ -93,7 +93,7 @@ Automatically synchronize DBA accounts, privileges, profiles, status, and profil
 
 ## Account Maintenance
 
-Before you spend a lot of time and money on an enterprise identity management solution there's a lot you can do with a few simple commands.  Activities like creating accounts, locking accounts, and synchronizing passwords across all databases can be done in one line of code.
+Activities like creating accounts, locking accounts, and synchronizing passwords across all databases can be done in one line of code.
 
 
 <a name="email_active_dba_users_job"/>
