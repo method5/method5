@@ -89,7 +89,7 @@ The procedure `M5_PROC` makes it possible to more programmatically run queries a
 	begin
 		m5_proc(
 			p_code =>                'select * from dual',
-			p_targets =>             'pqdwdv01',
+			p_targets =>             'somedb%',
 			p_table_name =>          'my_results',
 			p_table_exists_action => 'DROP',
 			p_asynchronous =>        false
@@ -147,7 +147,7 @@ For `SELECT`, the tables in the statement must exist on the server running the j
 PL/SQL blocks are convenient if you want to run multiple statements and package them in one call.  You can use DBMS_OUTPUT.PUT_LINE to display information.
 
 	begin
-		m5_proc(q'[  begin dbms_output.put_line('Hello, World!'); end;  ]', 'pqdwdv01');
+		m5_proc(q'[  begin dbms_output.put_line('Hello, World!'); end;  ]', 'somedb%');
 	end;
 	/
 
