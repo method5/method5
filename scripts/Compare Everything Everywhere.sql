@@ -3,7 +3,7 @@
 -- How to use:
 --    Run steps #1 through #5 to generate and query results.
 --    Run step #6 to install objects (one-time step).
--- Version: 2.0.0
+-- Version: 2.1.2
 --------------------------------------------------------------------------------
 
 
@@ -27,7 +27,7 @@ begin
 		--The schema to compare:
 		p_schema_name   => '&SCHEMA',
 		--Database target list generated from above step.
-		--For exampe:   acmedb1,acmedb2
+		--For example: acmedb1,acmedb2
 		p_database_list => '&DATABASE_LIST_FROM_STEP_1'
 	);
 end;
@@ -117,29 +117,29 @@ is
 	v_query varchar2(32767);
 begin
 	--Generate unique run id.
-	execute immediate 'select method5.compare_seq.nextval from dual' into v_run_id;	
+	execute immediate 'select method5.compare_seq.nextval from dual' into v_run_id;
 
 	--Check that table to hold results does not already exist.
 	select count(*) into v_count
 	from user_tables
-	where table_name = upper('DDL_'||p_schema_name||'_'||v_run_id);
+	where table_name = upper('COMPARE_DDL_'||v_run_id);
 
 	if v_count >= 1 then
-		raise_application_error(-20000, 'The table DDL_'||p_schema_name||'_'||v_run_id||' already exists.  '||
+		raise_application_error(-20000, 'The table COMPARE_DDL_'||v_run_id||' already exists.  '||
 			'Drop that table or use a different name.');
 	end if;
 
 	--Gather data.
 	m5_proc(
-		p_table_name => 'compare_'||p_schema_name||'_'||v_run_id,
+		p_table_name => 'compare_run_'||v_run_id,
 		p_table_exists_action => 'DROP',
 		p_asynchronous => false,
 		p_targets => p_database_list,
 		p_code => replace(replace(q'<
 			--Save all the DDL for a schema.
 			declare
-				v_owner constant varchar2(30) := upper('$SCHEMA$');
-				v_run_id varchar2(100) := '$SCHEMA$_$RUN_ID$';
+				v_owner constant varchar2(128) := upper('$SCHEMA$');
+				v_run_id number := $RUN_ID$;
 				v_exclusions sys.ora_mining_varchar2_nt := sys.ora_mining_varchar2_nt('TABLE_STATISTICS', 'INDEX_STATISTICS');
 				v_count number;
 				v_ddl clob;
@@ -209,7 +209,7 @@ begin
 				--Create table to hold DDL, if it doesn't already exist.
 				select count(*) into v_count from dba_tables where owner = 'METHOD5' and table_name = 'TEMP_TABLE_DDL';
 				if v_count = 0 then
-					execute immediate 'create table method5.temp_table_ddl(run_id varchar2(100), the_date date, owner varchar2(30), object_type varchar2(30), object_name varchar2(30), hash varchar2(32), ddl clob) ';
+					execute immediate 'create table method5.temp_table_ddl(run_id number, the_date date, owner varchar2(128), object_type varchar2(128), object_name varchar2(128), hash varchar2(32), ddl clob) ';
 				end if;
 
 				--Remove old data from remote table.
@@ -341,7 +341,7 @@ begin
 								v_ddl := dbms_metadata.get_granted_ddl(objects.object_type, objects.owner);
 							end if;
 
-							--Get hash.  2 = dbms_crypto.hash_md5. 
+							--Get hash.  2 = dbms_crypto.hash_md5.
 							v_hash := rawtohex(sys.dbms_crypto.hash(v_ddl, 2));
 
 							--Store the DDL.
@@ -351,7 +351,7 @@ begin
 						end if;
 					exception when others then
 						--Ignore some errors with object-relational tables.
-						--if objects.ddl_1_dependent_2_granted_3 = 2 and objects.object_type = 'OBJECT_GRANT' and sqlcode = 
+						--if objects.ddl_1_dependent_2_granted_3 = 2 and objects.object_type = 'OBJECT_GRANT' and sqlcode =
 
 						raise_application_error(-20000, 'Error with this object '||objects.owner||'.'||objects.object_name||' ('
 							||objects.object_type||'). '||dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
@@ -362,44 +362,44 @@ begin
 	);
 
 	--Raise error if there were any errors generating DDL.
-	execute immediate 'select targets_with_errors from compare_'||p_schema_name||'_'||v_run_id||'_meta'
+	execute immediate 'select targets_with_errors from compare_run_'||v_run_id||'_meta'
 	into v_count;
 	if v_count >0 then
 		raise_application_error(-20000, v_count||' jobs failed.  '||
-			'Look at compare_'||p_schema_name||'_'||v_run_id||'_err for the error messages.');
+			'Look at compare_run_'||v_run_id||'_err for the error messages.');
 	end if;
 
 	--Create table to hold DDL from all remote databases.
-	execute immediate 'create table ddl_'||p_schema_name||'_'||v_run_id||'(database_name varchar2(30), run_id varchar2(100), the_date date,
-		owner varchar2(30), object_type varchar2(30), object_name varchar2(30), hash varchar2(32), ddl clob)';
+	execute immediate 'create table compare_ddl_'||v_run_id||'(database_name varchar2(30), run_id number, the_date date,
+		owner varchar2(128), object_type varchar2(128), object_name varchar2(128), hash varchar2(32), ddl clob)';
 
 	--Move data to a local table for quicker comparisons.
 	--(Data must be pushed because CLOBs cannot be pulled over database links.)
 	execute immediate '
 		select distinct database_name
-		from compare_'||p_schema_name||'_'||v_run_id||'
+		from compare_run_'||v_run_id||'
 		order by 1'
 	bulk collect into v_databases;
 
 	for i in 1 .. v_databases.count loop
 		--Insert data into local table.
 		execute immediate '
-			insert into ddl_'||p_schema_name||'_'||v_run_id||'
+			insert into compare_ddl_'||v_run_id||'
 			select '''||v_databases(i)||''', temp_table_ddl.*
 			from method5.temp_table_ddl@m5_'||v_databases(i)||'
-			where run_id = '''||p_schema_name||'_'||v_run_id||'''';
+			where run_id = '||v_run_id;
 		commit;
 
 		--Remove data from remote table.
 		execute immediate '
 			delete from method5.temp_table_ddl@m5_'||v_databases(i)||'
-			where run_id = '''||p_schema_name||'_'||v_run_id||'''';
+			where run_id = '||v_run_id;
 		commit;
 	end loop;
 
 
 	--Get lists used to build the view.
-	execute immediate replace(replace(q'[
+	execute immediate replace(q'[
 		--Lists used to build query.
 		select database_list, letter_select, letter_pivot
 		from
@@ -422,7 +422,7 @@ begin
 					else -1
 				end,
 				database_name) database_list
-			from compare_$SCHEMA$_$RUN_ID$
+			from compare_run_$RUN_ID$
 		)
 		cross join
 		(
@@ -439,16 +439,16 @@ begin
 				(
 					--Distinct hashes per object.
 					select count(distinct hash) over (partition by owner, object_type, object_name) distinct_hash_count
-					from ddl_$SCHEMA$_$RUN_ID$
+					from compare_ddl_$RUN_ID$
 				)
 			)
 		)
-	]', '$SCHEMA$', p_schema_name), '$RUN_ID$', v_run_id)
+	]', '$RUN_ID$', v_run_id)
 	into v_database_list, v_letter_select, v_letter_pivot;
 
 
 	--Query for view
-	v_query := replace(replace(replace(replace(replace(
+	v_query := replace(replace(replace(replace(
 	q'[
 		--Differences and DDL.
 		select differences.*, #LETTER_SELECT#
@@ -481,7 +481,7 @@ begin
 								then 1
 							else 0
 						end distinct_version_count
-					from ddl_$SCHEMA$_$RUN_ID$
+					from compare_ddl_$RUN_ID$
 				) objects_with_counts
 				left join
 				(
@@ -527,7 +527,7 @@ begin
 									else -1
 								end,
 								database_name) first_database
-						from ddl_$SCHEMA$_$RUN_ID$
+						from compare_ddl_$RUN_ID$
 						group by owner, object_type, object_name, hash
 						order by owner, object_type, object_name, first_database, hash
 					)
@@ -580,7 +580,7 @@ begin
 					--Distinct hashes for objects.
 					--Cannot really use 4,000 characters because a few of them will be multi-byte and go over 4K byte limit.
 					select owner, object_type, object_name, hash, dbms_lob.substr(ddl, offset => 1, amount => 3900) ddl_4k, min(database_name) first_database
-					from ddl_$SCHEMA$_$RUN_ID$
+					from compare_ddl_$RUN_ID$
 					group by owner, object_type, object_name, hash, dbms_lob.substr(ddl, offset => 1, amount => 3900)
 					order by owner, object_type, object_name, first_database, hash
 				)
@@ -598,7 +598,7 @@ begin
 			and differences.object_name = diff_ddl.object_name
 		order by differences.owner, differences.object_type, differences.object_name
 	]', '#DATABASE_LIST#', v_database_list), '#LETTER_SELECT#', v_letter_select), '#LETTER_PIVOT#', v_letter_pivot)
-	, '$SCHEMA$', p_schema_name), '$RUN_ID$', v_run_id);
+	, '$RUN_ID$', v_run_id);
 
 	--For debugging, print the query used.
 	dbms_output.put_line(substr(v_query, 1, 3000));
