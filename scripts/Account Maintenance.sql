@@ -1,6 +1,6 @@
 --Purpose: Contains multiple account maintenance scripts.
 --How to use:
---  #1 is a pre-built procedure that satifsy 90% of your account maintenance requirements.
+--  #1 is a pre-built procedure that should satisfy 90% of your account maintenance requirements.
 --  #2, #3, and #4 demonstrate that you can still use regular Method5 functionality for custom account maintenance.
 --  Remember to replace all &VARIABLES before running.
 --Version: 4.0.0
