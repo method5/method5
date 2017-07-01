@@ -225,7 +225,6 @@ procedure test_p_code(p_database_name_1 in varchar2) is
 	v_table_name varchar2(128);
 begin
 	--Note: Some other types of P_CODE were implicitly tested above.
-
 	begin
 		v_test_name := 'P_CODE 1 - DBMS_OUTPUT';
 		v_expected_results := p_database_name_1||'-DBMS_OUTPUT test';
@@ -341,6 +340,65 @@ begin
 		assert_equals(v_test_name, v_expected_results,
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end;
+
+	begin
+		--TODO: Perhaps change this to work with 128 characters for 12.2?
+		v_test_name := 'P_CODE 6 - Column name larger than 30 characters';
+		v_expected_results := '66';
+		v_table_name := get_custom_temp_table_name;
+
+		execute immediate replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => 'select 1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1 from dual',
+					p_targets => '#DATABASE_1#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#TABLE_NAME#', v_table_name);
+
+		execute immediate 'select "1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+" from '||v_table_name into v_actual_results;
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		--TODO: Perhaps change this to work with 128 characters for 12.2?
+		v_test_name := 'P_CODE 7 - Column name larger than 30 characters and a LONG.';
+		v_expected_results := '66-0 ';
+		v_table_name := get_custom_temp_table_name;
+
+		execute immediate replace(replace(q'[
+			begin
+				m5_proc(
+					p_code => q'!
+						select
+							1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1
+							,data_default
+						from dba_tab_columns
+						where owner = 'SYS'
+							and table_name = 'JOB$'
+							and column_name = 'FLAG'
+					!',
+					p_targets => '#DATABASE_1#',
+					p_table_name => '#TABLE_NAME#',
+					p_asynchronous => false);
+			end;
+		]', '#DATABASE_1#', p_database_name_1), '#TABLE_NAME#', v_table_name);
+
+		execute immediate q'[select "1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+"||'-'||data_default from ]'||v_table_name into v_actual_results;
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+
+
 end test_p_code;
 
 

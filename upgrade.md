@@ -4,6 +4,11 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.6.0 --> 8.6.1: Bug fix for column expressions more than 30 bytes long.
+-------------------------------------
+
+1. Run these files to install new packages: /code/m5_pkg.pck, /code/tests/method5_test.pck.
+
 8.5.1 --> 8.6.0: Added M5_SYNCH_USER.
 -------------------------------------
 

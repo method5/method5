@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.6.0';
+C_VERSION constant varchar2(10) := '8.6.1';
 
 /******************************************************************************
 RUN
@@ -97,6 +97,10 @@ end;
 create or replace package body method5.m5_pkg is
 
 
+--Constants.
+C_MAX_DATABASE_ATTEMPTS constant number := 100;
+
+
 /******************************************************************************/
 --(See specification for description.)
 procedure stop_jobs
@@ -183,12 +187,7 @@ begin
 			--Create remote temporary table with results.
 			--Use an extra inline view to avoid "ORA-00998: must name this expression with a column alias".
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
-				create table m5_temp_table_##SEQUENCE## nologging pctfree 0 as
-				select ##STAR_OR_EXPLICIT_COLUMN_LIST##
-				from
-				(
-					##CODE##
-				)
+				##CTAS_DDL##
 			##QUOTE_DELIMITER1##');
 
 			--Insert data using database link.
@@ -1121,33 +1120,55 @@ end;
 	end find_available_quote_delimiter;
 
 	---------------------------------------------------------------------------
-	--Get a column list for a SELECT statement on a remote database.
-	function get_explicit_column_list(p_select_statement in clob, p_database_name in varchar2) return varchar2 is
-		v_column_list varchar2(32767);
+	--Get column metadata for a SELECT statement on a remote database.
+	procedure get_column_metadata
+	(
+		p_select_statement         in     clob,
+		p_database_name            in     varchar2,
+		p_has_column_gt_30         in out boolean,
+		p_has_long                 in out boolean,
+		p_explicit_column_list     in out varchar2,
+		p_explicit_expression_list in out varchar2
+	) is
+		v_has_column_gt_30         number;
+		v_has_long                 number;
+		v_explicit_column_list     varchar2(32767);
+		v_explicit_expression_list varchar2(32767);
 	begin
 		--Parse the column names on the remote database.
 		execute immediate replace(
 		q'[
 			declare
-				v_cursor_number integer;
-				v_column_count number;
-				v_columns sys.dbms_sql.desc_tab@m5_#DATABASE_NAME#;
-				v_column_list varchar2(32767);
-				p_code varchar2(32767);
+				v_cursor_number    integer;
+				v_column_count     number;
+				v_columns          sys.dbms_sql.desc_tab2@m5_#DATABASE_NAME#;
+				p_code             varchar2(32767);
+				v_column_list      varchar2(32767);
+				v_expression_list  varchar2(32767);
+				v_has_column_gt_30 number := 0;
+				v_has_long         number := 0;
 			begin
 				p_code := :p_transformed_code;
 
 				--Parse statement, get columns.
 				v_cursor_number := sys.dbms_sql.open_cursor@m5_#DATABASE_NAME#;
 				sys.dbms_sql.parse@m5_#DATABASE_NAME#(v_cursor_number, p_code, sys.dbms_sql.native);
-				sys.dbms_sql.describe_columns@m5_#DATABASE_NAME#(v_cursor_number, v_column_count, v_columns);
+				sys.dbms_sql.describe_columns2@m5_#DATABASE_NAME#(v_cursor_number, v_column_count, v_columns);
 
-				--Create column list and convert any LONGs to LOBs.
+				--Gather metadata.
 				for i in 1 .. v_column_count loop
+					--A LONG cannot also be part of an expression more than 30 characters long.
 					if v_columns(i).col_type in (8, 24) then
-						v_column_list := v_column_list || ',to_lob("'||v_columns(i).col_name || '") as "' || v_columns(i).col_name || '"';
-					else
+						v_expression_list := v_expression_list || ',to_lob("'||v_columns(i).col_name || '") as "' || v_columns(i).col_name || '"';
 						v_column_list := v_column_list || ',"'||v_columns(i).col_name || '"';
+						v_has_long := 1;
+					elsif lengthb(v_columns(i).col_name) >= 31 then
+						v_column_list := v_column_list || ',"' || substrb(v_columns(i).col_name, 1, 30)|| '"';
+						v_expression_list := v_expression_list || ',"' || substrb(v_columns(i).col_name, 1, 30) || '"';
+						v_has_column_gt_30 := 1;
+					else
+						v_column_list := v_column_list || ',"' || v_columns(i).col_name || '"';
+						v_expression_list := v_expression_list || ',"' || v_columns(i).col_name || '"';
 					end if;
 				end loop;
 
@@ -1155,14 +1176,133 @@ end;
 				sys.dbms_sql.close_cursor@m5_#DATABASE_NAME#(v_cursor_number);
 
 				--Create new SQL statement
+				:v_has_column_gt_30 := v_has_column_gt_30;
+				:v_has_long := v_has_long;
 				:v_column_list := substr(v_column_list, 2);
+				:v_expression_list := substr(v_expression_list, 2);
+
 			end;
 		]',
 		'#DATABASE_NAME#', p_database_name)
-		using to_char(p_select_statement), out v_column_list;
+		using to_char(p_select_statement)
+			,out v_has_column_gt_30
+			,out v_has_long
+			,out v_explicit_column_list
+			,out v_explicit_expression_list;
 
-		return v_column_list;
-	end get_explicit_column_list;
+		--Set OUT variables.
+		p_has_column_gt_30 := case when v_has_column_gt_30 = 1 then true else false end;
+		p_has_long := case when v_has_long = 1 then true else false end;
+		p_explicit_column_list := v_explicit_column_list;
+		p_explicit_expression_list := v_explicit_expression_list;
+	end get_column_metadata;
+
+	---------------------------------------------------------------------------
+	--Get a Create Table As SQL (CTAS) for a SELECT statement.
+	--This gets tricky because of the version star, LONGs, and unnamed expressions.
+	function get_ctas_sql
+	(
+		p_code                     in varchar2,
+		p_table_name               in varchar2,
+		p_has_version_star         in boolean,
+		p_has_column_gt_30         in boolean,
+		p_has_long                 in boolean,
+		p_column_list              in varchar2,
+		p_expression_list          in varchar2,
+		p_add_database_name_column in boolean,
+		p_copy_data                in boolean
+	) return varchar2 is
+		v_ctas     varchar2(32767);
+		v_db_name  varchar2(100);
+		v_filter   varchar2(100);
+		v_template varchar2(32767);
+	begin
+		--Set some components.
+		v_ctas := 'create table '||p_table_name||' nologging pctfree 0 as';
+
+		if p_add_database_name_column then
+			v_db_name := 'cast(''database name'' as varchar2(30)) database_name, ';
+		end if;
+
+		if not p_copy_data then
+			v_filter := chr(10) || '				where 1 = 0 and rownum < 0';
+		end if;
+
+		--Check for incorrect settings.
+		if p_has_long and p_expression_list is null then
+			raise_application_error(-20028, 'The expression list is NULL.');
+		elsif (p_has_version_star or p_has_column_gt_30 or p_has_long) and p_column_list is null then
+			raise_application_error(-20029, 'The column list is NULL.');
+		end if;
+
+		--Choose a template based on the options.
+		--
+		--These are the different types of query formats, depending on if the user specified the query star,
+		--if one of the columns is larger than 30 bytes, or if a column has a LONG.
+		-- QUERY TYPE      FORMAT
+		-- ==========      ======
+		-- >30 and LONG*   #CTAS# with cte(#COLUMN_LIST) as (#CODE#) select #DB_NAME_COLUMN##EXPRESSION_LIST from cte #FILTER#
+		-- LONG*           #CTAS# select #DB_NAME_COLUMN##EXPRESSION_LIST from (#CODE#) subquery #FILTER#
+		-- >30*            #CTAS# with cte(#COLUMN_LIST) as (#CODE#) select #DB_NAME_COLUMN#cte.* from cte #FILTER#
+		-- version star    #CTAS# select #DB_NAME_COLUMN##COLUMN_LIST# from (#CODE#) #FILTER#
+		-- simple          #CTAS# select #DB_NAME_COLUMN#subquery.* from (#CODE#) subquery #FILTER#
+		--
+		-- * - Also works for version star.
+
+		if p_has_column_gt_30 and p_has_long then
+			v_template := q'[
+				#CTAS#
+				with cte(#COLUMN_LIST#) as
+				(
+					#CODE#
+				)
+				select #DB_NAME_COLUMN##EXPRESSION_LIST#
+				from cte#FILTER#]';
+		elsif p_has_long then
+			v_template := q'[
+				#CTAS#
+				select #DB_NAME_COLUMN##EXPRESSION_LIST#
+				from (#CODE#) subquery#FILTER#]';
+			
+		elsif p_has_column_gt_30 then
+			v_template := q'[
+				#CTAS#
+				with cte(#COLUMN_LIST#) as
+				(
+					#CODE#
+				)
+				select #DB_NAME_COLUMN#cte.*
+				from cte#FILTER#]';
+		elsif p_has_version_star then
+			v_template := q'[
+				#CTAS#
+				select #DB_NAME_COLUMN##COLUMN_LIST#
+				from
+				(
+					#CODE#
+				)#FILTER#]';
+		else
+			v_template := q'[
+				#CTAS#
+				select #DB_NAME_COLUMN#subquery.*
+				from
+				(
+					#CODE#
+				) subquery#FILTER#]';
+		end if;
+
+		--Populate the template.
+		v_template := replace(replace(replace(replace(replace(replace(v_template,
+			'#CTAS#', v_ctas),
+			'#DB_NAME_COLUMN#', v_db_name),
+			'#FILTER#', v_filter),
+			'#COLUMN_LIST#', p_column_list),
+			'#EXPRESSION_LIST#', p_expression_list),
+			'#CODE#', p_code
+		);
+
+		return v_template;
+	end get_ctas_sql;
 
 	---------------------------------------------------------------------------
 	--Transform the code so it is ready to run and return if it's SQL or PLSQL.
@@ -1172,13 +1312,17 @@ end;
 	--useful information.  The return message is formatted in a way so that it can be read
 	--later and converted into something similar to a SQL*Plus feedback message.
 	procedure get_transformed_code_and_type(
-		p_original_code             in clob,
-		p_database_names            in string_table,
-		p_transformed_code         out clob,
-		p_select_or_plsql          out varchar2,
-		p_is_first_column_sortable out boolean,
-		p_command_name             out varchar2,
-		p_explicit_column_list     out varchar2
+		p_original_code            in clob,
+		p_database_names           in string_table,
+		p_transformed_code            out clob,
+		p_select_or_plsql             out varchar2,
+		p_is_first_column_sortable    out boolean,
+		p_command_name                out varchar2,
+		p_has_version_star         in out boolean,
+		p_has_column_gt_30         in out boolean,
+		p_has_long                 in out boolean,
+		p_explicit_column_list        out varchar2,
+		p_explicit_expression_list    out varchar2
 	) is
 
 		v_tokens          method5.token_table;
@@ -1234,7 +1378,7 @@ end;
 		--Replace the "**" with a regular "*".  We'll need to run this version to get the column list first.
 		procedure transform_version_star_to_star(p_transformed_code in out clob, p_version_star_position in number) is
 		begin
-			if p_version_star_position <> 0 then
+			if p_version_star_position > 0 then
 				p_transformed_code :=
 					substr(p_transformed_code, 1, p_version_star_position-1) ||
 					'*' ||
@@ -1243,16 +1387,20 @@ end;
 		end transform_version_star_to_star;
 
 		---------------------------------------------------------------------------
-		--Get the column list (for the lowest version of the database) that will be used instead of a "*" later.
-		function get_low_explicit_column_list(
-			p_transformed_code      in clob,
-			p_version_star_position in number,
-			p_database_names        in string_table
-		) return varchar2 is
+		--Get the column metadata (for the lowest version of the database) that may be used instead of a "*" later.
+		procedure get_lowest_column_metadata(
+			p_transformed_code         in     clob,
+			p_version_star_position    in     number,
+			p_database_names           in     string_table,
+			p_has_version_star         in out boolean,
+			p_has_column_gt_30         in out boolean,
+			p_has_long                 in out boolean,
+			p_explicit_column_list     in out varchar2,
+			p_explicit_expression_list in out varchar2
+		) is
 			v_databases_ordered_by_version string_table;
 			type number_nt is table of number;
 			v_distinct_version_count number_nt;
-			v_column_list varchar2(32767);
 		begin
 			--Only change things if a version star was used.
 			if p_version_star_position > 0 then
@@ -1288,26 +1436,26 @@ end;
 
 				--SPECIAL CASE: Do nothing if no targets were specified.
 				if v_databases_ordered_by_version.count = 0 then
-					return null;
+					return;
 				end if;
 
-				--SPECIAL CASE: Do nothing if there is only one version.
+				--SPECIAL CASE: Don't use version star processing if there is only one version.
 				if v_distinct_version_count(1) = 1 then
-					return null;
+					p_has_version_star := false;
+					return;
 				end if;
 
 				--Get column list from lowest version using DBMS_SQL over the database link.
 				declare
 					v_successful_database_index number;
 					v_failed_database_list varchar2(32767);
-					c_max_database_attempts constant number := 3;
 					v_last_sqlerrm varchar2(32767);
 				begin
 					--Try to create the temporary table on the first N databases.
 					for i in 1 .. least(c_max_database_attempts, v_databases_ordered_by_version.count) loop
 						begin
 							--Parse the column names on the remote database.
-							v_column_list := get_explicit_column_list(p_transformed_code, v_databases_ordered_by_version(i));
+							get_column_metadata(p_transformed_code, v_databases_ordered_by_version(i), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 
 							--Record a success and quit the loop if it got this far.
 							v_successful_database_index := i;
@@ -1331,29 +1479,34 @@ end;
 				end;
 			end if;
 
-			--Return the final column list.
-			return v_column_list;
-		end get_low_explicit_column_list;
+		end get_lowest_column_metadata;
 
 		---------------------------------------------------------------------------
 		procedure version_star_set_code_and_list
 		(
-			p_transformed_code     in out clob,
-			p_command_name         in     varchar,
-			p_tokens               in     method5.token_table,
-			p_explicit_column_list in out varchar2,
-			p_database_names       in     method5.string_table
+			p_transformed_code         in out clob,
+			p_command_name             in     varchar,
+			p_tokens                   in     method5.token_table,
+			p_has_version_star         in out boolean,
+			p_has_column_gt_30         in out boolean,
+			p_has_long                 in out boolean,
+			p_explicit_column_list        out varchar2,
+			p_explicit_expression_list    out varchar2,
+			p_database_names           in     method5.string_table
 		) is
 			v_version_star_position number;
 		begin
-			--Check for the version star, "-*".
+			--Check for the version star, "**".
 			v_version_star_position := get_version_star_position(p_transformed_code, p_command_name, p_tokens);
+			if v_version_star_position > 0 then
+				p_has_version_star := true;
+			end if;
 
 			--Convert the version star back into a regular star, if necessary.
 			transform_version_star_to_star(p_transformed_code, v_version_star_position);
 
-			--Convert the "*" to a list of columns if necessary.
-			p_explicit_column_list := get_low_explicit_column_list(p_transformed_code, v_version_star_position, p_database_names);
+			--Retrieve column metadata because "*" may need to be converted to an explicit list later.
+			get_lowest_column_metadata(p_transformed_code, v_version_star_position, p_database_names, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 		end version_star_set_code_and_list;
 
 	begin
@@ -1381,8 +1534,8 @@ end;
 		--Put tokens back together.
 		p_transformed_code := method5.plsql_lexer.concatenate(v_tokens);
 
-		--Handle version star by transforming the code from "**" to "*" and setting an explicit column list.
-		version_star_set_code_and_list(p_transformed_code, p_command_name, v_tokens, p_explicit_column_list, p_database_names);
+		--Handle version star by transforming the code from "**" to "*" and setting column metadata.
+		version_star_set_code_and_list(p_transformed_code, p_command_name, v_tokens, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list, p_database_names);
 
 		--Change the output depending on the type.
 		--
@@ -1558,7 +1711,11 @@ end;
 		p_table_owner                     varchar2,
 		p_table_name                      varchar2,
 		p_code                            varchar2,
+		p_has_version_star                boolean,
+		p_has_column_gt_30         in out boolean,
+		p_has_long                 in out boolean,
 		p_explicit_column_list     in out varchar2,
+		p_explicit_expression_list in out varchar2,
 		p_select_or_plsql                 varchar2,
 		p_command_name                    varchar2,
 		p_database_names                  string_table,
@@ -1575,37 +1732,31 @@ end;
 				v_temp_table_name varchar2(128);
 				v_successful_database_index number;
 				v_failed_database_list varchar2(32767);					
-				c_max_database_attempts constant number := 3;
 				v_last_sqlerrm varchar2(32767);
 
 				v_illegal_use_of_long exception;
+				v_length_exceeds_maximum exception;
 				pragma exception_init(v_illegal_use_of_long, -00997);
+				pragma exception_init(v_length_exceeds_maximum, -01948);
+
 				v_database_index number := 0;
-				v_retry_counter_for_longs number := 0;
+				v_retry_counter number := 0;
 			begin
 				--Generate a temporary table name.
 				v_temp_table_name := 'm5_temp_table_'||get_sequence_nextval;
 
 				--Create a table to hold the required table structure.
-				if p_explicit_column_list is null then
-					v_create_table_ddl := '
-						create table '||v_temp_table_name||' nologging pctfree 0 as
-						select cast(''database name'' as varchar2(30)) database_name, subquery.*
-						from
-						(
-							'||p_code||'
-						) subquery
-						where 1 = 0 and rownum < 0';
-				else
-					v_create_table_ddl := '
-						create table '||v_temp_table_name||' nologging pctfree 0 as
-						select cast(''database name'' as varchar2(30)) database_name, '||p_explicit_column_list||'
-						from
-						(
-							'||p_code||'
-						) subquery
-						where 1 = 0 and rownum < 0';
-				end if;
+				v_create_table_ddl := get_ctas_sql(
+					p_code                     => p_code,
+					p_table_name               => v_temp_table_name,
+					p_has_version_star         => p_has_version_star,
+					p_has_column_gt_30         => p_has_column_gt_30,
+					p_has_long                 => p_has_long,
+					p_column_list              => p_explicit_column_list,
+					p_expression_list          => p_explicit_expression_list,
+					p_add_database_name_column => true,
+					p_copy_data                => false
+				);
 
 				--Try to create the temporary table on the first N databases.
 				loop
@@ -1633,23 +1784,26 @@ end;
 
 					--If it fails on one database we'll try again on another.
 					exception
-					when v_illegal_use_of_long then
-						--Try again with an explicit column list to avoid LONG issues.
-						--But only if it doesn't already have a column list and it hasn't already retried.
-						if p_explicit_column_list is null and v_retry_counter_for_longs = 0 then
+					when v_illegal_use_of_long or v_length_exceeds_maximum then
+						--Try again with explicit column metadata to avoid LONG or identifiers over 30 bytes.
+						--But only retry it once.
+						if v_retry_counter = 0 then
 							--Recreate the CTAS based on an explicit column listGet new list
-							p_explicit_column_list := get_explicit_column_list(p_code, p_database_names(v_database_index));
-							v_create_table_ddl := '
-								create table '||v_temp_table_name||' nologging pctfree 0 as
-								select cast(''database name'' as varchar2(30)) database_name, '||p_explicit_column_list||'
-								from
-								(
-									'||p_code||'
-								) subquery
-								where 1 = 0 and rownum < 0';
+							get_column_metadata(p_code, p_database_names(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+							v_create_table_ddl := get_ctas_sql(
+								p_code                     => p_code,
+								p_table_name               => v_temp_table_name,
+								p_has_version_star         => p_has_version_star,
+								p_has_column_gt_30         => p_has_column_gt_30,
+								p_has_long                 => p_has_long,
+								p_column_list              => p_explicit_column_list,
+								p_expression_list          => p_explicit_expression_list,
+								p_add_database_name_column => true,
+								p_copy_data                => false
+							);
 
 							--Only try this once.
-							v_retry_counter_for_longs := v_retry_counter_for_longs + 1;
+							v_retry_counter := v_retry_counter + 1;
 
 							--Lower the counter to ensure we'll try the database again.
 							v_database_index := v_database_index - 1;
@@ -1666,7 +1820,7 @@ end;
 
 				--Raise an error if none of the databases worked.
 				if v_successful_database_index is null then
-					raise_application_error(-20027, 'The SELECT statement was not valid, please check the syntax'||
+					raise_application_error(-20030, 'The SELECT statement was not valid, please check the syntax'||
 						' and that the objects exist.  The statement was tested on '||substr(v_failed_database_list,2)||
 						'.  If the objects only exist on a small number of'||
 						' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
@@ -1856,15 +2010,20 @@ end;
 
 	---------------------------------------------------------------------------
 	procedure create_jobs(
-		p_table_owner          varchar2,
-		p_table_name           varchar2,
-		p_explicit_column_list varchar2,
-		p_code                 varchar2,
-		p_select_or_plsql      varchar2,
-		p_links_owned_by_user  links_nt,
-		p_database_names       string_table,
-		p_command_name         varchar2
+		p_table_owner              varchar2,
+		p_table_name               varchar2,
+		p_has_version_star         boolean,
+		p_has_column_gt_30         boolean,
+		p_has_long                 boolean,
+		p_explicit_column_list     varchar2,
+		p_explicit_expression_list varchar2,
+		p_code                     varchar2,
+		p_select_or_plsql          varchar2,
+		p_links_owned_by_user      links_nt,
+		p_database_names           string_table,
+		p_command_name             varchar2
 	) is
+		v_ctas_ddl varchar2(32767);
 		v_code varchar2(32767);
 		v_sequence number;
 		v_pipe_count number;
@@ -1884,14 +2043,25 @@ end;
 			--Build procedure string.
 			begin
 				if p_select_or_plsql = 'SELECT' then
-					v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
+					v_ctas_ddl := get_ctas_sql(
+						p_code                     => p_code,
+						p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
+						p_has_version_star         => p_has_version_star,
+						p_has_column_gt_30         => p_has_column_gt_30,
+						p_has_long                 => p_has_long,
+						p_column_list              => p_explicit_column_list,
+						p_expression_list          => p_explicit_expression_list,
+						p_add_database_name_column => false,
+						p_copy_data                => true
+					);
+
+					v_code := replace(replace(replace(replace(replace(replace(v_select_template
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
 						,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
 						,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
-						,'##STAR_OR_EXPLICIT_COLUMN_LIST##', nvl(p_explicit_column_list, '*'))
-						,'##CODE##', p_code);
+						,'##CTAS_DDL##', v_ctas_ddl);
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 				else
@@ -2245,7 +2415,6 @@ begin
 		v_select_or_plsql          varchar2(6); --Will be either "SELECT" or "PLSQL".
 		v_is_first_column_sortable boolean;
 		v_command_name             varchar2(100);
-		v_explicit_column_list     varchar2(32767);
 		v_table_name               varchar2(128);
 		v_table_owner              varchar2(128);
 		v_original_targets         varchar2(32767) := p_targets;
@@ -2254,6 +2423,12 @@ begin
 		v_audit_rowid              rowid;
 		v_links_owned_by_user      links_nt;
 		v_database_names           string_table;
+		--Variables used for creating CTAS:
+		v_has_version_star         boolean := false;
+		v_has_column_gt_30         boolean := false;
+		v_has_long                 boolean := false;
+		v_explicit_column_list     varchar2(32767);
+		v_explicit_expression_list varchar2(32767);
 	begin
 		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
 		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action);
@@ -2267,14 +2442,14 @@ begin
 		v_database_names := get_databases_from_targets(v_processed_targets);
 		raise_exception_if_no_targets(v_database_names, v_original_targets, v_processed_targets);
 		check_if_already_running(v_table_name);
-		get_transformed_code_and_type(p_code, v_database_names, v_transformed_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_explicit_column_list);
+		get_transformed_code_and_type(p_code, v_database_names, v_transformed_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, v_explicit_column_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
 		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_database_names, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, v_explicit_column_list, v_transformed_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
+		create_jobs(v_table_owner, v_table_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;
