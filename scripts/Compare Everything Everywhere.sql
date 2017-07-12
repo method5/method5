@@ -3,7 +3,7 @@
 -- How to use:
 --    Run steps #1 through #5 to generate and query results.
 --    Run step #6 to install objects (one-time step).
--- Version: 2.1.2
+-- Version: 2.1.3
 --------------------------------------------------------------------------------
 
 
@@ -317,14 +317,14 @@ begin
 								elsif objects.object_type = 'SEQUENCE' then
 									v_ddl := dbms_metadata.get_ddl(objects.object_type, objects.object_name, objects.owner);
 									v_ddl := regexp_replace(v_ddl, 'START WITH [0-9]*', 'START WITH *removed from comparison*');
-								--"JAVA CLASS" is a problem.  It cannot be retrived from DBMS_METADATA and DBMS_JAVA.EXPORT_CLASS doesn't always work either.
-								--Since JAVA CLASS cannot be truly compared, return a warning and unique results so they show as a difference.
-								elsif objects.object_type = 'JAVA CLASS' then
+								--"JAVA_CLASS" is a problem.  It cannot be retrived from DBMS_METADATA and DBMS_JAVA.EXPORT_CLASS doesn't always work either.
+								--Since JAVA_CLASS cannot be truly compared, return a warning and unique results so they show as a difference.
+								elsif objects.object_type = 'JAVA_CLASS' then
 									declare
 										v_global_name varchar2(100);
 									begin
 										select global_name into v_global_name from global_name;
-										v_ddl := 'WARNING: JAVA CLASS cannot be reliably read from the database.  The program '||
+										v_ddl := 'WARNING: JAVA_CLASS cannot be reliably read from the database.  The program '||
 											'cannot determine if the classes are different or identical.  '||v_global_name;
 									end;
 								else
