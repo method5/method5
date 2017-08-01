@@ -1,4 +1,4 @@
-Method5 v8.6.1
+Method5 v8.7.1
 ==============
 
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets database administrators easily run SQL statements quickly and securely on hundreds of databases.
@@ -41,7 +41,7 @@ There are no more excuses to avoid root cause analysis and massive environment c
 How to Install and Administer
 -----------------------------
 
-On the GitHub repository click on the "Clone or download" button.  Download and extract the zip file.  Then follow the steps in `install_method5.md` and `administer_method5.md`.
+On the GitHub repository click on the "Clone or download" button.  Download and extract the zip file.  Then follow the steps in `install_method5.md`.
 
 
 License

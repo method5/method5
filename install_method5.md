@@ -19,7 +19,7 @@ Run these steps on the management server by a user with the DBA role.
 
 3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
-4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
+4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of scheduler jobs and you don't want to keep their history forever.
 
 		select
 			case

@@ -1,5 +1,7 @@
 create or replace package method5.method5_admin authid current_user is
-	function generate_remote_install_script return clob;
+	function generate_remote_install_script(p_allow_run_as_sys boolean default true) return clob;
+	procedure set_local_and_remote_sys_key(p_db_link in varchar2);
+	function set_all_missing_sys_keys return clob;
 	function generate_password_reset_one_db return clob;
 	function generate_link_test_script(p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
 	procedure create_and_assign_m5_acl;
@@ -21,7 +23,7 @@ create or replace package body method5.method5_admin is
 
 --------------------------------------------------------------------------------
 --Purpose: Generate a script to install Method5 on remote databases.
-function generate_remote_install_script return clob
+function generate_remote_install_script(p_allow_run_as_sys boolean default true) return clob
 is
 	v_script clob;
 
@@ -34,7 +36,7 @@ is
 			--Run this script as SYS.
 			--Do NOT save this output - it contains password hashes and should be regenerated each time.
 			----------------------------------------
-		]', '			', null);
+		]', '			', null)||chr(10);
 	end;
 
 	function create_profile return clob is
@@ -57,7 +59,7 @@ is
 					execute immediate 'create profile #PROFILE# limit cpu_per_call unlimited';
 				end if;
 			end;
-			/]'||chr(10)
+			/]'||chr(10)||chr(10)
 		, '#PROFILE#', v_profile)
 		, '			', null);
 	end;
@@ -114,7 +116,7 @@ is
 		, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
 		, '#PROFILE#', v_profile)
 		, '#DB_NAME#', lower(sys_context('userenv', 'db_name')))
-		, chr(10)||'			', chr(10))||chr(10);
+		, chr(10)||'			', chr(10))||chr(10)||chr(10);
 	end;
 
 	function create_grants return clob is
@@ -128,7 +130,7 @@ is
 
 				--Direct grants for objects that are frequently revoked from PUBLIC, as
 				--recommended by the Security Technical Implementation Guide (STIG).
-				--Use "with grant option" these will probably also need to be granted to users.
+				--Use "with grant option" since these will probably also need to be granted to users.
 				begin
 					for packages in
 					(
@@ -146,7 +148,7 @@ is
 						end;
 					end loop;
 				end;
-				/]'||chr(10)
+				/]'||chr(10)||chr(10)
 			,'				', null);
 	end;
 
@@ -208,10 +210,235 @@ is
 					end if;
 				$end
 			end;
-			/]'||chr(10)
+			/]'||chr(10)||chr(10)
 		,'#HOST#', lower(sys_context('userenv', 'server_host')))
 		,'			', null);
 	end;
+
+	function create_sys_m5_runner return clob is
+	begin
+		return replace(replace(replace(
+		q'[
+			--Create table to hold Session GUIDs.
+			create table sys.m5_sys_session_guid
+			(
+				session_guid raw(16),
+				constraint m5_sys_session_guid_pk primary key(session_guid)
+			);
+			comment on table sys.m5_sys_session_guid is 'Session GUID to prevent Method5 SYS replay attacks.';
+
+
+			--Create package to enable remote execution of commands as SYS.
+			create or replace package sys.m5_runner is
+
+			--Copyright (C) 2017 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+			--Version 1.0.1
+			--Read this page if you're curious about this program or concerned about security implications:
+			--https://github.com/method5/method5/blob/master/user_guide.md#security
+			procedure set_sys_key(p_sys_key in raw);
+			procedure run_as_sys(p_encrypted_command in raw);
+			procedure get_column_metadata
+			(
+				p_plsql_block                in     varchar2,
+				p_encrypted_select_statement in     raw,
+				p_has_column_gt_30           in out number,
+				p_has_long                   in out number,
+				p_explicit_column_list       in out varchar2,
+				p_explicit_expression_list   in out varchar2
+			);
+
+			end;
+			#SLASH#
+
+
+			create or replace package body sys.m5_runner is
+
+			/******************************************************************************/
+			--Throw an error if the connection is not remote and not from an expected host. 
+			procedure validate_remote_connection is
+				procedure check_module_for_link is
+				begin
+					--TODO: This is not tested!
+					if sys_context('userenv','module') not like 'oracle@%' then
+						raise_application_error(-20200, 'This procedure was called incorrectly.');
+					end if;
+				end;
+			begin
+				--Check that the connection comes from the management server.
+				if sys_context('userenv', 'session_user') = 'METHOD5'
+					and lower(sys_context('userenv', 'host')) not like '%#HOST#%' then
+						raise_application_error(-20201, 'This procedure was called incorrectly.');
+				end if;
+
+				--Check that the connection comes over a database link.
+				$if dbms_db_version.ver_le_9 $then
+					check_module_for_link;
+				$elsif dbms_db_version.ver_le_10 $then
+					check_module_for_link;
+				$elsif dbms_db_version.ver_le_11_1 $then
+					check_module_for_link;
+				$else
+					if sys_context('userenv', 'dblink_info') is null then
+						raise_application_error(-20203, 'This procedure was called incorrectly.');
+					end if;
+				$end
+			end validate_remote_connection;
+
+			/******************************************************************************/
+			--Set LINK$ to contain the secret key to control SYS access, but ONLY if the key
+			--is not currently set.
+			--LINK$ is a special table that not even SELECT ANY DICTIONARY can select from
+			--since 10g.
+			procedure set_sys_key(p_sys_key in raw) is
+				v_count number;
+			begin
+				--Only allow specific remote connections.
+				validate_remote_connection;
+
+				--Disable bind variables so nobody can spy on keys.
+				execute immediate 'alter session set statistics_level = basic';
+
+				--Throw error if the remote key already exists.
+				select count(*) into v_count from dba_db_links where owner = 'SYS' and db_link like 'M5_SYS_KEY%';
+				if v_count = 1 then
+					raise_application_error(-20204, 'The SYS key already exists on the remote database.  '||
+						'If you want to reset the SYS key, run these steps:'||chr(10)||
+						'1. On the remote database, as SYS: DROP DATABASE LINK M5_SYS_KEY;'||chr(10)||
+						'2. On the local database: re-run this procedure.');
+				end if;
+
+				--Create database link.
+				execute immediate q'!
+					create database link m5_sys_key
+					connect to not_a_real_user
+					identified by "Not a real password"
+					using 'Not a real connect string'
+				!';
+
+				--Modify the link to store the sys key.
+				update sys.link$
+				set passwordx = p_sys_key
+				--The name may be different because of GLOBAL_NAMES setting.
+				where name like 'M5_SYS_KEY%'
+					and userid = 'NOT_A_REAL_USER'
+					and owner# = (select user_id from dba_users where username = 'SYS');
+
+				commit;
+			end set_sys_key;
+
+			/******************************************************************************/
+			--Only allow connections from the right place, with the right encryption key,
+			--and the right session id.
+			function authenticate_and_decrypt(p_encrypted_command in raw) return varchar2 is
+				v_sys_key raw(32);
+				v_command varchar2(32767);
+				v_guid raw(16);
+				v_count number;
+				pragma autonomous_transaction;
+			begin
+				--Only allow specific remote connections.
+				validate_remote_connection;
+
+				--Disable bind variables so nobody can spy on keys.
+				execute immediate 'alter session set statistics_level = basic';
+
+				--Get the key.
+				begin
+					select passwordx
+					into v_sys_key
+					from sys.link$
+					where owner# = (select user_id from dba_users where username = 'SYS')
+						and name like 'M5_SYS_KEY%';
+				exception when no_data_found then
+					raise_application_error(-20205, 'The SYS key was not installed correctly.  '||
+						'See the file administer_method5.md for help.'||chr(10)||
+						sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+				end;
+
+				--Decrypt the command.
+				begin
+					v_command := utl_i18n.raw_to_char(
+						dbms_crypto.decrypt
+						(
+							src => p_encrypted_command,
+							typ => dbms_crypto.encrypt_aes256 + dbms_crypto.chain_cbc + dbms_crypto.pad_pkcs5,
+							key => v_sys_key
+						),
+						'AL32UTF8'
+					);
+				exception when others then
+					raise_application_error(-20206, 'There was an error during decryption, the SYS key is probably '||
+						'installed incorrectly.  See the file administer_method5.md for help.'||chr(10)||
+						sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+				end;
+
+				--Remove the GUID at the front.
+				v_guid := hextoraw(substr(v_command, 1, 32));
+				v_command := substr(v_command, 33);
+
+				--Check that the GUID is new, to prevent a replay attack.
+				select count(*) into v_count from sys.m5_sys_session_guid where session_guid = v_guid;
+				if v_count >= 1 then
+					raise_application_error(-20207, 'The SESSION_ID has already been run.  '||
+						'This procedure can only be called from Method5 and cannot reuse a SESSION_ID.');
+				end if;
+
+				--Store the GUID, which acts as a session ID.
+				--This is why the function is an autonomous transaction - the session ID must
+				--be saved even if everything else fails.
+				insert into sys.m5_sys_session_guid values(v_guid);
+				commit;
+
+				return v_command;
+			end authenticate_and_decrypt;
+
+			/******************************************************************************/
+			--Run a (properly encrypted) command as SYS.
+			procedure run_as_sys(p_encrypted_command in raw) is
+				v_command varchar2(32767);
+			begin
+				v_command := authenticate_and_decrypt(p_encrypted_command);
+
+				--Run the command.
+				execute immediate v_command;
+
+				--Do NOT commit.  The caller must commit to preserve the rowcount for the feedback message.
+			end;
+
+			/******************************************************************************/
+			--Get column metadata as SYS.  This procedure is only meant to work with the
+			--private procedure Method5.m5_pkg.get_column_metadata, using input encrypted
+			--with Method5.m5_pkg.get_encrypted_raw.
+			procedure get_column_metadata
+			(
+				p_plsql_block                in     varchar2,
+				p_encrypted_select_statement in     raw,
+				p_has_column_gt_30           in out number,
+				p_has_long                   in out number,
+				p_explicit_column_list       in out varchar2,
+				p_explicit_expression_list   in out varchar2
+			) is
+				v_select_statement varchar2(32767);
+			begin
+				v_select_statement := authenticate_and_decrypt(p_encrypted_select_statement);
+
+				execute immediate p_plsql_block
+				using v_select_statement
+					,out p_has_column_gt_30
+					,out p_has_long
+					,out p_explicit_column_list
+					,out p_explicit_expression_list;
+			end get_column_metadata;
+
+			end;
+			#SLASH#
+
+
+			grant execute on sys.m5_runner to method5;]'||chr(10)||chr(10)
+		, chr(10)||'			', chr(10))
+		,'#HOST#', lower(sys_context('userenv', 'server_host')))
+		,'#SLASH#', '/');
+	end create_sys_m5_runner;
 
 	function create_footer return clob is
 	begin
@@ -230,10 +457,151 @@ begin
 	v_script := v_script ||create_grants;
 	v_script := v_script ||create_audits;
 	v_script := v_script ||create_trigger;
+	if p_allow_run_as_sys then
+		v_script := v_script ||create_sys_m5_runner;
+	end if;
 	v_script := v_script ||create_footer;
 
 	return v_script;
 end generate_remote_install_script;
+
+
+--------------------------------------------------------------------------------
+--Create a local and remote key for SYS access.
+procedure set_local_and_remote_sys_key(p_db_link in varchar2) is
+	v_count number;
+	v_clean_db_link varchar2(128) := trim(upper(p_db_link));
+	v_sys_key raw(32);
+begin
+	--Throw error if the sys key already exists locally.
+	select count(*) into v_count from method5.m5_sys_key where db_link = v_clean_db_link;
+	if v_count = 1 then
+		raise_application_error(-20208, 'The SYS key for this DB_LINK already exists on the master database.  '||
+			'If you want to reset the SYS keys, run these steps:'||chr(10)||
+			'1. On the local database: DELETE FROM METHOD5.M5_SYS_KEY WHERE DB_LINK = '''||	v_clean_db_link||''';'||chr(10)||
+			'2. On the remote database, as SYS: DROP DATABASE LINK M5_SYS_KEY;'||chr(10)||
+			'3. On the local database: re-run this procedure.');
+	end if;
+
+	--Create new SYS key.
+	v_sys_key := dbms_crypto.randombytes(number_bytes => 32);
+
+	--Save the sys key locally.
+	insert into method5.m5_sys_key values(v_clean_db_link, v_sys_key);
+
+	--Set the sys key remotely.
+	execute immediate replace('
+		begin
+			sys.m5_runner.set_sys_key@#DB_LINK#(:sys_key);
+		end;
+	', '#DB_LINK#', v_clean_db_link)
+	using v_sys_key;
+
+	--Commit changes.
+	commit;
+
+exception when others then
+	rollback;
+	raise;
+end set_local_and_remote_sys_key;
+
+
+--------------------------------------------------------------------------------
+--Set all the missing SYS keys and return the status of the keys.
+function set_all_missing_sys_keys return clob is
+	type string_nt is table of varchar2(32767);
+	type string_aat is table of string_nt index by varchar2(32767);
+	v_status string_aat;
+	v_report clob := q'[
+----------------------------------------
+-- Status of all SYS keys.
+--
+-- For more specific error information try to set a specific key like this:
+--  begin
+--    method5.method5_admin.set_local_and_remote_sys_key('M5_MYLINK');
+--  end;
+--  /
+----------------------------------------
+
+]';
+	v_status_index varchar2(32767);
+	pragma autonomous_transaction;
+
+	--Convert a nested table into a comma-separated and indented list.
+	function get_list_with_newlines(p_list string_nt) return clob is
+		v_list clob;
+	begin
+		--Concatenate list.
+		if p_list is null or p_list.count = 0 then
+			v_list := '<none>';
+		else
+			--Start with the second item and ignore the "<none>" if there are more items.
+			for i in 1 .. p_list.count loop
+				--Skip the first "<none>" if there are more than one rows.
+				if i = 1 and p_list.count > 1 and p_list(i) = '<none>' then
+					null;
+				else
+					v_list := v_list || ',' || p_list(i);
+					if i <> p_list.count and mod(i, 10) = 0 then
+						v_list := v_list || chr(10) || '	';
+					end if;
+				end if;
+			end loop;
+			v_list := substr(v_list, 2);
+		end if;
+
+		--Return the list.
+		return v_list;
+	end get_list_with_newlines;
+
+begin
+	--Set some existing statuses.  Remove them later if they're not needed.
+	v_status('Keys Previously Set') := string_nt('<none>');
+	v_status('Keys Set') := string_nt('<none>');
+
+	--Add status for each link to the report.
+	for missing_links in
+	(
+		select
+			dba_db_links.db_link,
+			case when m5_sys_key.db_link is not null then 'Yes' else 'No' end sys_key_exists
+		from dba_db_links
+		left join method5.m5_sys_key
+			on dba_db_links.db_link = m5_sys_key.db_link
+		where owner = 'METHOD5'
+			and dba_db_links.db_link like 'M5%'
+			and lower(replace(dba_db_links.db_link, 'M5_')) in
+				(select lower(database_name) from m5_database)
+			and dba_db_links.db_link <> 'M5_INSTALL_DB_LINK'
+		order by dba_db_links.db_link
+	) loop
+		begin
+			if missing_links.sys_key_exists = 'Yes' then
+				v_status('Keys Previously Set') := v_status('Keys Previously Set') multiset union string_nt(missing_links.db_link);
+			else
+				method5.method5_admin.set_local_and_remote_sys_key(missing_links.db_link);
+				v_status('Keys Set') := v_status('Keys Set') multiset union string_nt(missing_links.db_link);
+			end if;
+		exception when others then
+			if v_status.exists('Error ORA'||sqlcode) then
+				v_status('Error ORA'||sqlcode) := v_status('Error ORA'||sqlcode) multiset union string_nt(missing_links.db_link);
+			else
+				v_status('Error ORA'||sqlcode) := string_nt(missing_links.db_link);
+			end if;
+		end;
+	end loop;
+
+	--Create report of statuses.
+	v_status_index := v_status.first;
+	while v_status_index is not null
+	loop
+		v_report := v_report || v_status_index || chr(10) || '	' || get_list_with_newlines(v_status(v_status_index)) || chr(10) || chr(10);
+		v_status_index := v_status.next(v_status_index);
+	end loop;
+
+	--Return report.
+	return v_report;
+end set_all_missing_sys_keys;
 
 
 --------------------------------------------------------------------------------

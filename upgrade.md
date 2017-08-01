@@ -4,6 +4,67 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.6.1 --> 8.7.1: Added Run as SYS feature.
+-------------------------------------
+
+1. Install the new remote package SYS.M5_RUNNER.
+1a. Run this command on the management database:
+	select method5.method5_admin.generate_remote_install_script from dual;
+1b. Copy everything from "--Create table to hold Session GUIDs." and below and save that as a SQL script.
+1c. Run that file on every server, as SYS, to setup the P_RUN_AS_SYS feature.
+
+2. Run these files to install new packages: /code/m5_pkg.pck, /code/method5_admin.pck, /code/method4_m5_poll_table_ot.typ, /code/tests/method5_test.pck
+
+3. In the file install_method5_objects.sql, re-run the function method5.m5 and the procedure method5.m5_proc.
+
+4. Run these commands:
+
+
+	--Change authentication table:
+	alter table method5.m5_2step_authentication add can_run_as_sys varchar2(3);
+	alter table method5.m5_2step_authentication add constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No'));
+	update method5.m5_2step_authentication set can_run_as_sys = 'Yes';
+	commit;
+	alter table method5.m5_2step_authentication modify can_run_as_sys not null;
+
+	--Add new column and temp columns to move existing columns to the right.
+	alter table method5.m5_audit add (run_as_sys                 varchar2(3));
+	alter table method5.m5_audit add (targets_expected_temp      number);
+	alter table method5.m5_audit add (targets_completed_temp     number);
+	alter table method5.m5_audit add (targets_with_errors_temp   number);
+	alter table method5.m5_audit add (num_rows_temp              number);
+	alter table method5.m5_audit add (access_control_error_temp  varchar2(4000));
+	--Set the temp columns;
+	update method5.m5_audit set
+	targets_expected_temp     = targets_expected,
+	targets_completed_temp    = targets_completed,
+	targets_with_errors_temp  = targets_with_errors,
+	num_rows_temp             = num_rows,
+	access_control_error_temp = access_control_error;
+	--Drop the original columns.
+	alter table method5.m5_audit drop column targets_expected;
+	alter table method5.m5_audit drop column targets_completed;
+	alter table method5.m5_audit drop column targets_with_errors;
+	alter table method5.m5_audit drop column num_rows;
+	alter table method5.m5_audit drop column access_control_error;
+	--Rename the new columns.
+	alter table method5.m5_audit rename column targets_expected_temp     to targets_expected;
+	alter table method5.m5_audit rename column targets_completed_temp    to targets_completed;
+	alter table method5.m5_audit rename column targets_with_errors_temp  to targets_with_errors;
+	alter table method5.m5_audit rename column num_rows_temp             to num_rows;
+	alter table method5.m5_audit rename column access_control_error_temp to access_control_error;
+	--Add constraint.
+	update method5.m5_audit set run_as_sys = 'No';
+	alter table method5.m5_audit add constraint m5_audit_ck3 check (run_as_sys in ('Yes', 'No'));
+
+	create table method5.m5_sys_key
+	(
+		db_link varchar2(128),
+		sys_key raw(32)
+	);
+	comment on table method5.m5_sys_key is 'Private keys used for encrypting and decrypting Method5 commands to run as SYS.';
+
+
 8.6.0 --> 8.6.1: Bug fix for column expressions more than 30 bytes long.
 -------------------------------------
 

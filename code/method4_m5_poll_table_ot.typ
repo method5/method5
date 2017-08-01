@@ -6,20 +6,23 @@ CREATE OR REPLACE TYPE METHOD5.method4_m5_poll_table_ot AUTHID CURRENT_USER AS O
 , STATIC FUNCTION ODCITableDescribe(
                   rtype                 OUT ANYTYPE,
                   p_code                IN clob,
-                  p_targets             IN varchar2 default null
+                  p_targets             IN varchar2 default null,
+                  p_run_as_sys          IN varchar2 default 'NO'
                   ) RETURN NUMBER
 
 , STATIC FUNCTION ODCITablePrepare(
                   sctx                  OUT method4_m5_poll_table_ot,
                   tf_info               IN  sys.ODCITabFuncInfo,
                   p_code                IN clob,
-                  p_targets             IN varchar2 default null
+                  p_targets             IN varchar2 default null,
+                  p_run_as_sys          IN varchar2 default 'NO'
                   ) RETURN NUMBER
 
 , STATIC FUNCTION ODCITableStart(
                   sctx                  IN OUT method4_m5_poll_table_ot,
                   p_code                IN clob,
-                  p_targets             IN varchar2 default null
+                  p_targets             IN varchar2 default null,
+                  p_run_as_sys          IN varchar2 default 'NO'
                   ) RETURN NUMBER
 
 , MEMBER FUNCTION ODCITableFetch(
@@ -45,7 +48,8 @@ CREATE OR REPLACE TYPE BODY METHOD5.method4_m5_poll_table_ot AS
 static function ODCITableDescribe(
 	rtype                 out anytype,
 	p_code                IN clob,
-	p_targets             IN varchar2 default null
+	p_targets             IN varchar2 default null,
+	p_run_as_sys          IN varchar2 default 'NO'
 /*
 	p_table_name              in varchar2,
 	p_sql_statement_condition in varchar2,
@@ -247,7 +251,8 @@ begin
 	m5_pkg.run(
 		p_code => p_code,
 		p_targets => p_targets,
-		p_table_name => v_table_name
+		p_table_name => v_table_name,
+		p_run_as_sys => case when trim(upper(p_run_as_sys)) in ('YES', '1') then true else false end
 	);
 
 	set_context_attributes(v_table_name);
@@ -264,7 +269,8 @@ end ODCITableDescribe;
                    sctx    OUT method4_m5_poll_table_ot,
                    tf_info IN  sys.ODCITabFuncInfo,
                    p_code                IN clob,
-                   p_targets             IN varchar2 default null
+                   p_targets             IN varchar2 default null,
+                   p_run_as_sys          IN varchar2 default 'NO'
                    ) RETURN NUMBER IS
 
       r_meta method4.rt_anytype_metadata;
@@ -294,7 +300,8 @@ end ODCITableDescribe;
    STATIC FUNCTION ODCITableStart(
                    sctx                      IN OUT method4_m5_poll_table_ot,
                    p_code                IN clob,
-                   p_targets             IN varchar2 default null
+                   p_targets             IN varchar2 default null,
+                   p_run_as_sys          IN varchar2 default 'NO'
                    ) RETURN NUMBER IS
 
       r_meta method4.rt_anytype_metadata;

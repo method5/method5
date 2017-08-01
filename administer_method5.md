@@ -33,9 +33,21 @@ If you're installing Method5, run these steps in this order:
 1: Install Method5 on remote database.
 --------------------------------------
 
-Run this command on the management server as a DBA, but run the output on the remote server as SYSDBA.
+Run this command on the management server as a DBA, but run the output on each new remote server as SYSDBA.
 
+	set long 1000000
 	select method5.method5_admin.generate_remote_install_script() from dual;
+
+Run these commands on the management server as a DBA and view the results.
+
+	set long 1000000
+	--This will create new database links.
+	begin
+		m5_proc(p_code => 'select * from dual', p_asynchronous => false);
+	end;
+	/
+	--This will create a SYS key for the new database links.
+	select method5.method5_admin.set_all_missing_sys_keys() from dual;
 
 
 <a name="reset_method5_password"/>
@@ -71,8 +83,8 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 
 Then insert the permitted values into the 2-step authentication table like this:
 
-	insert into method5.m5_2step_authentication(oracle_username, os_username)
-	values('&oracle_username1','&os_username1');
+	insert into method5.m5_2step_authentication(oracle_username, os_username, can_run_as_sys)
+	values('&oracle_username1','&os_username1', '&Yes_or_No);
 
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*

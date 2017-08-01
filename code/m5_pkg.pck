@@ -1,7 +1,8 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.6.1';
+C_VERSION constant varchar2(10) := '8.7.1';
+g_debug boolean := false;
 
 /******************************************************************************
 RUN
@@ -29,6 +30,7 @@ Inputs:
 		DROP - Drops the table if it exists and create a new one.
 	p_asynchronous (OPTIONAL) - Does the process return immediately (TRUE, the default)
 		or wait for	all jobs to finish (FALSE).
+	p_run_as_sys (OPTIONAL) - Does the code run as SYS (TRUE) or as METHOD5 (FALSE, the default).
 
 Outputs:
 	DBMS_OUTPUT will display some statements for querying and cleaning up output.
@@ -58,8 +60,38 @@ procedure run(
 	p_targets             varchar2 default null,
 	p_table_name          varchar2 default null,
 	p_table_exists_action varchar2 default 'ERROR',
-	p_asynchronous        boolean default true
+	p_asynchronous        boolean default true,
+	p_run_as_sys          boolean default false
 );
+
+
+/******************************************************************************
+GET_ENCRYPTED_RAW
+
+Purpose:
+	Encrypt a command before sending it be executed remotely as SYS.
+
+Inputs:
+	p_database_name - The name of the database as used in the database link.
+	p_command - The command to be encrypted.
+
+Returns:
+	The encrypted command, as a RAW type.
+	(Encryption is performed using AES 256, CBC, and PKCS5 padding.
+	Keys are generated using a cryptographic pseudo-random number
+	generator, and are unique for each database.  The keys are stored
+	remotely in SYS.LINK$, a special table that only SYS can read.
+	The command is padded with a GUID, to prevent replay attacks.)
+
+Notes:
+	This function should only be called from a Method5 temporary procedure.
+	It doesn't make sense to call this function in any other context.
+
+*******************************************************************************/
+function get_encrypted_raw(
+	p_database_name varchar2,
+	p_command varchar2
+) return raw;
 
 
 /******************************************************************************
@@ -95,10 +127,6 @@ procedure stop_jobs
 end;
 /
 create or replace package body method5.m5_pkg is
-
-
---Constants.
-C_MAX_DATABASE_ATTEMPTS constant number := 100;
 
 
 /******************************************************************************/
@@ -141,12 +169,45 @@ end stop_jobs;
 
 /******************************************************************************/
 --(See specification for description.)
+function get_encrypted_raw(p_database_name varchar2, p_command varchar2) return raw is
+	v_clean_db_link varchar2(128) := 'M5_'||trim(upper(p_database_name));
+	v_sys_key raw(32);
+begin
+	--Get the SYS key.
+	select max(sys_key)
+	into v_sys_key
+	from method5.m5_sys_key
+	where db_link = v_clean_db_link;
+
+	--Throw error if the SYS key does not exist.
+	if v_sys_key is null then
+		raise_application_error(-20031, 'The SYS key for this database does not exist.  '||
+			'Try calling this procedure to generate the key:'||chr(10)||
+			'begin'||chr(10)||
+			'   method5.method5_admin.set_local_and_remote_sys_key(''m5_'||p_database_name||''');'||chr(10)||
+			'end;');
+	end if;
+
+	--Return the encrypted command.
+	return dbms_crypto.encrypt
+	(
+		--Add SYS_GUID as a session ID, to prevent replay attakcs.
+		src => utl_i18n.string_to_raw (sys_guid() || p_command, 'AL32UTF8'),
+		typ => dbms_crypto.encrypt_aes256 + dbms_crypto.chain_cbc + dbms_crypto.pad_pkcs5,
+		key => v_sys_key
+	);
+end get_encrypted_raw;
+
+
+/******************************************************************************/
+--(See specification for description.)
 procedure run(
 	p_code                varchar2,
 	p_targets             varchar2 default null,
 	p_table_name          varchar2 default null,
 	p_table_exists_action varchar2 default 'ERROR',
-	p_asynchronous        boolean default true
+	p_asynchronous        boolean default true,
+	p_run_as_sys          boolean default false
 ) is
 
 	--All printable ASCII characters, excluding ones that would look confusing (',",@),
@@ -160,6 +221,8 @@ procedure run(
 		'y','z','|','~'
 	);
 
+	--Constants.
+	C_MAX_DATABASE_ATTEMPTS constant number := 100;
 
 	--Collections to hold link data instead of re-fetching the cursor.
 	type link_rec is record(
@@ -174,7 +237,7 @@ procedure run(
 
 	--Code templates.
 	v_select_template constant varchar2(32767) := q'<
-create procedure m5_temp_proc_##SEQUENCE## is
+create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 	v_dummy varchar2(1);
 begin
 	--Ping database with simple select to create simple error message if link fails.
@@ -185,10 +248,7 @@ begin
 			v_rowcount number;
 		begin
 			--Create remote temporary table with results.
-			--Use an extra inline view to avoid "ORA-00998: must name this expression with a column alias".
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
-				##CTAS_DDL##
-			##QUOTE_DELIMITER1##');
+			##DBA_OR_SYS_RUN_CTAS##
 
 			--Insert data using database link.
 			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
@@ -287,7 +347,7 @@ begin
 
 				execute immediate q'##QUOTE_DELIMITER3##
 					begin
-						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
+						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##q'##QUOTE_DELIMITER2##
 							create function m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
 								--Required for DDL over database link.
 								pragma autonomous_transaction;
@@ -295,20 +355,14 @@ begin
 								v_lines sys.dbmsoutput_linesarray;
 								v_numlines number := 32767;
 								v_dbms_output_clob clob;
-
-								--DEPRECATED: The hidden variable v_return_value will be desupported in a future version.
-								v_outer_return_value varchar2(32767);
 							begin
 								sys.dbms_output.enable(null);
 
 								execute immediate q'##QUOTE_DELIMITER1##
-									declare
-										v_return_value varchar2(32767);
 									begin
 										##CODE##
-										:v_outer_return_value := v_return_value;
 									end;
-								##QUOTE_DELIMITER1##' using out v_outer_return_value;
+								##QUOTE_DELIMITER1##';
 
 								--Retrieve and concatenate the output.
 								sys.dbms_output.get_lines(lines => v_lines, numlines => v_numlines);
@@ -316,9 +370,9 @@ begin
 									v_dbms_output_clob := v_dbms_output_clob || case when i = 1 then null else chr(10) end || v_lines(i);
 								end loop;
 
-								return nvl(v_dbms_output_clob, v_outer_return_value);
+								return v_dbms_output_clob;
 							end;
-						##QUOTE_DELIMITER2##');
+						##QUOTE_DELIMITER2##'##SYS_REPLACE_WITH_ENCRYPTED_END##);
 
 						--Create remote temporary table with results.
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
@@ -462,9 +516,11 @@ end;
 		p_targets             varchar2,
 		p_table_name          varchar2,
 		p_asynchronous        boolean,
-		p_table_exists_action varchar2
+		p_table_exists_action varchar2,
+		p_run_as_sys          boolean
 	) return rowid is
 		v_asynchronous varchar2(3) := case when p_asynchronous then 'Yes' else 'No' end;
+		v_run_as_sys varchar2(3) := case when p_run_as_sys then 'Yes' else 'No' end;
 		v_rowid rowid;
 	begin
 		insert into method5.m5_audit
@@ -477,6 +533,7 @@ end;
 			p_targets,
 			v_asynchronous,
 			p_table_exists_action,
+			v_run_as_sys,
 			null,
 			null,
 			null,
@@ -493,7 +550,7 @@ end;
 	---------------------------------------------------------------------------
 	--Verify that the user can use Method5.
 	--This package has elevated privileges and must only be used by a true DBA.
-	procedure control_access(p_audit_rowid rowid) is
+	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean) is
 		v_count                  number;
 		v_profile                varchar2(4000);
 		v_account_status         varchar2(4000);
@@ -502,6 +559,7 @@ end;
 		v_dba_profile_status     varchar2(4000);
 		v_user_not_locked_status varchar2(4000);
 		v_os_username_status     varchar2(4000);
+		v_can_run_as_sys         varchar2(4000);
 
 		procedure audit_send_email_raise_error(p_message in varchar2) is
 			v_sender_address varchar2(4000);
@@ -534,7 +592,7 @@ end;
 			end if;
 
 			raise_application_error(-20002, 'Access denied and an email was sent to the administrator(s).  '||
-				p_message||'  Only DBAs can use this package, no exceptions.');
+				p_message||'  Only authorized DBAs can use this package, no exceptions.');
 		end audit_send_email_raise_error;
 
 	begin
@@ -612,6 +670,33 @@ end;
 
 			if v_count = 0 then
 				audit_send_email_raise_error('You are not logged into the expected client OS username.');
+			end if;
+		end if;
+
+		--Check CAN_RUN_AS_SYS, if set.
+		if p_run_as_sys then
+			select
+				max(nvl(
+					(
+						--Interactive job.
+						select can_run_as_sys
+						from method5.m5_2step_authentication
+						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and lower(os_username) = lower(sys_context('userenv', 'os_user'))
+					),
+					(
+						--Scheduler job.
+						select can_run_as_sys
+						from method5.m5_2step_authentication
+						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
+					)
+				)) can_run_as_sys
+			into v_can_run_as_sys
+			from sys.dual;
+
+			if v_can_run_as_sys = 'NO' then
+				audit_send_email_raise_error('You are not authorized to run jobs as SYS.');
 			end if;
 		end if;
 
@@ -1124,6 +1209,7 @@ end;
 	procedure get_column_metadata
 	(
 		p_select_statement         in     clob,
+		p_run_as_sys               in     boolean,
 		p_database_name            in     varchar2,
 		p_has_column_gt_30         in out boolean,
 		p_has_long                 in out boolean,
@@ -1134,9 +1220,8 @@ end;
 		v_has_long                 number;
 		v_explicit_column_list     varchar2(32767);
 		v_explicit_expression_list varchar2(32767);
-	begin
-		--Parse the column names on the remote database.
-		execute immediate replace(
+
+		v_template                 varchar2(32767) :=
 		q'[
 			declare
 				v_cursor_number    integer;
@@ -1182,19 +1267,47 @@ end;
 				:v_expression_list := substr(v_expression_list, 2);
 
 			end;
-		]',
-		'#DATABASE_NAME#', p_database_name)
-		using to_char(p_select_statement)
-			,out v_has_column_gt_30
-			,out v_has_long
-			,out v_explicit_column_list
-			,out v_explicit_expression_list;
+		]';
+	begin
+		--Run as Method5 DBA:
+		if not p_run_as_sys then
+			--Parse the column names on the remote database.
+			execute immediate replace(v_template, '#DATABASE_NAME#', p_database_name)
+			using to_char(p_select_statement)
+				,out v_has_column_gt_30
+				,out v_has_long
+				,out v_explicit_column_list
+				,out v_explicit_expression_list;
+		--Run as SYS:
+		else
+			null;
+			execute immediate replace('
+				begin
+					sys.m5_runner.get_column_metadata@m5_#DATABASE_NAME#(
+						:v_template,
+						:p_select_statement,
+						:v_has_column_gt_30,
+						:v_has_long,
+						:v_explicit_column_list,
+						:v_explicit_expression_list
+					);
+				end;
+			'
+			, '#DATABASE_NAME#', p_database_name)
+			using replace(v_template, '@m5_#DATABASE_NAME#')
+				,method5.m5_pkg.get_encrypted_raw(p_database_name, p_select_statement)
+				,in out v_has_column_gt_30
+				,in out v_has_long
+				,in out v_explicit_column_list
+				,in out v_explicit_expression_list;
+		end if;
 
 		--Set OUT variables.
 		p_has_column_gt_30 := case when v_has_column_gt_30 = 1 then true else false end;
 		p_has_long := case when v_has_long = 1 then true else false end;
 		p_explicit_column_list := v_explicit_column_list;
 		p_explicit_expression_list := v_explicit_expression_list;
+
 	end get_column_metadata;
 
 	---------------------------------------------------------------------------
@@ -1218,7 +1331,7 @@ end;
 		v_template varchar2(32767);
 	begin
 		--Set some components.
-		v_ctas := 'create table '||p_table_name||' nologging pctfree 0 as';
+		v_ctas := 'create table method5.'||p_table_name||' nologging pctfree 0 as';
 
 		if p_add_database_name_column then
 			v_db_name := 'cast(''database name'' as varchar2(30)) database_name, ';
@@ -1256,12 +1369,12 @@ end;
 				(
 					#CODE#
 				)
-				select #DB_NAME_COLUMN##EXPRESSION_LIST#
+				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN##EXPRESSION_LIST#
 				from cte#FILTER#]';
 		elsif p_has_long then
 			v_template := q'[
 				#CTAS#
-				select #DB_NAME_COLUMN##EXPRESSION_LIST#
+				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN##EXPRESSION_LIST#
 				from (#CODE#) subquery#FILTER#]';
 			
 		elsif p_has_column_gt_30 then
@@ -1271,12 +1384,12 @@ end;
 				(
 					#CODE#
 				)
-				select #DB_NAME_COLUMN#cte.*
+				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN#cte.*
 				from cte#FILTER#]';
 		elsif p_has_version_star then
 			v_template := q'[
 				#CTAS#
-				select #DB_NAME_COLUMN##COLUMN_LIST#
+				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN##COLUMN_LIST#
 				from
 				(
 					#CODE#
@@ -1284,7 +1397,7 @@ end;
 		else
 			v_template := q'[
 				#CTAS#
-				select #DB_NAME_COLUMN#subquery.*
+				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN#subquery.*
 				from
 				(
 					#CODE#
@@ -1312,9 +1425,11 @@ end;
 	--useful information.  The return message is formatted in a way so that it can be read
 	--later and converted into something similar to a SQL*Plus feedback message.
 	procedure get_transformed_code_and_type(
-		p_original_code            in clob,
-		p_database_names           in string_table,
+		p_original_code            in     clob,
+		p_run_as_sys               in     boolean,
+		p_database_names           in     string_table,
 		p_transformed_code            out clob,
+		p_encrypted_code              out clob,
 		p_select_or_plsql             out varchar2,
 		p_is_first_column_sortable    out boolean,
 		p_command_name                out varchar2,
@@ -1390,6 +1505,7 @@ end;
 		--Get the column metadata (for the lowest version of the database) that may be used instead of a "*" later.
 		procedure get_lowest_column_metadata(
 			p_transformed_code         in     clob,
+			p_run_as_sys               in     boolean,
 			p_version_star_position    in     number,
 			p_database_names           in     string_table,
 			p_has_version_star         in out boolean,
@@ -1455,7 +1571,7 @@ end;
 					for i in 1 .. least(c_max_database_attempts, v_databases_ordered_by_version.count) loop
 						begin
 							--Parse the column names on the remote database.
-							get_column_metadata(p_transformed_code, v_databases_ordered_by_version(i), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+							get_column_metadata(p_transformed_code, p_run_as_sys, v_databases_ordered_by_version(i), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 
 							--Record a success and quit the loop if it got this far.
 							v_successful_database_index := i;
@@ -1485,6 +1601,7 @@ end;
 		procedure version_star_set_code_and_list
 		(
 			p_transformed_code         in out clob,
+			p_run_as_sys               in     boolean,
 			p_command_name             in     varchar,
 			p_tokens                   in     method5.token_table,
 			p_has_version_star         in out boolean,
@@ -1506,7 +1623,7 @@ end;
 			transform_version_star_to_star(p_transformed_code, v_version_star_position);
 
 			--Retrieve column metadata because "*" may need to be converted to an explicit list later.
-			get_lowest_column_metadata(p_transformed_code, v_version_star_position, p_database_names, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+			get_lowest_column_metadata(p_transformed_code, p_run_as_sys, v_version_star_position, p_database_names, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 		end version_star_set_code_and_list;
 
 	begin
@@ -1535,31 +1652,67 @@ end;
 		p_transformed_code := method5.plsql_lexer.concatenate(v_tokens);
 
 		--Handle version star by transforming the code from "**" to "*" and setting column metadata.
-		version_star_set_code_and_list(p_transformed_code, p_command_name, v_tokens, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list, p_database_names);
+		version_star_set_code_and_list(p_transformed_code, p_run_as_sys, p_command_name, v_tokens, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list, p_database_names);
 
 		--Change the output depending on the type.
 		--
 		--Do nothing to SELECT.
 		if p_command_name = 'SELECT' then
 			p_select_or_plsql := 'SELECT';
-		--Do nothing to PL/SQL and CALL METHOD.
+		--Do nothing to PL/SQL (unless it's to be run as SYS).
 		elsif p_command_name = 'PL/SQL EXECUTE' then
 			p_select_or_plsql := 'PLSQL';
 			p_is_first_column_sortable := false;
+
+			if p_run_as_sys then
+				p_encrypted_code := replace(
+					q'[, '$$ENCRYPTED_RAW$$', method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##', q'##QUOTE_DELIMITER2## ##CODE## ##QUOTE_DELIMITER2##'))]'
+					, '##CODE##', p_transformed_code);
+
+				p_transformed_code :=
+					replace(replace(
+						q'[
+							begin
+								sys.m5_runner.run_as_sys('$$ENCRYPTED_RAW$$');
+								commit;
+							end;
+						]'
+						, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+						, '##CODE##', p_transformed_code);
+			end if;
+
 		--CALL METHOD needs to be wrapped in PL/SQL.
 		elsif p_command_name = 'CALL METHOD' then
 			p_select_or_plsql := 'PLSQL';
 			p_is_first_column_sortable := false;
-			p_transformed_code :=
-				replace(replace(
-					q'[
-						begin
-							execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
-							commit;
-						end;
-					]'
-					, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+
+			if not p_run_as_sys then
+				p_transformed_code :=
+					replace(replace(
+						q'[
+							begin
+								execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
+								commit;
+							end;
+						]'
+						, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+						, '##CODE##', p_transformed_code);
+			else
+				p_encrypted_code := replace(
+					q'[, '$$ENCRYPTED_RAW$$', method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##', q'##QUOTE_DELIMITER2## ##CODE## ##QUOTE_DELIMITER2##'))]'
 					, '##CODE##', p_transformed_code);
+
+				p_transformed_code :=
+					replace(replace(
+						q'[
+							begin
+								sys.m5_runner.run_as_sys('$$ENCRYPTED_RAW$$');
+								commit;
+							end;
+						]'
+						, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+						, '##CODE##', p_transformed_code);
+			end if;
 		--Raise error if unexpected statement type.
 		elsif p_command_name in ('Invalid', 'Nothing') then
 			--Raise special error if the user makes the somewhat common mistake of submitting SQL*Plus commands.
@@ -1593,18 +1746,38 @@ end;
 		--Wrap everything else in PL/SQL and handle the feedback message.
 		else
 			p_select_or_plsql := 'PLSQL';
-			p_transformed_code :=
-				replace(replace(replace(
-					q'[
-						begin
-							execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
-							dbms_output.put_line('M5_FEEDBACK_MESSAGE:COMMAND_NAME=##COMMAND_NAME##;ROWCOUNT='||sql%rowcount);
-							commit;
-						end;
-					]'
-					, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
-					, '##CODE##', p_transformed_code)
-					, '##COMMAND_NAME##', p_command_name);
+
+			if not p_run_as_sys then
+				p_transformed_code :=
+					replace(replace(replace(
+						q'[
+							begin
+								execute immediate q'##QUOTE_DELIMITER## ##CODE## ##QUOTE_DELIMITER##';
+								dbms_output.put_line('M5_FEEDBACK_MESSAGE:COMMAND_NAME=##COMMAND_NAME##;ROWCOUNT='||sql%rowcount);
+								commit;
+							end;
+						]'
+						, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+						, '##CODE##', p_transformed_code)
+						, '##COMMAND_NAME##', p_command_name);
+			else
+				p_encrypted_code := replace(
+					q'[, '$$ENCRYPTED_RAW$$', method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##', q'##QUOTE_DELIMITER2## ##CODE## ##QUOTE_DELIMITER2##'))]'
+					, '##CODE##', p_transformed_code);
+
+				p_transformed_code :=
+					replace(replace(replace(
+						q'[
+							begin
+								sys.m5_runner.run_as_sys('$$ENCRYPTED_RAW$$');
+								dbms_output.put_line('M5_FEEDBACK_MESSAGE:COMMAND_NAME=##COMMAND_NAME##;ROWCOUNT='||sql%rowcount);
+								commit;
+							end;
+						]'
+						, '##QUOTE_DELIMITER##', find_available_quote_delimiter(p_transformed_code))
+						, '##CODE##', p_transformed_code)
+						, '##COMMAND_NAME##', p_command_name);
+			end if;
 		end if;
 
 	end get_transformed_code_and_type;
@@ -1711,6 +1884,7 @@ end;
 		p_table_owner                     varchar2,
 		p_table_name                      varchar2,
 		p_code                            varchar2,
+		p_run_as_sys                      boolean,
 		p_has_version_star                boolean,
 		p_has_column_gt_30         in out boolean,
 		p_has_long                 in out boolean,
@@ -1732,7 +1906,7 @@ end;
 				v_temp_table_name varchar2(128);
 				v_successful_database_index number;
 				v_failed_database_list varchar2(32767);					
-				v_last_sqlerrm varchar2(32767);
+				v_last_error varchar2(32767);
 
 				v_illegal_use_of_long exception;
 				v_length_exceeds_maximum exception;
@@ -1767,16 +1941,27 @@ end;
 					--Try to create the table, handle errors.
 					begin
 						--Create the table.
-						execute immediate replace(replace(replace(q'[
-							begin
-								dbms_utility.exec_ddl_statement@m5_##DATABASE_NAME##(q'##QUOTE_DELIMITER1##
-									##CTAS##
-								##QUOTE_DELIMITER1##');
-							end;
-						]'
-						, '##DATABASE_NAME##', p_database_names(v_database_index))
-						, '##CTAS##', v_create_table_ddl)
-						, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
+						if p_run_as_sys then
+							execute immediate replace(q'[
+								begin
+									sys.m5_runner.run_as_sys@m5_##DATABASE_NAME##(:encrypted_raw);
+								end;
+							]'
+							, '##DATABASE_NAME##', p_database_names(v_database_index)
+							)
+							using get_encrypted_raw(p_database_names(v_database_index), v_create_table_ddl);
+						else
+							execute immediate replace(replace(replace(q'[
+								begin
+									dbms_utility.exec_ddl_statement@m5_##DATABASE_NAME##(q'##QUOTE_DELIMITER1##
+										##CTAS##
+									##QUOTE_DELIMITER1##');
+								end;
+							]'
+							, '##DATABASE_NAME##', p_database_names(v_database_index))
+							, '##CTAS##', v_create_table_ddl)
+							, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
+						end if;
 
 						--Record the successful database index and exit the loop.
 						v_successful_database_index := v_database_index;
@@ -1789,7 +1974,7 @@ end;
 						--But only retry it once.
 						if v_retry_counter = 0 then
 							--Recreate the CTAS based on an explicit column listGet new list
-							get_column_metadata(p_code, p_database_names(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+							get_column_metadata(p_code, p_run_as_sys, p_database_names(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 							v_create_table_ddl := get_ctas_sql(
 								p_code                     => p_code,
 								p_table_name               => v_temp_table_name,
@@ -1809,11 +1994,11 @@ end;
 							v_database_index := v_database_index - 1;
 						--Else it's just another failure for some weird reason.
 						else
-							v_last_sqlerrm := sqlerrm;
+							v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
 							v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
 						end if;
 					when others then
-						v_last_sqlerrm := sqlerrm;
+						v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
 						v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
 					end;
 				end loop;
@@ -1824,14 +2009,14 @@ end;
 						' and that the objects exist.  The statement was tested on '||substr(v_failed_database_list,2)||
 						'.  If the objects only exist on a small number of'||
 						' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
-						' objects.  The SQL raised this error: '||chr(10)||v_last_sqlerrm);
+						' objects.  The SQL raised this error: '||chr(10)||v_last_error);
 				end if;
 
 				--Create a local table based on the remote table.
 				begin
 					execute immediate '
 						create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
-						select * from '||v_temp_table_name||'@m5_'||p_database_names(v_successful_database_index);
+						select * from method5.'||v_temp_table_name||'@m5_'||p_database_names(v_successful_database_index);
 				--Do nothing if the table already exists.
 				--This can happen if they use "DELETE" or "APPEND".
 				exception when v_name_already_used then
@@ -2012,18 +2197,21 @@ end;
 	procedure create_jobs(
 		p_table_owner              varchar2,
 		p_table_name               varchar2,
+		p_run_as_sys               boolean,
 		p_has_version_star         boolean,
 		p_has_column_gt_30         boolean,
 		p_has_long                 boolean,
 		p_explicit_column_list     varchar2,
 		p_explicit_expression_list varchar2,
 		p_code                     varchar2,
+		p_encrypted_code           varchar2,
 		p_select_or_plsql          varchar2,
 		p_links_owned_by_user      links_nt,
 		p_database_names           string_table,
 		p_command_name             varchar2
 	) is
 		v_ctas_ddl varchar2(32767);
+		v_dba_or_sys_ddl_call varchar2(32767);
 		v_code varchar2(32767);
 		v_sequence number;
 		v_pipe_count number;
@@ -2042,7 +2230,9 @@ end;
 
 			--Build procedure string.
 			begin
+				--SELECT CTAS.
 				if p_select_or_plsql = 'SELECT' then
+					--Build the CTAS.
 					v_ctas_ddl := get_ctas_sql(
 						p_code                     => p_code,
 						p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
@@ -2055,7 +2245,36 @@ end;
 						p_copy_data                => true
 					);
 
-					v_code := replace(replace(replace(replace(replace(replace(v_select_template
+					--The CTAS requires encryption and a special procedure to run as SYS.
+					if p_run_as_sys then
+						v_dba_or_sys_ddl_call :=
+						q'<
+							sys.m5_runner.run_as_sys@##DB_LINK_NAME##
+							(
+								method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##',
+									q'##QUOTE_DELIMITER1##
+										##CTAS_DDL##
+									##QUOTE_DELIMITER1##'
+								)
+							);
+						>';
+					--The CTAS can be called directly if run as DBA.
+					else
+						v_dba_or_sys_ddl_call :=
+						q'<
+							--Create remote temporary table with results.
+							sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
+							(
+								q'##QUOTE_DELIMITER1##
+									##CTAS_DDL##
+								##QUOTE_DELIMITER1##'
+							);
+						>';
+					end if;
+
+					--Complete the template.
+					v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
+						,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
@@ -2064,8 +2283,12 @@ end;
 						,'##CTAS_DDL##', v_ctas_ddl);
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
+
+				--PL/SQL CTAS.
 				else
-					v_code := replace(replace(replace(replace(replace(replace(v_plsql_template
+					v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
+						,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
+						,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
@@ -2088,6 +2311,13 @@ end;
 				raise_application_error(-20022, 'The code string is too long.  The limit is about 30,000 characters.  '||
 					'This is due to the 32767 varchar2 limit, minus some overhead needed for Method5.');
 			end;
+
+			--Print the job code in debug mode, 4K bytes at a time because some tools don't handle large DBMS_OUTPUT well.
+			if g_debug then
+				for i in 0 .. ceil(length(v_code)/3980) - 1 loop
+					dbms_output.put_line('V_CODE '||to_char(i+1)||':'||chr(10)||substr(v_code, i*3980+1, 3980));
+				end loop;
+			end if;
 
 			--Create procedures asynchronously, in parallel, to save time on compiling.
 			--DBMS_PIPE is used because DBMS_SCHEDULER has 4K character limits.
@@ -2412,6 +2642,7 @@ begin
 	declare
 		v_start_timestamp          timestamp with time zone := systimestamp;
 		v_transformed_code         clob;
+		v_encrypted_code           clob;
 		v_select_or_plsql          varchar2(6); --Will be either "SELECT" or "PLSQL".
 		v_is_first_column_sortable boolean;
 		v_command_name             varchar2(100);
@@ -2430,9 +2661,12 @@ begin
 		v_explicit_column_list     varchar2(32767);
 		v_explicit_expression_list varchar2(32767);
 	begin
+		if g_debug then
+			dbms_output.enable(null);
+		end if;
 		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
-		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action);
-		control_access(v_audit_rowid);
+		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
+		control_access(v_audit_rowid, p_run_as_sys);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job;
 		v_processed_targets := add_default_targets_if_null(p_targets);
@@ -2442,14 +2676,14 @@ begin
 		v_database_names := get_databases_from_targets(v_processed_targets);
 		raise_exception_if_no_targets(v_database_names, v_original_targets, v_processed_targets);
 		check_if_already_running(v_table_name);
-		get_transformed_code_and_type(p_code, v_database_names, v_transformed_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
+		get_transformed_code_and_type(p_code, p_run_as_sys, v_database_names, v_transformed_code, v_encrypted_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
 		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_database_names, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
+		create_jobs(v_table_owner, v_table_name, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;

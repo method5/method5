@@ -27,10 +27,13 @@ end;
 --		To test the version star feature, the two databases should be on different versions of Oracle
 --	P_OTHER_SCHEMA_NAME - The name of a schema to put some temporary tables in to test
 --		the feature where P_TABLE_NAME is set to another user's schema.
+--	P_TEST_RUN_AS_SYS - Should the RUN_AS_SYS feature be tested.  Defaults to
+--		TRUE, set it to FALSE if you did not install the RUN_AS_SYS feature.
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
-	p_other_schema_name in varchar2);
+	p_other_schema_name in varchar2,
+	p_test_run_as_sys   in boolean default true);
 
 end;
 /
@@ -396,9 +399,6 @@ begin
 		assert_equals(v_test_name, v_expected_results,
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end;
-
-
-
 end test_p_code;
 
 
@@ -938,10 +938,106 @@ end test_version_star;
 
 
 --------------------------------------------------------------------------------
+procedure test_run_as_sys(p_database_name_1 in varchar2, p_database_name_2 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+	v_table_name varchar2(128);
+begin
+	begin
+		v_test_name := 'SYS select - table that only SYS can read';
+		v_expected_results := '1';
+
+		execute immediate replace(q'[
+			select a
+			from table(m5('select max(1) a from sys.link$', '#DATABASE_1#', ' YeS '))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	declare
+		v_database_name varchar2(128);
+	begin
+		v_test_name := 'SYS select with name over 128 bytes, to test GET_COLUMN_METADATA over link';
+		v_expected_results := '65';
+
+		execute immediate replace(q'[
+			select *
+			from table(m5(
+				'select 1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1+1 from dual'
+				,'#DATABASE_1#'
+				,'yes'
+			))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_database_name, v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'SYS CALL';
+		v_expected_results := 'CALL test';
+
+		execute immediate replace(q'[
+			select result
+			from table(m5('call dbms_output.put_line(''CALL test'') ', '#DATABASE_1#', 'YES'))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'SYS DML/DDL';
+		v_expected_results := '0 rows deleted.';
+
+		execute immediate replace(q'[
+			select result
+			from table(m5('delete from sys.user_history$ where 1 = 0;', '#DATABASE_1#', 'YES'))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'SYS PL/SQL';
+		v_expected_results := 'PL/SQL test';
+
+		execute immediate replace(q'[
+			select result
+			from table(m5('begin dbms_output.put_line(''PL/SQL test''); end;', '#DATABASE_1#', 'YES'))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_run_as_sys;
+
+
+--------------------------------------------------------------------------------
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
-	p_other_schema_name in varchar2
+	p_other_schema_name in varchar2,
+	p_test_run_as_sys   in boolean default true
 ) is
 	v_database_name_1 varchar2(100) := lower(trim(p_database_name_1));
 	v_database_name_2 varchar2(100) := lower(trim(p_database_name_2));
@@ -979,6 +1075,9 @@ begin
 	test_audit(v_database_name_1, v_database_name_2);
 	test_long(v_database_name_1);
 	test_version_star(v_database_name_1, v_database_name_2);
+	if p_test_run_as_sys then
+		test_run_as_sys(v_database_name_1, v_database_name_2);
+	end if;
 
 	--Re-enable DBMS_OUTPUT.
 	--It had to be suppressed because Method5 prints some information that

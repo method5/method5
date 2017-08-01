@@ -18,6 +18,7 @@ create table method5.m5_audit
 	targets               clob,
 	asynchronous          varchar2(3),
 	table_exists_action   varchar2(6),
+	run_as_sys            varchar2(3),
 	targets_expected      number,
 	targets_completed     number,
 	targets_with_errors   number,
@@ -25,6 +26,7 @@ create table method5.m5_audit
 	access_control_error  varchar2(4000),
 	constraint m5_audit_ck1 check (asynchronous in ('Yes', 'No')),
 	constraint m5_audit_ck2 check (table_exists_action in ('ERROR', 'APPEND', 'DELETE', 'DROP')),
+	constraint m5_audit_ck3 check (run_as_sys in ('Yes', 'No')),
 	constraint m5_audit_pk primary key (username, create_date, table_name)
 );
 
@@ -94,7 +96,9 @@ create table method5.m5_2step_authentication
 (
 	oracle_username varchar2(128) not null,
 	os_username     varchar2(4000) not null,
-	constraint m5_2step_authentication_uq unique(oracle_username, os_username)
+	can_run_as_sys  varchar2(3) not null,
+	constraint m5_2step_authentication_uq unique(oracle_username, os_username),
+	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No'))
 );
 
 --Used for Method5 configuration.
@@ -182,6 +186,14 @@ create unique index method5.m5_global_data_dictionary_uq on method5.m5_global_da
 comment on table method5.m5_global_data_dictionary is 'Tables used in the global data dictionary.  These tables are monitored by the daily email job.';
 
 
+create table method5.m5_sys_key
+(
+	db_link varchar2(128),
+	sys_key raw(32)
+);
+comment on table method5.m5_sys_key is 'Private keys used for encrypting and decrypting Method5 commands to run as SYS.';
+
+
 ---------------------------------------
 --#3: Install packages used by Method5.
 alter session set current_schema=method5;
@@ -221,8 +233,9 @@ alter session set current_schema=method5;
 create or replace function method5.m5
 --See the package Method5 for details about this program.
 (
-	p_code    varchar2,
-	p_targets varchar2 default null
+	p_code       varchar2,
+	p_targets    varchar2 default null,
+	p_run_as_sys varchar2 default 'NO'
 )
 return anydataset pipelined using method5.method4_m5_poll_table_ot;
 /
@@ -232,7 +245,8 @@ create or replace procedure method5.m5_proc(
 	p_targets             varchar2 default null,
 	p_table_name          varchar2 default null,
 	p_table_exists_action varchar2 default 'ERROR',
-	p_asynchronous        boolean default true
+	p_asynchronous        boolean default true,
+	p_run_as_sys          boolean default false
 ) authid current_user is
 begin
 	method5.m5_pkg.run(
@@ -240,7 +254,8 @@ begin
 		p_targets             => p_targets,
 		p_table_name          => p_table_name,
 		p_table_exists_action => p_table_exists_action,
-		p_asynchronous        => p_asynchronous);
+		p_asynchronous        => p_asynchronous,
+		p_run_as_sys          => p_run_as_sys);
 end m5_proc;
 /
 

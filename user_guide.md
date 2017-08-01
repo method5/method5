@@ -14,17 +14,18 @@ Method5 User Guide
 9. [Parameter: P_TABLE_NAME](#parameter_p_table_name)
 10. [Parameter: P_TABLE_EXISTS_ACTION](#parameter_p_table_exists_action)
 11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
-12. [M5 Links](#m5_links)
-13. [Global Data Dictionary](#global_data_dictionary)
-14. [Version Star - Column Differences Between Versions](#version_star)
-15. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
-16. [Services for Non-DBAs](#services_for_non_dbas)
-17. [Job Timeout](#job_timeout)
-18. [LONG to CLOB conversion](#long_to_clob_conversion)
-19. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
-20. [Administrator Daily Status Email](#administrator_daily_status_email)
-21. [Security](#security)
-22. [Possible Uses](#possible_uses)
+12. [Parameter: P_RUN_AS_SYS](#parameter_p_run_as_sys)
+13. [M5 Links](#m5_links)
+14. [Global Data Dictionary](#global_data_dictionary)
+15. [Version Star - Column Differences Between Versions](#version_star)
+16. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
+17. [Services for Non-DBAs](#services_for_non_dbas)
+18. [Job Timeout](#job_timeout)
+19. [LONG to CLOB conversion](#long_to_clob_conversion)
+20. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
+21. [Administrator Daily Status Email](#administrator_daily_status_email)
+22. [Security](#security)
+23. [Possible Uses](#possible_uses)
 
 
 <a name="introduction"/>
@@ -55,13 +56,14 @@ With Method5 you will be able to perform some administration tasks orders of mag
 
 Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables  to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
 
-Method5 parameters (the function version only supports the first two parameters):
+Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
 
 * P_CODE (required) - Any SQL or PL/SQL statement.
 * P_TARGETS (optional, defaults to all databases) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business) or a query that returns database names.
 * P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
 * P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
 * P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
+* P_RUN_AS_SYS (optional, defaults to FALSE) - Run the command as SYS instead of the normal DBA.
 
 For ad hoc statements you can use the `M5_%` database links created in your schema.  There are also some nightly-generated tables with useful data, such as M5_DBA_USERS and M5_V$PARAMETER.
 
@@ -251,6 +253,21 @@ By default, `P_ASYNCHRONOUS` is set to TRUE, which means the procedure will retu
 This lets you examine some of the results before a slow database is finished processing.
 
 
+<a name="parameter_p_run_as_sys"/>
+
+## Parameter 6: P_RUN_AS_SYS (optional)
+
+By default, `P_RUN_AS_SYS` is set to FALSE and commands run by the Method5 schema use the DBA role privielge.  When this parameter is set to TRUE the command is run as SYS.
+
+This parameter should only be set to TRUE when necessary.  Almost all operations can be performed without SYS access.
+
+Due to Oracle's lack of a BOOLEAN data type, the parameter is TRUE or FALSE in the procedure M5_PROC, and is "Yes" or "No" for the function M5.
+
+If you are nervous about running remotely as SYS see the security section below for an explanation of how this feature is protected.
+
+If you are still nervous about this feature you can disable access to certain users or not install it.  See administer_method5.md for more details.
+
+
 <a name="m5_links"/>
 
 ## M5_ Links
@@ -420,7 +437,8 @@ It's important that Method5 itself does not create any security issues.  To keep
 4. **Auditing.**  Auditing is performed on the management and target databases, through the database audit trail and the application.  You can always figure out who did what, when.
 5. **Multi-step authentication.**  Authentication requires an existing database account, as well as the proper role, profile, account name, account status, and operating system username.
 6. **Intrusion detection.**  Un-authorized access attempts will send an email to an administrator.  Even in the worst-case scenario, where someone gains root access to your central management host, they would likely generate an alert.
-7. **Open Source.**  All code is available for inspection.  Method5 does not rely on security through obscurity.
+7. **SYS protection.**  Method5 has an optional feature to allow authorized users to run remote commands as SYS.  This feature is well protected to ensure that attackers on remote databases cannot use it, even if they get DBA access.  Remote SYS commands are only allowed if they come from the master database.  Those commands must be encrypted using AES 256, using a secret key that is randomly generated for each database, and stored in the SYS.LINK$ table that not even the DBA role can read.  Those commands also include a session GUID to prevent re-running old commands.
+8. **Open Source.**  All code is available for inspection.  Method5 does not rely on security through obscurity.
 
 
 <a name="possible_uses"/>
@@ -449,7 +467,7 @@ Here are a few examples of ways that Method5 is already used:
 There are a few DBA tasks that Method5 cannot fully automate.  However, Method5 can still assist with these tasks.
 
 * Upgrading and Patching - These tasks need to be handled by a specialized tool; or they may be too fragile to automate at all.  Method5 can still help you verify the database state after patches and upgrades.
-* Host and SYSDBA actions - Activities like installing software and starting a database won't work since Method5 only exists inside a database.  Method5 can still be used to check the status afterwards.
+* Host actions - Activities like installing software and starting a database won't work since Method5 only exists inside a database.  Method5 can still be used to check the status afterwards.
 * Deployments - Developers will want to use their own specialized tools for this.  But Method5 can help harmonize environments and can compare all objects, in all databases, in a single view.
 
 At least one DBA on your team should use Method5 if your organization is serious about database automation.
