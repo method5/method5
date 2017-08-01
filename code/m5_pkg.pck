@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.7.1';
+C_VERSION constant varchar2(10) := '8.7.2';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -2509,11 +2509,13 @@ end;
 		p_table_name               varchar2,
 		p_asynchronous             boolean,
 		p_table_exists_action      varchar2,
+		p_run_as_sys               boolean,
 		v_is_first_column_sortable boolean
 	) is
 		v_code varchar2(32767);
 		v_targets varchar2(32767);
 		v_asynchronous varchar2(4000);
+		v_run_as_sys varchar2(4000) := case when p_run_as_sys then 'TRUE' else 'FALSE' end;
 		v_table_exists_action varchar2(4000);
 
 		v_message varchar2(32767) :=
@@ -2524,6 +2526,7 @@ end;
 			-- p_table_name          : #P_TABLE_OWNER#.#P_TABLE_NAME#
 			-- p_table_exists_action : #P_TABLE_EXISTS_ACTION#
 			-- p_asynchronous        : #P_ASYNCHRONOUS#
+			-- p_run_as_sys          : #P_RUN_AS_SYS#
 			#PARALLEL_WARNING#
 			--------------------------------------------------------------------------------
 			--Query results, metadata, and errors:
@@ -2602,7 +2605,7 @@ end;
 		end if;
 
 		--Build message from template.
-		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
+		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
 			v_message
 			, '#JOB_INFORMATION#', v_job_information)
 			, '#C_VERSION#', C_VERSION)
@@ -2611,6 +2614,7 @@ end;
 			, '#P_TABLE_OWNER#', lower(p_table_owner))
 			, '#P_TABLE_NAME#', lower(p_table_name))
 			, '#P_ASYNCHRONOUS#', v_asynchronous)
+			, '#P_RUN_AS_SYS#', v_run_as_sys)
 			, '#P_TABLE_EXISTS_ACTION#', v_table_exists_action)
 			, '#PARALLEL_WARNING#', v_low_parallel_dop_warning)
 			, '#SORT_FIRST_COLUMN#', v_sort_first_column)
@@ -2687,7 +2691,7 @@ begin
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;
-		print_useful_sql(p_code, v_original_targets, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, v_is_first_column_sortable);
+		print_useful_sql(p_code, v_original_targets, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, p_run_as_sys, v_is_first_column_sortable);
 	end;
 end run;
 
