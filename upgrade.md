@@ -4,7 +4,7 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
-8.6.1 --> 8.7.1: Added Run as SYS feature.
+8.6.1 --> 8.7.2: Added Run as SYS feature.
 -------------------------------------
 
 1. Install the new remote package SYS.M5_RUNNER.
