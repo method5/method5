@@ -314,10 +314,10 @@ The below code reads the latest patch from each database.  Due to an Oracle bug 
 
 	begin
 		m5_proc(
-			p_table_name			=> 'patch_data',
-			p_targets				=> 'DEV',
-			p_table_exists_action	=> 'drop',
-			p_code					=> q'[
+			p_table_name           => 'patch_data',
+			p_targets              => 'DEV',
+			p_table_exists_action  => 'drop',
+			p_code                 => q'[
 				--Get patch data from any version of Oracle.
 				--Due to bug 25269268 the table DBA_REGISTRY_HISTORY is not populated in 12c.
 				--To workaround this we must query the 12c-only table DBA_REGISTRY_SQLPATCH.
