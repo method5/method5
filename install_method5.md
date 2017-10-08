@@ -19,7 +19,7 @@ Run these steps on the management server by a user with the DBA role.
 
 3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
-4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of scheduler jobs and you don't want to keep their history forever.
+4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
 
 		select
 			case
@@ -201,9 +201,12 @@ Example job:
 					insert into method5.m5_database
 					select
 						target_guid,
-						host_name,
-						database_name,
-						instance_name,
+						--Make host, database, and instance name always lower case to simplify searching.
+						--Remove the domain name from any fully qualified domain names, to simplify searching.
+						--(This assumes your organization has unique domain names.)
+						lower(regexp_replace(host_name, '\..*', null)) host_name,
+						lower(database_name) database_name,
+						lower(instance_name) instance_name,
 						lifecycle_status,
 						line_of_business,
 						target_version,

@@ -32,7 +32,7 @@ Method5 User Guide
 
 ## Introduction to Method5
 
-Method5 extends Oracle SQL to allow parallel remote execution.  It lets administrators easily run SQL statements quickly and securely on hundreds of databases.
+Method5 extends Oracle SQL to allow parallel remote execution.  It lets administrators easily run SQL statements, PL/SQL blocks, and Unix shell commands quickly and securely on hundreds of databases.
 
 Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
 
@@ -43,7 +43,7 @@ Some users will only need the `select * from table(m5('...'));` syntax.  For mor
 
 ## Why Do You Need Method5?
 
-Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tool are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
+Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tools are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
 
 The ideal solution is to make it trivial to query and change all databases simultaneously.  Dynamic SQL is sometimes classified as Method 1, 2, 3, or 4, depending on how dynamic it is.  DBAs need a new type of dynamic SQL, a Method 5, that allows them to specify the targets as easily as they specify the code.  A new syntax that allows any statement to run anywhere, in any SQL tool.  Something like the Oracle 12c `CONTAINERS` clause, but much more powerful.  Existing tools have failed to transform the way DBAs work because those tools are slow, insecure, and not relational.
 
@@ -54,11 +54,11 @@ With Method5 you will be able to perform some administration tasks orders of mag
 
 ## Feature Summary
 
-Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables  to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
+Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
 
 Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
 
-* P_CODE (required) - Any SQL or PL/SQL statement.
+* P_CODE (required) - Any SQL statement, PL/SQL statement, or Linux/Unix shell script.
 * P_TARGETS (optional, defaults to all databases) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business) or a query that returns database names.
 * P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
 * P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
@@ -76,7 +76,7 @@ Read below for more thorough details on these features.
 
 Method5 can be called as either a function or a procedure.  The function is `M5`, and the procedure is `M5_PROC`.
 
-The function `M5` is the simplest method, and can start displaying values in less than a second.  Wrap any statement in this text: `select * from table(m5(q'[  ...  ]'));`.  The function accepts two parameters, `P_CODE` and `P_TARGETS`, which are explained more thoroughly later.
+The function `M5` is the simplest interface, and can start displaying values in less than a second.  Wrap any statement in this text: `select * from table(m5(q'[  ...  ]'));`.  The function accepts two parameters, `P_CODE` and `P_TARGETS`, which are explained more thoroughly later.
 
 	SQL> select * from table(m5(q'[  select 'Hello, World!' hello_world from dual  ]'));
 	
@@ -121,11 +121,11 @@ Use the `q'[` syntax to embed SQL statements without needing to escape quotation
 
 Every Method5 execution stores data in three tables - results, metadata, and errors.
 
-The result table contains either the results of the query, the DBMS_OUTPUT for a PL/SQL block, or a feedback message for other statement types.  Every row also contains the database name.  The table name can be specified with the parameter `p_table_name`.  If that parameter is left blank, a name will be automatically chosen.
+The result table contains either the results of the query, the DBMS_OUTPUT for a PL/SQL block, a feedback message for other statement types, or the standard output and standard error of a host command.  Every row also contains the database name (for SQL and PL/SQL) or host name (for shell commands).  The table name can be specified with the parameter `p_table_name`.  If that parameter is left blank, a name will be automatically chosen.
 
 The metadata table contains one row for each execution.  It contains the date started, is the process finished yet, the count of targets expected and completed and with errors, and the code and targets used.  This table has the same name as the results table but with the suffix `_meta`.
 
-The errors table contains any Oracle errors generated during the execution, along with the database name.  With a large enough number of databases it's not unusual for at least one of them to be unavailable because of maintenance or an unexpected error.  Tracking errors lets you ignore the troublesome databases and deal with them later.  This table has the same name as the results table but with the suffix `_err`.
+The errors table contains any Oracle errors generated during the execution, along with the target name.  With a large enough number of targets it's not unusual for at least one of them to be unavailable because of maintenance or an unexpected error.  Tracking errors lets you ignore the troublesome targets and deal with them later.  This table has the same name as the results table but with the suffix `_err`.
 
 Serious errors during a run may make the metadata counts partially incorrect.  For example, if a database crashes in the middle of processing, the error may not be counted.  It's unlikely, but possible, for `IS_COMPLETE` to be `No` even though there are no more jobs running.  When that happens the column `TARGETS_EXPECTED` will not be equal to the sum of `TARGETS_COMPLETED` and `TARGETS_WITH_ERRORS`.
 
@@ -142,11 +142,21 @@ To simplify queries, Method5 always creates 3 views in your schema that refer to
 
 ## Parameter 1: P_CODE (required)
 
-`P_CODE` can be any single SQL or PL/SQL statement.  `SELECT`, `INSERT`, `ALTER USER`, `BEGIN ...`, etc.
+`P_CODE` is the most important parameter, it defines what code to run.  It can be any SQL statement, PL/SQL block, or *nix shell command.
 
-For `SELECT`, the tables in the statement must exist on the server running the jobs.  This is necessary in order to get the metadata for the results.  In practice this isn't a big deal because most of the queries will be against the data dictionary, which is very uniform across versions and editions.
+**`SELECT`**
 
-PL/SQL blocks are convenient if you want to run multiple statements and package them in one call.  You can use DBMS_OUTPUT.PUT_LINE to display information.
+For most `SELECT` statements everything will automatically work fine.  Method5 will handle any expression list, stars, un-aliased columns, terminated or un-terminated statements, etc.  It automatically determines the column names, column order, and data types.
+
+In practice that almost always works because most Method5 queries are run against data dictionary tables.  The data dictionary is usually pretty uniform across versions and editions.
+
+Things get trickier when the column metadata is not the same across all databases.  Method5 first tries the query on the management database, and then on up to 100 remote databases.  If some databases have different column data they may fail with "not enough values", "too many values", or a data type conversion error.
+
+Those problems can normally be avoided by explicitly listing the columns that are common to all databases.  The [version star](#version_star) feature can often help with these situations.  And there are other workarounds, such as [DBMS_XMLGEN.GETXML](#dbms_xmlgen.getxml)
+
+**PL/SQL**
+
+PL/SQL blocks let you run multiple statements and package them in one call.  Use `DBMS_OUTPUT.PUT_LINE` to display information.
 
 	begin
 		m5_proc(q'[  begin dbms_output.put_line('Hello, World!'); end;  ]', 'somedb%');
@@ -160,7 +170,9 @@ PL/SQL blocks are convenient if you want to run multiple statements and package 
 	SOMEDB01                       Hello, World!
 	...
 
-DML, DDL, and other statement types will return a message similar to their SQL*Plus feedback message.
+**DDL, DML, System Control**
+
+Commands like `DROP`, `INSERT`, or `ALTER SYSTEM` will return a message identical to the SQL*Plus feedback message.  (But Method5 does not use SQL*Plus.)
 
 	SQL> select * from table(m5('alter user jheller profile some_profile'));
 
@@ -168,6 +180,36 @@ DML, DDL, and other statement types will return a message similar to their SQL*P
 	------------------------------ -------------
 	SOMEDB01                       User altered.
 	...
+
+**Shell Command**
+
+Linux or Unix shell commands and scripts must start with a shebang.  For example:
+
+	begin
+		m5_proc(
+			p_code => '#!/bin/sh
+				uptime
+			',
+			p_targets => 'dev'
+		);
+	end;
+	/
+
+	SQL> select * from m5_results;
+
+	HOST_NAME  LINE_NUMBER OUTPUT
+	---------  ----------- ------------------------------------------------------------------------
+	dev1                 1   3:29am  up 39 day(s),  7:12,  0 users,  load average: 2.34, 2.04, 1.79
+	dev2                 1  03:28:09 up 73 days, 15:08,  0 users,  load average: 0.00, 0.03, 0.05
+	dev3                 1   3:29am  up 39 day(s), 10:54,  0 users,  load average: 0.41, 0.41, 0.42
+	...
+
+There are some limitations when running shell commands.  Method5 is great at running small commands for rapid troubleshooting and fixes.  But it is not meant to be a full operating system deployment tool like Fabric, Salt, or Ansible.
+
+- Shell commands require a running Oracle database.  This means your scripts cannot shutdown and startup databases, which means this feature can't be used for patching and upgrades.
+- Shell commands are always run as the user that installed the Oracle software.
+- $HOME and "~" do not work.  The path to the Oracle user and software home must be hard-coded.
+- Shell commands run once per host, not once per-database.  This is almost always what you want to do, but in a few rare cases it would be nice to run once for each database.
 
 
 <a name="parameter_p_targets"/>
@@ -222,12 +264,14 @@ Method5 will generate the error ORA-20404 if the target list does not match any 
 	end;
 	/
 
+For shell scripts `P_TARGETS` identifies which host to run the script on.
+
 
 <a name="parameter_p_table_name"/>
 
 ## Parameter 3: P_TABLE_NAME (optional)
 
-`P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` will also be created to store the metadata and errors.
+`P_TABLE_NAME` specifies the table name to store the results.  Tables with the suffixes `_meta` and `_err` are created to store the metadata and errors.
 
 If this parameter is not specified then a sequence will be used to generate a unique name.  If the sequence is used, all but the last of those temporary tables will be dropped by a nightly job.
 
@@ -257,7 +301,7 @@ This lets you examine some of the results before a slow database is finished pro
 
 ## Parameter 6: P_RUN_AS_SYS (optional)
 
-By default, `P_RUN_AS_SYS` is set to FALSE and commands run by the Method5 schema use the DBA role privielge.  When this parameter is set to TRUE the command is run as SYS.
+By default, `P_RUN_AS_SYS` is set to FALSE and commands run by the Method5 schema use the DBA role privilege.  When this parameter is set to TRUE the command is run as SYS.
 
 This parameter should only be set to TRUE when necessary.  Almost all operations can be performed without SYS access.
 
@@ -320,7 +364,7 @@ The below code reads the latest patch from each database.  Due to an Oracle bug 
 			p_code					=> q'[
 				--Get patch data from any version of Oracle.
 				--Due to bug 25269268 the table DBA_REGISTRY_HISTORY is not populated in 12c.
-				--To workaround this we must query the 12c-only table DBA_REGISTRY_SQLPATCH.
+				--To work around this we must query the 12c-only table DBA_REGISTRY_SQLPATCH.
 				--That requires using DBMS_XMLGEN.GETXML which can handle non-existing objects.
 
 				--11g table always exists, but may be empty in 12c.
@@ -466,8 +510,7 @@ Here are a few examples of ways that Method5 is already used:
 
 There are a few DBA tasks that Method5 cannot fully automate.  However, Method5 can still assist with these tasks.
 
-* Upgrading and Patching - These tasks need to be handled by a specialized tool; or they may be too fragile to automate at all.  Method5 can still help you verify the database state after patches and upgrades.
-* Host actions - Activities like installing software and starting a database won't work since Method5 only exists inside a database.  Method5 can still be used to check the status afterwards.
+* Upgrading and Patching - Method5 can run database and host commands but it requires a running database.  Upgrading and patching requires their own specialized tools.  (And in practice, in most environments those tasks are too fragile to fully automate.)
 * Deployments - Developers will want to use their own specialized tools for this.  But Method5 can help harmonize environments and can compare all objects, in all databases, in a single view.
 
 At least one DBA on your team should use Method5 if your organization is serious about database automation.

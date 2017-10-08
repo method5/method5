@@ -29,12 +29,15 @@ end;
 --		the feature where P_TABLE_NAME is set to another user's schema.
 --	P_TEST_RUN_AS_SYS - Should the RUN_AS_SYS feature be tested.  Defaults to
 --		TRUE, set it to FALSE if you did not install the RUN_AS_SYS feature.
+--	P_TEST_SHELLS_CRIPT - Should shell scripts be tested.  Defaults to true, set
+--		it to FALSE if you did not install the RUN_AS_SYS feature of if you are
+--		not testing on Linux or Unix.
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
 	p_other_schema_name in varchar2,
-	p_test_run_as_sys   in boolean default true);
-
+	p_test_run_as_sys   in boolean default true,
+	p_test_shell_script in boolean default true);
 end;
 /
 create or replace package body method5.method5_test is
@@ -1033,11 +1036,70 @@ end test_run_as_sys;
 
 
 --------------------------------------------------------------------------------
+procedure test_shell_script(p_database_name_1 in varchar2, p_database_name_2 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+	v_table_name varchar2(128);
+begin
+	begin
+		v_test_name := 'Shell script 1 - test stdout and stderr write in order';
+		v_expected_results := '1,2,3-stdout1,/test/stderr/: No such file or directory,stdout2';
+
+		execute immediate replace(
+		q'[
+			select
+				listagg(line_number, ',') within group (order by line_number)
+				||'-'||
+				listagg(output, ',') within group (order by line_number) line_numbers_and_output
+			from table(m5(
+				'#!/bin/sh
+				echo stdout1
+				ls /test/stderr/
+				echo stdout2
+				'			
+				,'#DATABASE_1#'
+			))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Shell script 2 - no-op shell script works but returns nothing';
+		v_expected_results := '';
+
+		execute immediate replace(replace(
+		q'[
+			select max(output)
+			from table(m5(
+				'#!/bin/sh'
+				,'#DATABASE_1#,#DATABASE_2#'
+			))
+		]'
+		, '#DATABASE_1#', p_database_name_1)
+		, '#DATABASE_2#', p_database_name_2)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_shell_script;
+
+
+--------------------------------------------------------------------------------
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
 	p_other_schema_name in varchar2,
-	p_test_run_as_sys   in boolean default true
+	p_test_run_as_sys   in boolean default true,
+	p_test_shell_script in boolean default true
 ) is
 	v_database_name_1 varchar2(100) := lower(trim(p_database_name_1));
 	v_database_name_2 varchar2(100) := lower(trim(p_database_name_2));
@@ -1077,6 +1139,9 @@ begin
 	test_version_star(v_database_name_1, v_database_name_2);
 	if p_test_run_as_sys then
 		test_run_as_sys(v_database_name_1, v_database_name_2);
+	end if;
+	if p_test_shell_script then
+		test_shell_script(v_database_name_1, v_database_name_2);
 	end if;
 
 	--Re-enable DBMS_OUTPUT.

@@ -4,7 +4,27 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
-8.6.1 --> 8.7.1: Added Run as SYS feature.
+8.7.2 --> 8.8.3: Added Run Shell Script feature.
+-------------------------------------
+
+1. Run these files to install new packages: /code/m5_pkg.pck, /code/method5_admin.pck, /code/method4_m5_poll_table_ot.typ, /code/tests/method5_test.pck
+
+2. Install SYS.M5_RUN_SHELL_SCRIPT on every remote host.
+2a. Run this command on the management database:
+	select method5.method5_admin.generate_remote_install_script from dual;
+2b. Copy the procedure M5_RUN_SHELL_SCRIPT from the output.
+2c. Run that on every server, as SYS.  (Hint: Use Method5 to install it quickly.)
+
+3. Run these commands on the management database:
+	alter table method5.m5_2step_authentication add can_run_shell_script varchar2(3);
+	update method5.m5_2step_authentication set can_run_shell_script = 'Yes';
+	alter table method5.m5_2step_authentication modify can_run_shell_script not null;
+	alter table method5.m5_2step_authentication
+		add constraint can_run_shell_script_ck
+		check (can_run_shell_script in ('Yes', 'No'));
+
+
+8.6.1 --> 8.7.2: Added Run as SYS feature.
 -------------------------------------
 
 1. Install the new remote package SYS.M5_RUNNER.
@@ -70,12 +90,14 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 
 1. Run these files to install new packages: /code/m5_pkg.pck, /code/tests/method5_test.pck.
 
+
 8.5.1 --> 8.6.0: Added M5_SYNCH_USER.
 -------------------------------------
 
 1. Run these files to install new packages: /code/m5_synch_user.prc
 2. Run this command to create a public synonym:
 	create public synonym m5_synch_user for method5.m5_synch_user;
+
 
 8.4.0 --> 8.5.1: Added 12.2 support.
 ------------------------------------

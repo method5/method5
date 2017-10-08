@@ -1,7 +1,7 @@
 create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
 
-C_VERSION constant varchar2(10) := '8.7.1';
+C_VERSION constant varchar2(10) := '8.8.3';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -226,11 +226,12 @@ procedure run(
 
 	--Collections to hold link data instead of re-fetching the cursor.
 	type link_rec is record(
-		db_link_name varchar2(128),
-		database_name varchar2(30),
+		db_link_name   varchar2(128),
+		database_name  varchar2(30),   --Only one of DATABASE_NAME or HOST_NAME can be non-null per row.
+		host_name      varchar2(256),
 		connect_string varchar2(4000),
-		link_exists number,
-		is_running number
+		link_exists    number,
+		is_running     number
 	);
 	type links_nt is table of link_rec;
 
@@ -288,6 +289,88 @@ exception when others then
 
 	insert into ##TABLE_OWNER##.##TABLE_NAME##_err
 	values ('##DATABASE_NAME##', '##DB_LINK_NAME##'
+		, sysdate, sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+
+	commit;
+
+	raise;
+end;
+>';
+
+
+	v_shell_script_template constant varchar2(32767) := q'<
+create procedure m5_temp_proc_##SEQUENCE## authid current_user is
+	v_database_name varchar2(128);
+	v_platform_name varchar2(4000);
+begin
+	--Ping database with simple select to create simple error message if link fails.
+	--Also find out which database is used in the host link, and the platform name.
+	execute immediate 'select name, platform_name from v$database@##HOST_LINK_NAME##'
+	into v_database_name, v_platform_name;
+
+	--Windows shell commands are not yet supported.
+	if lower(v_platform_name) like '%windows%' then
+		raise_application_error(-20033, 'The shell command option does not yet support Windows platforms.');
+	end if;
+
+	execute immediate replace(q'##QUOTE_DELIMITER3##
+		declare
+			v_rowcount number;
+		begin
+			--Create remote temporary table with results.
+			sys.m5_runner.run_as_sys@##HOST_LINK_NAME##
+			(
+				method5.m5_pkg.get_encrypted_raw(
+					'##DATABASE_NAME##',
+					q'##QUOTE_DELIMITER2##
+						begin
+							sys.m5_run_shell_script(
+								q'##QUOTE_DELIMITER1####CODE####QUOTE_DELIMITER1##'
+								,'M5_TEMP_TABLE_##SEQUENCE##');
+							commit;
+						end;
+					##QUOTE_DELIMITER2##'
+				)
+			);
+
+			--Insert data using database link.
+			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
+			execute immediate q'##QUOTE_DELIMITER1##
+				insert into ##TABLE_OWNER##.##TABLE_NAME##
+				select '##HOST_NAME##', m5_temp_table_##SEQUENCE##.*
+				from m5_temp_table_##SEQUENCE##@##HOST_LINK_NAME##
+			##QUOTE_DELIMITER1##';
+
+			v_rowcount := sql%rowcount;
+
+			--Update _META table.
+			update ##TABLE_OWNER##.##TABLE_NAME##_meta
+			set targets_completed = targets_completed + 1,
+				date_updated = sysdate,
+				is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No'),
+				num_rows = num_rows + v_rowcount
+			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+			--Drop remote temporary table.
+			sys.dbms_utility.exec_ddl_statement@##HOST_LINK_NAME##(q'##QUOTE_DELIMITER1##
+				drop table m5_temp_table_##SEQUENCE## purge
+			##QUOTE_DELIMITER1##');
+
+		end;
+	##QUOTE_DELIMITER3##', '##DATABASE_NAME##', v_database_name);
+
+--Exception block must be outside of dynamic PL/SQL.
+--Exceptions like "ORA-00257: archiver error. Connect internal only, until freed."
+--will make the whole block fail and must be caught by higher level block.
+exception when others then
+	update ##TABLE_OWNER##.##TABLE_NAME##_meta
+	set targets_with_errors = targets_with_errors + 1,
+		date_updated = sysdate,
+		is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No')
+	where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+	insert into ##TABLE_OWNER##.##TABLE_NAME##_err
+	values ('##HOST_NAME##', '##HOST_LINK_NAME##'
 		, sysdate, sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 
 	commit;
@@ -548,9 +631,27 @@ end;
 	end audit;
 
 	---------------------------------------------------------------------------
+	--Determine if the code is a shell script.
+	--Currently only Linux and Unix shell scripts are supported.
+	function is_shell_script(p_code varchar2) return boolean is
+	begin
+		--The shebang must be the very first character.
+		if p_code like '#!%' then
+			return true;
+		--But it's a common mistake to have some spaces, newlines, or tabs in front.
+		--Throw a custom error if there are spaces in front.
+		elsif replace(replace(replace(replace(p_code, ' '), '	'), chr(10)), chr(13)) like '#!%' then
+			raise_application_error(-20032, 'The shell script shebang must be at the '||
+				'beginning of the file.  There should not be any whitespace before it.');
+		else
+			return false;
+		end if;
+	end is_shell_script;
+
+	---------------------------------------------------------------------------
 	--Verify that the user can use Method5.
 	--This package has elevated privileges and must only be used by a true DBA.
-	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean) is
+	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean, p_is_shell_script boolean) is
 		v_count                  number;
 		v_profile                varchar2(4000);
 		v_account_status         varchar2(4000);
@@ -560,6 +661,7 @@ end;
 		v_user_not_locked_status varchar2(4000);
 		v_os_username_status     varchar2(4000);
 		v_can_run_as_sys         varchar2(4000);
+		v_can_run_shell_script   varchar2(4000);
 
 		procedure audit_send_email_raise_error(p_message in varchar2) is
 			v_sender_address varchar2(4000);
@@ -700,6 +802,33 @@ end;
 			end if;
 		end if;
 
+		--Check CAN_RUN_SHELL_SCRIPT, if set.
+		if p_is_shell_script then
+			select
+				max(nvl(
+					(
+						--Interactive job.
+						select can_run_shell_script
+						from method5.m5_2step_authentication
+						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and lower(os_username) = lower(sys_context('userenv', 'os_user'))
+					),
+					(
+						--Scheduler job.
+						select can_run_shell_script
+						from method5.m5_2step_authentication
+						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
+					)
+				)) can_run_shell_script
+			into v_can_run_shell_script
+			from sys.dual;
+
+			if v_can_run_shell_script = 'NO' then
+				audit_send_email_raise_error('You are not authorized to run shell scripts.');
+			end if;
+		end if;
+
 	end control_access;
 
 	---------------------------------------------------------------------------
@@ -772,20 +901,32 @@ end;
 		q'[
 			--Method5 link query.
 			select
-				db_link_name,
+				link_name,
 				database_name,
+				host_name,
 				connect_string,
 				case when my_database_links.db_link is not null then 1 else 0 end link_exists,
 				case when dba_scheduler_running_jobs.owner is not null then 1 else 0 end is_running
 			from
 			(
-				--Format for link.
+				--Links for databases.
 				select
-					'M5_'||upper(database_name) db_link_name,
+					'M5_'||upper(database_name) link_name,
 					lower(database_name) database_name,
+					null host_name,
 					connect_string,
 					to_char(row_number() over (partition by database_name order by instance_name)) instance_number
 				from method5.m5_database
+				union all
+				--Links for hosts.
+				select
+					'M5_'||upper(host_name) link_name,
+					null database_name,
+					lower(host_name) host_name,
+					min(connect_string) connect_string,
+					'1' instance_number
+				from method5.m5_database
+				group by host_name
 			) database_names
 			left join
 			(
@@ -794,14 +935,12 @@ end;
 				from sys.dba_db_links
 				where owner = :owner
 			) my_database_links
-				on database_names.db_link_name = db_link
+				on database_names.link_name = db_link
 			left join sys.dba_scheduler_running_jobs
-				on database_names.db_link_name = job_name
+				on database_names.link_name = job_name
 				and dba_scheduler_running_jobs.owner = :owner
 			where instance_number = 1
-				--Old way of limiting databases.
-				--and lower(lifecycle_status) not in ('n/a')
-			order by lower(db_link_name)
+			order by lower(link_name)
 		]';
 
 		--Open, fetch, close, and return results.
@@ -932,10 +1071,10 @@ end;
 
 	---------------------------------------------------------------------------
 	--Convert the targets parameter into a table of databases.
-	function get_databases_from_targets(p_target_string varchar2) return string_table is
+	function get_target_tab_from_target_str(p_target_string varchar2, p_is_shell_script boolean) return string_table is
 		--SQL statements:
 		v_clean_select_sql varchar2(32767);
-		v_configured_database_query varchar2(32767);
+		v_configured_target_query varchar2(32767);
 
 		--Types and variables to hold database configuration attributes.
 		type string_table_table is table of string_table;
@@ -952,7 +1091,7 @@ end;
 		v_item varchar2(32767);
 
 		--Final value with databases:
-		v_target_databases string_table := string_table();
+		v_target_tab string_table := string_table();
 
 		--If the input is a SELECT statement, return that statement without a terminator (if any).
 		--For example: '/* asdf*/ with asdf as (select 1 a from dual) select * from asdf;' would return
@@ -1031,9 +1170,9 @@ end;
 		if v_clean_select_sql is not null then
 			--Try to run query, raise helpful error message if it doesn't work.
 			begin
-				execute immediate v_clean_select_sql bulk collect into v_target_databases;
+				execute immediate v_clean_select_sql bulk collect into v_target_tab;
 			exception when others then
-				dbms_output.put_line('Database Name Query: '||chr(10)||p_target_string);
+				dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
 				raise_application_error(-20006, 'Error executing P_TARGETS.'||chr(10)||
 					'Please check that the query is valid and only returns one VARCHAR2 column.'||chr(10)||
 					'Check the query stored in M5_CONFIG or check the DBMS_OUTPUT for the query.'||
@@ -1041,11 +1180,11 @@ end;
 			end;
 
 			--Remove duplicates.
-			v_target_databases := set(v_target_databases);
+			v_target_tab := set(v_target_tab);
 
 			--Force lower-case to simplify comparisons.
-			for i in 1 .. v_target_databases.count loop
-				v_target_databases(i) := lower(v_target_databases(i));
+			for i in 1 .. v_target_tab.count loop
+				v_target_tab(i) := lower(v_target_tab(i));
 			end loop;
 
 		--Split P_TARGET_STRING into attributes if it's not a SELECT statement.
@@ -1053,16 +1192,21 @@ end;
 		--host, lifecycle, line of business, or cluster name.
 		else
 			--Build query to retrieve database attributes as collections of strings.
-			v_configured_database_query := 
+			v_configured_target_query := 
 			q'[
 				with config as
 				(
-					select database_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
+					select database_name, instance_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
 					from method5.m5_database
 				)
 				select 'database_name' row_type, lower(database_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 				from config
 				group by database_name
+				union all
+				select 'instance_name' row_type, lower(instance_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+				from config
+				where instance_name <> database_name
+				group by instance_name
 				union all
 				select 'host_name' row_type, lower(host_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 				from config
@@ -1081,12 +1225,21 @@ end;
 				group by cluster_name
 			]';
 
+			--Convert the string to retreive hosts instead of databases for shell scripts.
+			if p_is_shell_script then
+				v_configured_target_query := replace(
+					v_configured_target_query,
+					'collect(distinct lower(database_name)',
+					'collect(distinct lower(host_name)'
+				);
+			end if;
+
 			--Gather configuration data.
 			begin
-				execute immediate v_configured_database_query
+				execute immediate v_configured_target_query
 				bulk collect into v_config_type, v_config_key, v_config_values;
 			exception when others then
-				dbms_output.put_line('Configuration query that generated an error: '||v_configured_database_query);
+				dbms_output.put_line('Configuration query that generated an error: '||v_configured_target_query);
 				raise_application_error(-20008, 'Error retrieving database configuration.'||
 					'  Check the query stored in M5_CONFIG.  Or check the DBMS_OUTPUT for the query.'||
 					chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
@@ -1123,25 +1276,25 @@ end;
 			for i in 1 .. v_target_items.count loop
 				for j in 1 .. v_config_key.count loop
 					if v_config_key(j) like v_target_items(i) then
-						v_target_databases := v_target_databases multiset union distinct v_config_values(j);
+						v_target_tab := v_target_tab multiset union distinct v_config_values(j);
 					end if;
 				end loop;
 			end loop;
 		end if;
 
-		return v_target_databases;
-	end get_databases_from_targets;
+		return v_target_tab;
+	end get_target_tab_from_target_str;
 
 	---------------------------------------------------------------------------
 	procedure raise_exception_if_no_targets
 	(
-		p_database_names    in string_table,
+		p_target_tab        in string_table,
 		p_original_targets  in varchar2,
 		p_processed_targets in varchar2
 	) is
 	begin
 		--Raise error if no targets are found.
-		if p_database_names.count = 0 then
+		if p_target_tab.count = 0 then
 			--Display only one value if they are the same.
 			if
 			(
@@ -1427,10 +1580,11 @@ end;
 	procedure get_transformed_code_and_type(
 		p_original_code            in     clob,
 		p_run_as_sys               in     boolean,
-		p_database_names           in     string_table,
+		p_is_shell_script          in     boolean,
+		p_target_tab               in     string_table,
 		p_transformed_code            out clob,
 		p_encrypted_code              out clob,
-		p_select_or_plsql             out varchar2,
+		p_select_plsql_script         out varchar2,
 		p_is_first_column_sortable    out boolean,
 		p_command_name                out varchar2,
 		p_has_version_star         in out boolean,
@@ -1627,6 +1781,21 @@ end;
 		end version_star_set_code_and_list;
 
 	begin
+		--Shell scripts don't require any lexical analysis or other processing
+		if p_is_shell_script then
+			p_transformed_code         := p_code;
+			p_encrypted_code           := null;
+			p_select_plsql_script      := 'SCRIPT';
+			p_is_first_column_sortable := true;
+			p_command_name             := null;
+			p_has_version_star         := false;
+			p_has_column_gt_30         := false;
+			p_has_long                 := false;
+			p_explicit_column_list     := null;
+			p_explicit_expression_list := null;
+			return;
+		end if;
+
 		--Assume the first column is sortable, unless proven false elsewhere.
 		p_is_first_column_sortable := true;
 
@@ -1652,16 +1821,16 @@ end;
 		p_transformed_code := method5.plsql_lexer.concatenate(v_tokens);
 
 		--Handle version star by transforming the code from "**" to "*" and setting column metadata.
-		version_star_set_code_and_list(p_transformed_code, p_run_as_sys, p_command_name, v_tokens, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list, p_database_names);
+		version_star_set_code_and_list(p_transformed_code, p_run_as_sys, p_command_name, v_tokens, p_has_version_star, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list, p_target_tab);
 
 		--Change the output depending on the type.
 		--
 		--Do nothing to SELECT.
 		if p_command_name = 'SELECT' then
-			p_select_or_plsql := 'SELECT';
+			p_select_plsql_script := 'SELECT';
 		--Do nothing to PL/SQL (unless it's to be run as SYS).
 		elsif p_command_name = 'PL/SQL EXECUTE' then
-			p_select_or_plsql := 'PLSQL';
+			p_select_plsql_script := 'PLSQL';
 			p_is_first_column_sortable := false;
 
 			if p_run_as_sys then
@@ -1683,7 +1852,7 @@ end;
 
 		--CALL METHOD needs to be wrapped in PL/SQL.
 		elsif p_command_name = 'CALL METHOD' then
-			p_select_or_plsql := 'PLSQL';
+			p_select_plsql_script := 'PLSQL';
 			p_is_first_column_sortable := false;
 
 			if not p_run_as_sys then
@@ -1745,7 +1914,7 @@ end;
 				'valid SQL or PL/SQL statement.  Fix the syntax and try again.');
 		--Wrap everything else in PL/SQL and handle the feedback message.
 		else
-			p_select_or_plsql := 'PLSQL';
+			p_select_plsql_script := 'PLSQL';
 
 			if not p_run_as_sys then
 				p_transformed_code :=
@@ -1890,9 +2059,9 @@ end;
 		p_has_long                 in out boolean,
 		p_explicit_column_list     in out varchar2,
 		p_explicit_expression_list in out varchar2,
-		p_select_or_plsql                 varchar2,
+		p_select_plsql_script             varchar2,
 		p_command_name                    varchar2,
-		p_database_names                  string_table,
+		p_target_tab                      string_table,
 		p_is_first_column_sortable in out boolean
 	) is
 		v_data_type varchar2(100);
@@ -1900,7 +2069,7 @@ end;
 		pragma exception_init(v_name_already_used, -955);
 	begin
 		--For SELECTS create a result table to fit columns.
-		if p_select_or_plsql = 'SELECT' then
+		if p_select_plsql_script = 'SELECT' then
 			declare
 				v_create_table_ddl varchar(32767);
 				v_temp_table_name varchar2(128);
@@ -1936,7 +2105,7 @@ end;
 				loop
 					--Increment and test for limits.
 					v_database_index := v_database_index + 1;
-					exit when v_database_index > least(c_max_database_attempts, p_database_names.count);
+					exit when v_database_index > least(c_max_database_attempts, p_target_tab.count);
 
 					--Try to create the table, handle errors.
 					begin
@@ -1947,9 +2116,9 @@ end;
 									sys.m5_runner.run_as_sys@m5_##DATABASE_NAME##(:encrypted_raw);
 								end;
 							]'
-							, '##DATABASE_NAME##', p_database_names(v_database_index)
+							, '##DATABASE_NAME##', p_target_tab(v_database_index)
 							)
-							using get_encrypted_raw(p_database_names(v_database_index), v_create_table_ddl);
+							using get_encrypted_raw(p_target_tab(v_database_index), v_create_table_ddl);
 						else
 							execute immediate replace(replace(replace(q'[
 								begin
@@ -1958,7 +2127,7 @@ end;
 									##QUOTE_DELIMITER1##');
 								end;
 							]'
-							, '##DATABASE_NAME##', p_database_names(v_database_index))
+							, '##DATABASE_NAME##', p_target_tab(v_database_index))
 							, '##CTAS##', v_create_table_ddl)
 							, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
 						end if;
@@ -1974,7 +2143,7 @@ end;
 						--But only retry it once.
 						if v_retry_counter = 0 then
 							--Recreate the CTAS based on an explicit column listGet new list
-							get_column_metadata(p_code, p_run_as_sys, p_database_names(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+							get_column_metadata(p_code, p_run_as_sys, p_target_tab(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 							v_create_table_ddl := get_ctas_sql(
 								p_code                     => p_code,
 								p_table_name               => v_temp_table_name,
@@ -1995,11 +2164,11 @@ end;
 						--Else it's just another failure for some weird reason.
 						else
 							v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
-							v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
+							v_failed_database_list := v_failed_database_list || ',' || p_target_tab(v_database_index);
 						end if;
 					when others then
 						v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
-						v_failed_database_list := v_failed_database_list || ',' || p_database_names(v_database_index);
+						v_failed_database_list := v_failed_database_list || ',' || p_target_tab(v_database_index);
 					end;
 				end loop;
 
@@ -2016,7 +2185,7 @@ end;
 				begin
 					execute immediate '
 						create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
-						select * from method5.'||v_temp_table_name||'@m5_'||p_database_names(v_successful_database_index);
+						select * from method5.'||v_temp_table_name||'@m5_'||p_target_tab(v_successful_database_index);
 				--Do nothing if the table already exists.
 				--This can happen if they use "DELETE" or "APPEND".
 				exception when v_name_already_used then
@@ -2036,7 +2205,7 @@ end;
 				p_is_first_column_sortable := false;
 			end if;
 		--For non-SELECTs create a generic result table.
-		else
+		elsif p_select_plsql_script = 'PLSQL' then
 			declare
 				v_result_type varchar2(100);
 			begin
@@ -2059,6 +2228,22 @@ end;
 					null;
 				end;
 			end;
+		--Shell scripts have a pre-determined table definition.
+		elsif p_select_plsql_script = 'SCRIPT' then
+			--Create the table.
+			begin
+				execute immediate '
+					create table '||p_table_owner||'.'||p_table_name||'
+					(
+						host_name   varchar2(256),
+						line_number number,
+						output      varchar2(4000)
+					) nologging pctfree 0';
+			exception when v_name_already_used then
+				null;
+			end;
+
+
 		end if;
 	end create_data_table;
 
@@ -2069,7 +2254,7 @@ end;
 		p_code varchar2,
 		p_targets varchar2,
 		p_links_owned_by_user links_nt,
-		p_database_names string_table,
+		p_target_tab string_table,
 		p_audit_rowid rowid
 	) is
 		v_targets_expected number := 0;
@@ -2080,7 +2265,7 @@ end;
 	begin
 		--Count number of expected results and missing links.
 		for i in 1 .. p_links_owned_by_user.count loop
-			if p_links_owned_by_user(i).database_name member of p_database_names then
+			if nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name) member of p_target_tab then
 				v_targets_expected := v_targets_expected + 1;
 			end if;
 		end loop;
@@ -2146,12 +2331,31 @@ end;
 	end create_meta_table;
 
 	---------------------------------------------------------------------------
-	procedure create_error_table(p_table_owner varchar2, p_table_name varchar2) is
+	procedure create_error_table(
+			p_table_owner     varchar2,
+			p_table_name      varchar2,
+			p_is_shell_script boolean
+	) is
 		v_name_already_used exception;
 		pragma exception_init(v_name_already_used, -955);
 	begin
-		execute immediate 'create table '||p_table_owner||'.'||p_table_name||'_err(database_name varchar2(30),
-			db_link_name varchar2(128), date_error date, error_stack_and_backtrace varchar2(4000))';
+		if p_is_shell_script then
+			execute immediate '
+				create table '||p_table_owner||'.'||p_table_name||'_err(
+					host_name                 varchar2(256),
+					host_link_name            varchar2(128),
+					date_error                date,
+					error_stack_and_backtrace varchar2(4000)
+				)';
+		else
+			execute immediate '
+				create table '||p_table_owner||'.'||p_table_name||'_err(
+					database_name             varchar2(30),
+					db_link_name              varchar2(128),
+					date_error                date,
+					error_stack_and_backtrace varchar2(4000)
+				)';
+		end if;
 	exception when v_name_already_used then
 		null;
 	end create_error_table;
@@ -2205,9 +2409,9 @@ end;
 		p_explicit_expression_list varchar2,
 		p_code                     varchar2,
 		p_encrypted_code           varchar2,
-		p_select_or_plsql          varchar2,
+		p_select_plsql_script      varchar2,
 		p_links_owned_by_user      links_nt,
-		p_database_names           string_table,
+		p_target_tab               string_table,
 		p_command_name             varchar2
 	) is
 		v_ctas_ddl varchar2(32767);
@@ -2221,7 +2425,7 @@ end;
 		for i in 1 .. p_links_owned_by_user.count loop
 
 			--Skip this loop if a query was provided and this link is not a match.
-			if p_links_owned_by_user(i).database_name not member of p_database_names then
+			if nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name) not member of p_target_tab then
 				continue;
 			end if;
 
@@ -2231,7 +2435,7 @@ end;
 			--Build procedure string.
 			begin
 				--SELECT CTAS.
-				if p_select_or_plsql = 'SELECT' then
+				if p_select_plsql_script = 'SELECT' then
 					--Build the CTAS.
 					v_ctas_ddl := get_ctas_sql(
 						p_code                     => p_code,
@@ -2285,7 +2489,7 @@ end;
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 
 				--PL/SQL CTAS.
-				else
+				elsif p_select_plsql_script = 'PLSQL' then
 					v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
 						,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
 						,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
@@ -2306,7 +2510,21 @@ end;
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER4##', find_available_quote_delimiter(v_code));
+
+				--Shell script.
+				elsif p_select_plsql_script = 'SCRIPT' then
+					v_code := replace(replace(replace(replace(replace(replace(v_shell_script_template
+						,'##CODE##', p_code)
+						,'##SEQUENCE##', to_char(v_sequence))
+						,'##TABLE_OWNER##', p_table_owner)
+						,'##TABLE_NAME##', p_table_name)
+						,'##HOST_NAME##', p_links_owned_by_user(i).host_name)
+						,'##HOST_LINK_NAME##', p_links_owned_by_user(i).db_link_name);
+					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
+					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
+					v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
 				end if;
+
 			exception when value_error then
 				raise_application_error(-20022, 'The code string is too long.  The limit is about 30,000 characters.  '||
 					'This is due to the 32767 varchar2 limit, minus some overhead needed for Method5.');
@@ -2330,7 +2548,7 @@ end;
 
 				for pipe_index in 1 .. v_pipe_count loop
 					--Create private pipe.
-					v_pipename := 'M5_'||p_links_owned_by_user(i).database_name||'_'||v_sequence||'_'||pipe_index;
+					v_pipename := 'M5_'||nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name)||'_'||v_sequence||'_'||pipe_index;
 					v_result := sys.dbms_pipe.create_pipe(v_pipename);
 					if v_result <> 0 then
 						raise_application_error(-20023, 'Pipe error.  Result = '||v_result||'.');
@@ -2363,7 +2581,7 @@ end;
 					begin
 						--Reconstruct procedure DDL.
 						for pipe_index in 1 .. ##PIPE_COUNT## loop
-							v_pipename := 'M5_'||'##DATABASE_NAME##'||'_'||##SEQUENCE##||'_'||pipe_index;
+							v_pipename := 'M5_'||'##TARGET_NAME##'||'_'||##SEQUENCE##||'_'||pipe_index;
 
 							--Receive message; timeout=> ensures procedure will not wait.
 							v_result := sys.dbms_pipe.receive_message(v_pipename, timeout => 0);
@@ -2392,7 +2610,7 @@ end;
 						end;
 						execute immediate 'drop procedure m5_temp_proc_##SEQUENCE##';
 					end;
-				>','##SEQUENCE##', to_char(v_sequence)), '##PIPE_COUNT##', v_pipe_count), '##DATABASE_NAME##', p_links_owned_by_user(i).database_name),
+				>','##SEQUENCE##', to_char(v_sequence)), '##PIPE_COUNT##', v_pipe_count), '##TARGET_NAME##', nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name)),
 				start_date => systimestamp,
 				enabled    => true,
 				--Used to prevent the same user from writing to the same table with multiple processes.
@@ -2509,11 +2727,14 @@ end;
 		p_table_name               varchar2,
 		p_asynchronous             boolean,
 		p_table_exists_action      varchar2,
+		p_run_as_sys               boolean,
+		p_is_shell_script          boolean,
 		v_is_first_column_sortable boolean
 	) is
 		v_code varchar2(32767);
 		v_targets varchar2(32767);
 		v_asynchronous varchar2(4000);
+		v_run_as_sys varchar2(4000) := case when p_run_as_sys then 'TRUE' else 'FALSE' end;
 		v_table_exists_action varchar2(4000);
 
 		v_message varchar2(32767) :=
@@ -2524,17 +2745,19 @@ end;
 			-- p_table_name          : #P_TABLE_OWNER#.#P_TABLE_NAME#
 			-- p_table_exists_action : #P_TABLE_EXISTS_ACTION#
 			-- p_asynchronous        : #P_ASYNCHRONOUS#
+			-- p_run_as_sys          : #P_RUN_AS_SYS#
 			#PARALLEL_WARNING#
 			--------------------------------------------------------------------------------
 			--Query results, metadata, and errors:
 			-- (Or use the views M5_RESULTS, M5_METADATA, and M5_ERRORS.)
-			select * from #P_TABLE_OWNER#.#P_TABLE_NAME# order by database_name#SORT_FIRST_COLUMN#;
+			select * from #P_TABLE_OWNER#.#P_TABLE_NAME# order by #DATABASE_OR_HOST##SORT_FIRST_COLUMN#;
 			select * from #P_TABLE_OWNER#.#P_TABLE_NAME#_meta order by date_started;
-			select * from #P_TABLE_OWNER#.#P_TABLE_NAME#_err order by database_name;
+			select * from #P_TABLE_OWNER#.#P_TABLE_NAME#_err order by #DATABASE_OR_HOST#;
 			#JOB_INFORMATION#]'
 		;
 
 		v_low_parallel_dop_warning varchar2(4000) := get_low_parallel_dop_warning();
+		v_database_or_host varchar2(4000);
 		v_sort_first_column varchar2(4000);
 		v_job_information varchar2(4000);
 	begin
@@ -2550,6 +2773,13 @@ end;
 			v_targets := replace(replace(replace(substrc(p_targets, 1, 50), chr(10), ' '), chr(13), null), chr(9), null) || '...';
 		else
 			v_targets := replace(replace(replace(p_targets, chr(10), ' '), chr(13), null), chr(9), null);
+		end if;
+
+		--Set DATABASE_OR_HOST.
+		if p_is_shell_script then
+			v_database_or_host := 'host_name';
+		else
+			v_database_or_host := 'database_name';
 		end if;
 
 		--Set V_SORT_FIRST_COLUMN.
@@ -2602,7 +2832,7 @@ end;
 		end if;
 
 		--Build message from template.
-		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
+		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
 			v_message
 			, '#JOB_INFORMATION#', v_job_information)
 			, '#C_VERSION#', C_VERSION)
@@ -2611,8 +2841,10 @@ end;
 			, '#P_TABLE_OWNER#', lower(p_table_owner))
 			, '#P_TABLE_NAME#', lower(p_table_name))
 			, '#P_ASYNCHRONOUS#', v_asynchronous)
+			, '#P_RUN_AS_SYS#', v_run_as_sys)
 			, '#P_TABLE_EXISTS_ACTION#', v_table_exists_action)
 			, '#PARALLEL_WARNING#', v_low_parallel_dop_warning)
+			, '#DATABASE_OR_HOST#', v_database_or_host)
 			, '#SORT_FIRST_COLUMN#', v_sort_first_column)
 			--Use #SLASH# instead of native slash to avoid SQL*Plus slash parsing.
 			, '#SLASH#', '/')
@@ -2640,54 +2872,56 @@ end;
 --Main procedure.
 begin
 	declare
-		v_start_timestamp          timestamp with time zone := systimestamp;
-		v_transformed_code         clob;
-		v_encrypted_code           clob;
-		v_select_or_plsql          varchar2(6); --Will be either "SELECT" or "PLSQL".
-		v_is_first_column_sortable boolean;
-		v_command_name             varchar2(100);
-		v_table_name               varchar2(128);
-		v_table_owner              varchar2(128);
-		v_original_targets         varchar2(32767) := p_targets;
-		v_processed_targets        varchar2(32767);
-		v_table_exists_action      varchar2(100) := upper(trim(p_table_exists_action));
-		v_audit_rowid              rowid;
-		v_links_owned_by_user      links_nt;
-		v_database_names           string_table;
+		v_start_timestamp            timestamp with time zone := systimestamp;
+		v_transformed_code           clob;
+		v_encrypted_code             clob;
+		v_select_plsql_script        varchar2(6); --Will be either "SELECT", "PLSQL", or "SCRIPT".
+		v_is_first_column_sortable   boolean;
+		v_command_name               varchar2(100);
+		v_table_name                 varchar2(128);
+		v_table_owner                varchar2(128);
+		v_original_targets           varchar2(32767) := p_targets;
+		v_target_string_with_default varchar2(32767);
+		v_table_exists_action        varchar2(100) := upper(trim(p_table_exists_action));
+		v_audit_rowid                rowid;
+		v_is_shell_script            boolean;
+		v_links_owned_by_user        links_nt;
+		v_target_tab                 string_table;
 		--Variables used for creating CTAS:
-		v_has_version_star         boolean := false;
-		v_has_column_gt_30         boolean := false;
-		v_has_long                 boolean := false;
-		v_explicit_column_list     varchar2(32767);
-		v_explicit_expression_list varchar2(32767);
+		v_has_version_star           boolean := false;
+		v_has_column_gt_30           boolean := false;
+		v_has_long                   boolean := false;
+		v_explicit_column_list       varchar2(32767);
+		v_explicit_expression_list   varchar2(32767);
 	begin
 		if g_debug then
 			dbms_output.enable(null);
 		end if;
 		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
 		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
-		control_access(v_audit_rowid, p_run_as_sys);
+		v_is_shell_script := is_shell_script(p_code);
+		control_access(v_audit_rowid, p_run_as_sys, v_is_shell_script);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job;
-		v_processed_targets := add_default_targets_if_null(p_targets);
+		v_target_string_with_default := add_default_targets_if_null(p_targets);
 		create_db_links(get_links('METHOD5'));
 		synchronize_links;
 		v_links_owned_by_user := get_links(sys_context('userenv', 'session_user'));
-		v_database_names := get_databases_from_targets(v_processed_targets);
-		raise_exception_if_no_targets(v_database_names, v_original_targets, v_processed_targets);
+		v_target_tab := get_target_tab_from_target_str(v_target_string_with_default, v_is_shell_script);
+		raise_exception_if_no_targets(v_target_tab, v_original_targets, v_target_string_with_default);
 		check_if_already_running(v_table_name);
-		get_transformed_code_and_type(p_code, p_run_as_sys, v_database_names, v_transformed_code, v_encrypted_code, v_select_or_plsql, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
+		get_transformed_code_and_type(p_code, p_run_as_sys, v_is_shell_script, v_target_tab, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_or_plsql, v_command_name, v_database_names, v_is_first_column_sortable);
-		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_database_names, v_audit_rowid);
-		create_error_table(v_table_owner, v_table_name);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_target_tab, v_is_first_column_sortable);
+		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_target_tab, v_audit_rowid);
+		create_error_table(v_table_owner, v_table_name, v_is_shell_script);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_or_plsql, v_links_owned_by_user, v_database_names, v_command_name);
+		create_jobs(v_table_owner, v_table_name, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_links_owned_by_user, v_target_tab, v_command_name);
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;
-		print_useful_sql(p_code, v_original_targets, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, v_is_first_column_sortable);
+		print_useful_sql(p_code, v_original_targets, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, p_run_as_sys, v_is_shell_script, v_is_first_column_sortable);
 	end;
 end run;
 

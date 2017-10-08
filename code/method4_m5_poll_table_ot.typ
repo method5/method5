@@ -82,18 +82,18 @@ create or replace function m4_temp_function_#ID return m4_temp_table_#ID pipelin
 	v_cursor sys_refcursor;
 	v_rows m4_temp_table_#ID;
 	v_condition number;
-	v_database_names sys.dbms_debug_vc2coll := sys.dbms_debug_vc2coll();
+	v_target_names sys.dbms_debug_vc2coll := sys.dbms_debug_vc2coll();
 
 	pragma autonomous_transaction;
 begin
 	--Continually poll table.
 	loop
-		--Open cursor to retrieve all new rows - those with a new database_name.
+		--Open cursor to retrieve all new rows - those with a new target name.
 		open v_cursor for q'`
 			select m4_temp_type_#ID(#COLUMNS) v_result
 			from #OWNER.#TABLE_NAME
-			where database_name not member of :database_names`'
-		using v_database_names;
+			where #DATABASE_OR_HOST_NAME# not member of :target_names`'
+		using v_target_names;
 
 		--Fetch and process data.
 		loop
@@ -104,12 +104,12 @@ begin
 
 			exit when v_rows.count = 0;
 
-			--Save any new databases and pipe the output.
+			--Save any new targets and pipe the output.
 			for i in 1 .. v_rows.count loop
-				--Save new database names.
-				if v_rows(i).database_name not member of v_database_names then
-					v_database_names.extend;
-					v_database_names(v_database_names.count) := v_rows(i).database_name;
+				--Save new target names.
+				if v_rows(i).#DATABASE_OR_HOST_NAME# not member of v_target_names then
+					v_target_names.extend;
+					v_target_names(v_target_names.count) := v_rows(i).#DATABASE_OR_HOST_NAME#;
 				end if;
 
 				--Output the row.
@@ -226,21 +226,25 @@ end;
 	---------------------------------------
 	--Purpose: Create the function that returns results from the table.
 	procedure create_temp_function is
-		v_column_list varchar2(32767);
+		v_first_column_name varchar2(128);
+		v_column_list       varchar2(32767);
 	begin
 		--Create comma-separated list of columns in the table.
-		select listagg('"'||column_name||'"', ',') within group (order by column_id) column_list
-		into v_column_list
+		select
+			min(case when column_id = 1 then column_name else null end) first_column,
+			listagg('"'||column_name||'"', ',') within group (order by column_id) column_list
+		into v_first_column_name, v_column_list
 		from all_tab_columns
 		where owner = sys_context('method4_context', 'owner')
 			and table_name = sys_context('method4_context', 'table_name');
 
 		--Create the function
-		execute immediate replace(replace(replace(replace(v_function_template,
+		execute immediate replace(replace(replace(replace(replace(v_function_template,
 			'#ID', sys_context('method4_context', 'temp_object_id')),
 			'#OWNER', sys_context('method4_context', 'owner')),
 			'#TABLE_NAME', sys_context('method4_context', 'table_name')),
-			'#COLUMNS', v_column_list);
+			'#COLUMNS', v_column_list),
+			'#DATABASE_OR_HOST_NAME#', v_first_column_name);
 	end;
 
 	pragma autonomous_transaction;
