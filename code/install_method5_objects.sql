@@ -94,11 +94,13 @@ commit;
 
 create table method5.m5_2step_authentication
 (
-	oracle_username varchar2(128) not null,
-	os_username     varchar2(4000) not null,
-	can_run_as_sys  varchar2(3) not null,
+	oracle_username      varchar2(128) not null,
+	os_username          varchar2(4000) not null,
+	can_run_as_sys       varchar2(3) not null,
+	can_run_shell_script varchar2(3) not null,
 	constraint m5_2step_authentication_uq unique(oracle_username, os_username),
-	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No'))
+	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
+	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No'))
 );
 
 --Used for Method5 configuration.

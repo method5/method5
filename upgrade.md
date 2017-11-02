@@ -4,7 +4,7 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
-8.7.2 --> 8.8.3: Added Run Shell Script feature.
+8.7.2 --> 8.8.4: Added Run Shell Script feature.
 -------------------------------------
 
 1. Run these files to install new packages: /code/m5_pkg.pck, /code/method5_admin.pck, /code/method4_m5_poll_table_ot.typ, /code/tests/method5_test.pck

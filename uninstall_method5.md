@@ -104,6 +104,9 @@ If you are only uninstalling to re-install, make sure you completely log out of 
 Remove from Remote Targets
 --------------------------
 
-Login to each remote targets and run the below command.  THERE'S NO TURNING BACK FROM THIS!  To make sure you really want to do this, the step is commented out.  Remove the comments before running.
+Login to each remote target as SYS and run the below command.  THERE'S NO TURNING BACK FROM THIS!  To make sure you really want to do this, the step is commented out.  Remove the comments before running.
 
 	--drop user method5 cascade;
+	--drop table sys.m5_sys_session_guid;
+	--drop package sys.m5_runner;
+	--drop procedure sys.m5_run_shell_script;

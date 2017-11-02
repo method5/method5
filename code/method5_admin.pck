@@ -476,8 +476,6 @@ is
 				c_temp_path constant varchar2(100) := '/tmp/method5/';
 				c_directory constant varchar2(100) := 'M5_TMP_DIR';
 
-				v_standard_output_lines deploy.varchar2_tab;
-
 				v_job_failed exception;
 				pragma exception_init(v_job_failed, -27369);
 
