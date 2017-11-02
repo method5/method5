@@ -84,7 +84,7 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 Then insert the permitted values into the 2-step authentication table like this:
 
 	insert into method5.m5_2step_authentication(oracle_username, os_username, can_run_as_sys)
-	values('&oracle_username1','&os_username1', '&Yes_or_No);
+	values('&oracle_username1','&os_username1', '&Yes_or_No');
 
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
