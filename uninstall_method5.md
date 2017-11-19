@@ -110,3 +110,4 @@ Login to each remote target as SYS and run the below command.  THERE'S NO TURNIN
 	--drop table sys.m5_sys_session_guid;
 	--drop package sys.m5_runner;
 	--drop procedure sys.m5_run_shell_script;
+	--drop database link m5_sys_key;
