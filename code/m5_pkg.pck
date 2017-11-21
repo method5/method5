@@ -1,7 +1,8 @@
 create or replace package method5.m5_pkg authid current_user is
---Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
+--Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '8.8.4';
+C_VERSION constant varchar2(10) := '8.9.0';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -124,6 +125,35 @@ procedure stop_jobs
 	p_elapsed_minutes number default null
 );
 
+
+/******************************************************************************
+GET_TARGET_TAB_FROM_TARGET_STR
+
+Purpose:
+	Get a nested table of target names from a target string.
+
+Side-Affects:
+	None
+
+Inputs:
+	p_target_string - Same syntax as the P_TARGETS parameter for RUN.
+	p_database_or_host - Return either the database names or the host names.
+
+Example: View all databases in the lifecycle DEV or with a database name like ACME%:
+	select * from table(method5.m5_pkg.get_target_tab_from_target_str('dev,acme%'));
+
+	COLUMN_VALUE
+	------------
+	devdb1
+	devdb2
+	devdb3
+	...
+*******************************************************************************/
+function get_target_tab_from_target_str(
+	p_target_string    in varchar2,
+	p_database_or_host in varchar2 default 'database'
+) return method5.string_table;
+
 end;
 /
 create or replace package body method5.m5_pkg is
@@ -197,6 +227,232 @@ begin
 		key => v_sys_key
 	);
 end get_encrypted_raw;
+
+
+/******************************************************************************/
+--(See specification for description.)
+function get_target_tab_from_target_str(
+	p_target_string    in varchar2,
+	p_database_or_host in varchar2 default 'database'
+) return method5.string_table is
+
+	--SQL statements:
+	v_clean_select_sql varchar2(32767);
+	v_configured_target_query varchar2(32767);
+
+	--Types and variables to hold database configuration attributes.
+	type string_table_table is table of string_table;
+
+	v_config_type string_table;
+	v_config_key string_table;
+	v_config_values string_table_table;
+
+	type string_table_aat is table of string_table index by varchar2(32767);
+	v_config_key_values string_table_aat;
+
+	--Holds split list of items.
+	v_target_items string_table := string_table();
+	v_item varchar2(32767);
+
+	--Final value with databases:
+	v_target_tab string_table := string_table();
+
+	--If the input is a SELECT statement, return that statement without a terminator (if any).
+	--For example: '/* asdf*/ with asdf as (select 1 a from dual) select * from asdf;' would return
+	--	the same string but without the final semicolon.  But 'asdf' would return null.
+	function get_unterminated_select(p_sql varchar2) return varchar2 is
+		v_category varchar2(32767);
+		v_statement_type varchar2(32767);
+		v_command_name varchar2(32767);
+		v_command_type number;
+		v_lex_sqlcode number;
+		v_lex_sqlerrm varchar2(32767);
+
+		v_tokens token_table;
+	begin
+		--Tokenize and remove semicolon if necessary.
+		v_tokens := plsql_lexer.lex(p_sql);
+		v_tokens := statement_terminator.remove_semicolon(v_tokens);
+
+		--Classify statement.
+		statement_classifier.classify(
+			p_tokens         => v_tokens,
+			p_category       => v_category,
+			p_statement_type => v_statement_type,
+			p_command_name   => v_command_name,
+			p_command_type   => v_command_type,
+			p_lex_sqlcode    => v_lex_sqlcode,
+			p_lex_sqlerrm    => v_lex_sqlerrm
+		);
+
+		--Return SQL if it's a SELECT>
+		if v_command_name = 'SELECT' then
+			return plsql_lexer.concatenate(v_tokens);
+		--Return NULL if it's not a SELECT.
+		else
+			return null;
+		end if;
+	end get_unterminated_select;
+
+	procedure add_target_group(p_item varchar2, p_target_items in out string_table) is
+		v_query clob;
+		v_targets method5.string_table := method5.string_table();
+	begin
+		--Get query for target group.
+		begin
+			select string_value query
+			into v_query
+			from method5.m5_config
+			where replace(trim(lower(config_name)), '$') like 'target group -%' || replace(trim(lower(p_item)), '$');
+		exception when no_data_found then
+			raise_application_error(-20025, 'Could not find the target group "'||p_item||'" in METHOD5.M5_CONFIG.'||
+				'  Either fix the target group name or add the target group to the configuration.');
+		end;
+
+		--Get the targets
+		begin
+			execute immediate v_query bulk collect into v_targets;
+			exception when others then raise_application_error(-20026,
+				'There was an error retrieving the targets for the target group "'||p_item||'".'||
+				'  Check the query in METHOD5.M5_CONFIG for valid syntax and sure it only '||
+				' returns one column.'||chr(10)||
+				sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+		end;
+
+		--Add them to the existing list of targets.
+		for i in 1 .. v_targets.count loop
+			p_target_items.extend;
+			p_target_items(p_target_items.count) := lower(trim(v_targets(i)));
+		end loop;
+	end add_target_group;
+
+begin
+	--Validate input.
+	if trim(p_database_or_host) is null or lower(trim(p_database_or_host)) not in ('host', 'database') then
+		raise_application_error(-20034, 'P_DATABASE_OR_HOST must be either HOST or DATABASE.');
+	end if;
+
+	--Get SQL to run (without a semicolon), if it's a SELECT.
+	v_clean_select_sql := get_unterminated_select(p_target_string);
+
+	--Execute P_TARGET_STRING as a SELECT statement if it looks like one.
+	if v_clean_select_sql is not null then
+		--Try to run query, raise helpful error message if it doesn't work.
+		begin
+			execute immediate v_clean_select_sql bulk collect into v_target_tab;
+		exception when others then
+			dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
+			raise_application_error(-20006, 'Error executing P_TARGETS.'||chr(10)||
+				'Please check that the query is valid and only returns one VARCHAR2 column.'||chr(10)||
+				'Check the query stored in M5_CONFIG or check the DBMS_OUTPUT for the query.'||
+				sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+		end;
+
+		--Remove duplicates.
+		v_target_tab := set(v_target_tab);
+
+		--Force lower-case to simplify comparisons.
+		for i in 1 .. v_target_tab.count loop
+			v_target_tab(i) := lower(v_target_tab(i));
+		end loop;
+
+	--Split P_TARGET_STRING into attributes if it's not a SELECT statement.
+	--Else treat P_TARGET_STRING as comma-separated-values that may identify database,
+	--host, lifecycle, line of business, or cluster name.
+	else
+		--Build query to retrieve database attributes as collections of strings.
+		v_configured_target_query := 
+		q'[
+			with config as
+			(
+				select database_name, instance_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
+				from method5.m5_database
+			)
+			select 'database_name' row_type, lower(database_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			group by database_name
+			union all
+			select 'instance_name' row_type, lower(instance_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			where instance_name <> database_name
+			group by instance_name
+			union all
+			select 'host_name' row_type, lower(host_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			group by host_name
+			union all
+			select 'lifecycle_status' row_type, lower(lifecycle_status) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			group by lifecycle_status
+			union all
+			select 'line_of_business' row_type, lower(line_of_business) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			group by line_of_business
+			union all
+			select 'cluster_name' row_type, lower(cluster_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
+			from config
+			group by cluster_name
+		]';
+
+		--Convert the string to retreive hosts instead of databases for shell scripts.
+		if lower(trim(p_database_or_host)) = 'host' then
+			v_configured_target_query := replace(
+				v_configured_target_query,
+				'collect(distinct lower(database_name)',
+				'collect(distinct lower(host_name)'
+			);
+		end if;
+
+		--Gather configuration data.
+		begin
+			execute immediate v_configured_target_query
+			bulk collect into v_config_type, v_config_key, v_config_values;
+		exception when others then
+			dbms_output.put_line('Configuration query that generated an error: '||v_configured_target_query);
+			raise_application_error(-20008, 'Error retrieving database configuration.'||
+				'  Check the query stored in M5_CONFIG.  Or check the DBMS_OUTPUT for the query.'||
+				chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+		end;
+
+		--Convert configuration data into an associative array.
+		for i in 1 .. v_config_key.count loop
+			if v_config_key(i) is not null then
+				v_config_key_values(v_config_key(i)) := v_config_values(i);
+			end if;
+		end loop;
+
+		--Convert comma-separated list of targets into nested table.
+		declare
+			v_target_index number := 0;
+		begin
+			loop
+				v_target_index := v_target_index + 1;
+				v_item := regexp_substr(p_target_string, '[^,]+', 1, v_target_index);
+				exit when v_item is null;
+
+				--Replace target groups if necessary.
+				if trim(v_item) like '$%' then
+					add_target_group(v_item, v_target_items);
+				--Else use regular name.
+				else
+					v_target_items.extend();
+					v_target_items(v_target_items.count) := lower(trim(v_item));
+				end if;
+			end loop;
+		end;
+
+		--Map target items to configuration items, create a nested table with all data.
+		for i in 1 .. v_target_items.count loop
+			for j in 1 .. v_config_key.count loop
+				if v_config_key(j) like v_target_items(i) then
+					v_target_tab := v_target_tab multiset union distinct v_config_values(j);
+				end if;
+			end loop;
+		end loop;
+	end if;
+
+	return v_target_tab;
+end get_target_tab_from_target_str;
 
 
 /******************************************************************************/
@@ -1068,222 +1324,6 @@ end;
 
 		commit;
 	end synchronize_links;
-
-	---------------------------------------------------------------------------
-	--Convert the targets parameter into a table of databases.
-	function get_target_tab_from_target_str(p_target_string varchar2, p_is_shell_script boolean) return string_table is
-		--SQL statements:
-		v_clean_select_sql varchar2(32767);
-		v_configured_target_query varchar2(32767);
-
-		--Types and variables to hold database configuration attributes.
-		type string_table_table is table of string_table;
-
-		v_config_type string_table;
-		v_config_key string_table;
-		v_config_values string_table_table;
-
-		type string_table_aat is table of string_table index by varchar2(32767);
-		v_config_key_values string_table_aat;
-
-		--Holds split list of items.
-		v_target_items string_table := string_table();
-		v_item varchar2(32767);
-
-		--Final value with databases:
-		v_target_tab string_table := string_table();
-
-		--If the input is a SELECT statement, return that statement without a terminator (if any).
-		--For example: '/* asdf*/ with asdf as (select 1 a from dual) select * from asdf;' would return
-		--	the same string but without the final semicolon.  But 'asdf' would return null.
-		function get_unterminated_select(p_sql varchar2) return varchar2 is
-			v_category varchar2(32767);
-			v_statement_type varchar2(32767);
-			v_command_name varchar2(32767);
-			v_command_type number;
-			v_lex_sqlcode number;
-			v_lex_sqlerrm varchar2(32767);
-
-			v_tokens token_table;
-		begin
-			--Tokenize and remove semicolon if necessary.
-			v_tokens := plsql_lexer.lex(p_sql);
-			v_tokens := statement_terminator.remove_semicolon(v_tokens);
-
-			--Classify statement.
-			statement_classifier.classify(
-				p_tokens         => v_tokens,
-				p_category       => v_category,
-				p_statement_type => v_statement_type,
-				p_command_name   => v_command_name,
-				p_command_type   => v_command_type,
-				p_lex_sqlcode    => v_lex_sqlcode,
-				p_lex_sqlerrm    => v_lex_sqlerrm
-			);
-
-			--Return SQL if it's a SELECT>
-			if v_command_name = 'SELECT' then
-				return plsql_lexer.concatenate(v_tokens);
-			--Return NULL if it's not a SELECT.
-			else
-				return null;
-			end if;
-		end get_unterminated_select;
-
-		procedure add_target_group(p_item varchar2, p_target_items in out string_table) is
-			v_query clob;
-			v_targets method5.string_table := method5.string_table();
-		begin
-			--Get query for target group.
-			begin
-				select string_value query
-				into v_query
-				from method5.m5_config
-				where replace(trim(lower(config_name)), '$') like 'target group -%' || replace(trim(lower(p_item)), '$');
-			exception when no_data_found then
-				raise_application_error(-20025, 'Could not find the target group "'||p_item||'" in METHOD5.M5_CONFIG.'||
-					'  Either fix the target group name or add the target group to the configuration.');
-			end;
-
-			--Get the targets
-			begin
-				execute immediate v_query bulk collect into v_targets;
-				exception when others then raise_application_error(-20026,
-					'There was an error retrieving the targets for the target group "'||p_item||'".'||
-					'  Check the query in METHOD5.M5_CONFIG for valid syntax and sure it only '||
-					' returns one column.'||chr(10)||
-					sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
-			end;
-
-			--Add them to the existing list of targets.
-			for i in 1 .. v_targets.count loop
-				p_target_items.extend;
-				p_target_items(p_target_items.count) := lower(trim(v_targets(i)));
-			end loop;
-		end add_target_group;
-
-	begin
-		--Get SQL to run (without a semicolon), if it's a SELECT.
-		v_clean_select_sql := get_unterminated_select(p_target_string);
-
-		--Execute P_TARGET_STRING as a SELECT statement if it looks like one.
-		if v_clean_select_sql is not null then
-			--Try to run query, raise helpful error message if it doesn't work.
-			begin
-				execute immediate v_clean_select_sql bulk collect into v_target_tab;
-			exception when others then
-				dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
-				raise_application_error(-20006, 'Error executing P_TARGETS.'||chr(10)||
-					'Please check that the query is valid and only returns one VARCHAR2 column.'||chr(10)||
-					'Check the query stored in M5_CONFIG or check the DBMS_OUTPUT for the query.'||
-					sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
-			end;
-
-			--Remove duplicates.
-			v_target_tab := set(v_target_tab);
-
-			--Force lower-case to simplify comparisons.
-			for i in 1 .. v_target_tab.count loop
-				v_target_tab(i) := lower(v_target_tab(i));
-			end loop;
-
-		--Split P_TARGET_STRING into attributes if it's not a SELECT statement.
-		--Else treat P_TARGET_STRING as comma-separated-values that may identify database,
-		--host, lifecycle, line of business, or cluster name.
-		else
-			--Build query to retrieve database attributes as collections of strings.
-			v_configured_target_query := 
-			q'[
-				with config as
-				(
-					select database_name, instance_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
-					from method5.m5_database
-				)
-				select 'database_name' row_type, lower(database_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				group by database_name
-				union all
-				select 'instance_name' row_type, lower(instance_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				where instance_name <> database_name
-				group by instance_name
-				union all
-				select 'host_name' row_type, lower(host_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				group by host_name
-				union all
-				select 'lifecycle_status' row_type, lower(lifecycle_status) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				group by lifecycle_status
-				union all
-				select 'line_of_business' row_type, lower(line_of_business) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				group by line_of_business
-				union all
-				select 'cluster_name' row_type, lower(cluster_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
-				from config
-				group by cluster_name
-			]';
-
-			--Convert the string to retreive hosts instead of databases for shell scripts.
-			if p_is_shell_script then
-				v_configured_target_query := replace(
-					v_configured_target_query,
-					'collect(distinct lower(database_name)',
-					'collect(distinct lower(host_name)'
-				);
-			end if;
-
-			--Gather configuration data.
-			begin
-				execute immediate v_configured_target_query
-				bulk collect into v_config_type, v_config_key, v_config_values;
-			exception when others then
-				dbms_output.put_line('Configuration query that generated an error: '||v_configured_target_query);
-				raise_application_error(-20008, 'Error retrieving database configuration.'||
-					'  Check the query stored in M5_CONFIG.  Or check the DBMS_OUTPUT for the query.'||
-					chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
-			end;
-
-			--Convert configuration data into an associative array.
-			for i in 1 .. v_config_key.count loop
-				if v_config_key(i) is not null then
-					v_config_key_values(v_config_key(i)) := v_config_values(i);
-				end if;
-			end loop;
-
-			--Convert comma-separated list of targets into nested table.
-			declare
-				v_target_index number := 0;
-			begin
-				loop
-					v_target_index := v_target_index + 1;
-					v_item := regexp_substr(p_target_string, '[^,]+', 1, v_target_index);
-					exit when v_item is null;
-
-					--Replace target groups if necessary.
-					if trim(v_item) like '$%' then
-						add_target_group(v_item, v_target_items);
-					--Else use regular name.
-					else
-						v_target_items.extend();
-						v_target_items(v_target_items.count) := lower(trim(v_item));
-					end if;
-				end loop;
-			end;
-
-			--Map target items to configuration items, create a nested table with all data.
-			for i in 1 .. v_target_items.count loop
-				for j in 1 .. v_config_key.count loop
-					if v_config_key(j) like v_target_items(i) then
-						v_target_tab := v_target_tab multiset union distinct v_config_values(j);
-					end if;
-				end loop;
-			end loop;
-		end if;
-
-		return v_target_tab;
-	end get_target_tab_from_target_str;
 
 	---------------------------------------------------------------------------
 	procedure raise_exception_if_no_targets
@@ -2907,7 +2947,7 @@ begin
 		create_db_links(get_links('METHOD5'));
 		synchronize_links;
 		v_links_owned_by_user := get_links(sys_context('userenv', 'session_user'));
-		v_target_tab := get_target_tab_from_target_str(v_target_string_with_default, v_is_shell_script);
+		v_target_tab := get_target_tab_from_target_str(v_target_string_with_default, case when v_is_shell_script then 'host' else 'database' end);
 		raise_exception_if_no_targets(v_target_tab, v_original_targets, v_target_string_with_default);
 		check_if_already_running(v_table_name);
 		get_transformed_code_and_type(p_code, p_run_as_sys, v_is_shell_script, v_target_tab, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
