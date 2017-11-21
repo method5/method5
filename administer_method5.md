@@ -65,11 +65,11 @@ Run this command on the management server as a DBA, but then run the output on t
 3: Ad hoc statements to customize database links.
 -------------------------------------------------
 
-This command generates PL/SQL blocks to test database links.  Enter the database name, host name, and port number before running it.
+This command generates PL/SQL blocks to test database links.  Enter the link name, database name, host name, and port number before running it.
 
 You will probably need to modify some of the SQL*Net settings to match your environment.
 
-	select method5.method5_admin.generate_link_test_script('&database', '&host', '&port') from dual;
+	select method5.method5_admin.generate_link_test_script('&link_name', '&database', '&host', '&port') from dual;
 
 
 <a name="access_control"/>

@@ -941,11 +941,35 @@ end test_version_star;
 
 
 --------------------------------------------------------------------------------
-procedure test_run_as_sys(p_database_name_1 in varchar2, p_database_name_2 in varchar2) is
+procedure test_get_target_tab_from_targe(v_database_name_1 in varchar2, v_database_name_2 varchar2) is
 	v_test_name varchar2(100);
 	v_expected_results varchar2(4000);
 	v_actual_results varchar2(4000);
-	v_table_name varchar2(128);
+begin
+	begin
+		v_test_name := 'Get Target Table from Target String 1';
+		v_expected_results :=
+			least(v_database_name_1, v_database_name_2) || '-' ||
+			greatest(v_database_name_1, v_database_name_2);
+
+		select listagg(column_value, '-') within group (order by column_value)
+		into v_actual_results
+		from table(method5.m5_pkg.get_target_tab_from_target_str(v_database_name_1||','||v_database_name_2));
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_get_target_tab_from_targe;
+
+
+--------------------------------------------------------------------------------
+procedure test_run_as_sys(p_database_name_1 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
 begin
 	begin
 		v_test_name := 'SYS select - table that only SYS can read';
@@ -1040,7 +1064,6 @@ procedure test_shell_script(p_database_name_1 in varchar2, p_database_name_2 in 
 	v_test_name varchar2(100);
 	v_expected_results varchar2(4000);
 	v_actual_results varchar2(4000);
-	v_table_name varchar2(128);
 begin
 	begin
 		v_test_name := 'Shell script 1 - test stdout and stderr write in order';
@@ -1137,8 +1160,9 @@ begin
 	test_audit(v_database_name_1, v_database_name_2);
 	test_long(v_database_name_1);
 	test_version_star(v_database_name_1, v_database_name_2);
+	test_get_target_tab_from_targe(v_database_name_1, v_database_name_2);
 	if p_test_run_as_sys then
-		test_run_as_sys(v_database_name_1, v_database_name_2);
+		test_run_as_sys(v_database_name_1);
 	end if;
 	if p_test_shell_script then
 		test_shell_script(v_database_name_1, v_database_name_2);

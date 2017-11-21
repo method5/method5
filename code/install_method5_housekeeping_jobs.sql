@@ -198,9 +198,8 @@ begin
 								(
 									--Old objects.
 									select replace(replace(object_name, 'M5_TEMP_FUNCTION_'), 'M5_TEMP_TABLE_') sequence_number, object_type
-									from dba_objects
-									where owner = 'METHOD5'
-										and object_type in ('TABLE', 'FUNCTION')
+									from user_objects
+									where object_type in ('TABLE', 'FUNCTION')
 										and (object_name like 'M5_TEMP_FUNCTION_%' or object_name like 'M5_TEMP_TABLE_%')
 										and created < sysdate - 7
 								)

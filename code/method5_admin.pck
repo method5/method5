@@ -1,9 +1,9 @@
 create or replace package method5.method5_admin authid current_user is
-	function generate_remote_install_script(p_allow_run_as_sys boolean default true) return clob;
+	function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob;
 	procedure set_local_and_remote_sys_key(p_db_link in varchar2);
 	function set_all_missing_sys_keys return clob;
 	function generate_password_reset_one_db return clob;
-	function generate_link_test_script(p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
+	function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
 	procedure create_and_assign_m5_acl;
 	procedure drop_m5_db_links_for_user(p_username varchar2);
 	function refresh_all_user_m5_db_links return clob;
@@ -14,7 +14,9 @@ create or replace package method5.method5_admin authid current_user is
 end;
 /
 create or replace package body method5.method5_admin is
---Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
+--Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--See http://method5.github.io/ for more information.
+
 
 /******************************************************************************
  * See administer_method5.md for how to use these methods.
@@ -23,7 +25,7 @@ create or replace package body method5.method5_admin is
 
 --------------------------------------------------------------------------------
 --Purpose: Generate a script to install Method5 on remote databases.
-function generate_remote_install_script(p_allow_run_as_sys boolean default true) return clob
+function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob
 is
 	v_script clob;
 
@@ -122,19 +124,73 @@ is
 	function create_grants return clob is
 	begin
 		return replace(q'[
-				--Grant DBA to method5.
-				grant dba to method5;
+				--REQUIRED: Create and grant role of minimum Method5 remote target privileges.
+				--Do NOT remove or change this block or Method5 will not work properly.
+				declare
+					v_role_conflicts exception;
+					pragma exception_init(v_role_conflicts, -1921);
+				begin
+					begin
+						execute immediate 'create role m5_minimum_remote_privs';
+					exception when v_role_conflicts then null;
+					end;
 
-				--Grant access to a table useful for password management and synchronization.
-				grant select on sys.user$ to method5;
+					execute immediate 'grant m5_minimum_remote_privs to method5';
 
-				--Direct grants for objects that are frequently revoked from PUBLIC, as
+					execute immediate 'grant create session to m5_minimum_remote_privs';
+					execute immediate 'grant create table to m5_minimum_remote_privs';
+					execute immediate 'grant create procedure to m5_minimum_remote_privs';
+					execute immediate 'grant execute on sys.dbms_sql to m5_minimum_remote_privs';
+				end;
+				/
+
+				--REQUIRED: Grant Method5 unlimited access to the default tablespace.
+				--You can change the quota or tablespace but Method5 must have at least a little space. 
+				declare
+					v_default_tablespace varchar2(128);
+				begin
+					select property_value
+					into v_default_tablespace
+					from database_properties
+					where property_name = 'DEFAULT_PERMANENT_TABLESPACE';
+
+					execute immediate 'alter user method5 quota unlimited on '||v_default_tablespace;
+				end;
+				/
+
+				--REQUIRED: Create and grant role for additional Method5 remote target privileges.
+				--Do NOT remove or change this block or Method5 will not work properly.
+				declare
+					v_role_conflicts exception;
+					pragma exception_init(v_role_conflicts, -1921);
+				begin
+					begin
+						execute immediate 'create role m5_optional_remote_privs';
+					exception when v_role_conflicts then null;
+					end;
+
+					execute immediate 'grant m5_optional_remote_privs to method5';
+				end;
+				/
+
+				--OPTIONAL, but recommended: Grant DBA to Method5 role.
+				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
+				--  If you only want to block specific users from having DBA look at the table M5_USER_CONFIG.
+				--
+				--If you don't trust Method5 or are not allowed to grant DBA, you can manually modify this block.
+				--Simply removing it would make Method5 worthless.  But you may want to replace it with something
+				--less powerful.  For example, you could make a read-only Method5 with these two commented out lines:
+				--	grant select any table to m5_optional_remote_privs;
+				--	grant select any dictionary to m5_optional_remote_privs;
+				grant dba to m5_optional_remote_privs;
+
+				--OPTIONAL, but recommended: Direct grants for objects that are frequently revoked from PUBLIC, as
 				--recommended by the Security Technical Implementation Guide (STIG).
 				--Use "with grant option" since these will probably also need to be granted to users.
 				begin
 					for packages in
 					(
-						select 'grant execute on '||column_value||' to method5 with grant option' v_sql
+						select 'grant execute on '||column_value||' to m5_optional_remote_privs with grant option' v_sql
 						from table(sys.odcivarchar2list(
 							'DBMS_ADVISOR','DBMS_BACKUP_RESTORE','DBMS_CRYPTO','DBMS_JAVA','DBMS_JAVA_TEST',
 							'DBMS_JOB','DBMS_JVM_EXP_PERMS','DBMS_LDAP','DBMS_LOB','DBMS_OBFUSCATION_TOOLKIT',
@@ -850,14 +906,27 @@ is
 	end;
 
 begin
+	--Validate input.
+	if trim(p_allow_run_as_sys) is null or lower(trim(p_allow_run_as_sys)) not in ('yes', 'no') then
+		raise_application_error(-20000, 'P_ALLOW_RUN_AS_SYS must be either "YES" or "NO".');
+	end if;
+	if trim(p_allow_run_shell_script) is null or lower(trim(p_allow_run_shell_script)) not in ('yes', 'no') then
+		raise_application_error(-20000, 'P_ALLOW_RUN_SHELL_SCRIPT must be either "YES" or "NO".');
+	end if;
+	if lower(trim(p_allow_run_as_sys)) = 'no' and lower(trim(p_allow_run_shell_script)) = 'yes' then
+		raise_application_error(-20000, 'The RUN_AS_SYS feature must be enabled in order to use the shell script feature.');
+	end if;
+
  	v_script := v_script ||create_header;
 	v_script := v_script ||create_profile;
 	v_script := v_script ||create_user;
 	v_script := v_script ||create_grants;
 	v_script := v_script ||create_audits;
 	v_script := v_script ||create_trigger;
-	if p_allow_run_as_sys then
+	if lower(trim(p_allow_run_as_sys)) = 'yes' then
 		v_script := v_script ||create_sys_m5_runner;
+	end if;
+	if lower(trim(p_allow_run_shell_script)) = 'yes' then
 		v_script := v_script ||create_sys_m5_run_shell_script;
 	end if;
 	v_script := v_script ||create_footer;
@@ -1098,30 +1167,36 @@ end;
 
 --------------------------------------------------------------------------------
 --Purpose: Drop all Method5 database links for a specific user.
-function generate_link_test_script(p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob is
+function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob is
 	v_plsql clob;
 begin
-	v_plsql := replace(replace(replace(replace(replace(q'[
+	--Check for valid link name to ensure naming standard is maintained.
+	if trim(upper(p_link_name)) not like 'M5\_%' escape '\' then
+		raise_application_error(-20000, 'All Method5 links must start with M5_.');
+	end if;
+
+	--Create script.
+	v_plsql := replace(replace(replace(replace(replace(replace(q'[
 		----------------------------------------
 		--#1: Test a Method5 database link.
 		----------------------------------------
 
 		--#1A: Create a temporary procedure to test the database link on the Method5 schema.
-		create or replace procedure method5.temp_procedure_test_db_link(p_database_name varchar2) is
+		create or replace procedure method5.temp_procedure_test_link(p_link_name varchar2) is
 			v_number number;
 		begin
-			execute immediate 'select 1 from dual@m5_'||p_database_name into v_number;
+			execute immediate 'select 1 from dual@'||p_link_name into v_number;
 		end;
 		$$SLASH$$
 
 		--#1B: Run the temporary procedure to check the link.  This should run without errors.
 		begin
-			method5.temp_procedure_test_db_link('$$DATABASE_NAME$$');
+			method5.temp_procedure_test_link('$$LINK_NAME$$');
 		end;
 		$$SLASH$$
 
 		--#1C: Drop the temporary procedure.
-		drop procedure method5.temp_procedure_test_db_link;
+		drop procedure method5.temp_procedure_test_link;
 
 
 		----------------------------------------
@@ -1129,8 +1204,9 @@ begin
 		----------------------------------------
 
 		--#2A: Create a temporary procedure to drop, create, and test a custom Method5 link.
-		create or replace procedure method5.temp_procedure_test_db_link2
+		create or replace procedure method5.temp_procedure_test_link2
 		(
+			p_link_name     varchar2,
 			p_database_name varchar2,
 			p_host_name     varchar2,
 			p_port_number   number
@@ -1139,14 +1215,19 @@ begin
 			v_database_link_not_found exception;
 			pragma exception_init(v_database_link_not_found, -2024);
 		begin
+			--Check for valid link name to ensure naming standard is maintained.
+			if trim(upper(p_link_name)) not like 'M5\_%' escape '\' then
+				raise_application_error(-20000, 'All Method5 links must start with M5_.');
+			end if;
+
 			begin
-				execute immediate 'drop database link M5_'||p_database_name;
+				execute immediate 'drop database link '||p_link_name;
 			exception when v_database_link_not_found then null;
 			end;
 
-			execute immediate replace(replace(replace(
+			execute immediate replace(replace(replace(replace(
 			'
-				create database link M5_#DATABASE_NAME#
+				create database link #LINK_NAME#
 				connect to METHOD5 identified by not_a_real_password_yet
 
 				--   _____ _    _          _   _  _____ ______    _______ _    _ _____  _____
@@ -1174,6 +1255,7 @@ begin
 					)
 				) ''
 			'
+			, '#LINK_NAME#', p_link_name)
 			, '#DATABASE_NAME#', p_database_name)
 			, '#HOST_NAME#', p_host_name)
 			, '#PORT_NUMBER#', p_port_number)
@@ -1182,23 +1264,24 @@ begin
 			sys.m5_change_db_link_pw(
 				p_m5_username     => 'METHOD5',
 				p_dblink_username => 'METHOD5',
-				p_dblink_name     => 'M5_'||p_database_name);
+				p_dblink_name     => p_link_name);
 			commit;
 
-			execute immediate 'select * from dual@M5_'||p_database_name into v_dummy;
+			execute immediate 'select * from dual@'||p_link_name into v_dummy;
 		end;
 		$$SLASH$$
 
 		--#2B: Test the custom link.  This should run without errors.
 		begin
-			method5.temp_procedure_test_db_link2('$$DATABASE_NAME$$', '$$HOST_NAME$$', '$$PORT_NUMBER$$');
+			method5.temp_procedure_test_link2('$$LINK_NAME$$', '$$DATABASE_NAME$$', '$$HOST_NAME$$', '$$PORT_NUMBER$$');
 		end;
 		$$SLASH$$
 
 		--#2C: Drop the temporary procedure.
-		drop procedure method5.temp_procedure_test_db_link2;
+		drop procedure method5.temp_procedure_test_link2;
 	]'
 	, '$$SLASH$$', '/')
+	, '$$LINK_NAME$$', p_link_name)
 	, '$$DATABASE_NAME$$', p_database_name)
 	, '$$HOST_NAME$$', p_host_name)
 	, '$$PORT_NUMBER$$', p_port_number)
