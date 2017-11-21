@@ -3,7 +3,7 @@ create or replace package method5.method5_admin authid current_user is
 	procedure set_local_and_remote_sys_key(p_db_link in varchar2);
 	function set_all_missing_sys_keys return clob;
 	function generate_password_reset_one_db return clob;
-	function generate_link_test_script(p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
+	function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
 	procedure create_and_assign_m5_acl;
 	procedure drop_m5_db_links_for_user(p_username varchar2);
 	function refresh_all_user_m5_db_links return clob;
@@ -14,7 +14,9 @@ create or replace package method5.method5_admin authid current_user is
 end;
 /
 create or replace package body method5.method5_admin is
---Copyright (C) 2016 Ventech Solutions, CMS, and Jon Heller.  This program is licensed under the LGPLv3.
+--Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--See http://method5.github.io/ for more information.
+
 
 /******************************************************************************
  * See administer_method5.md for how to use these methods.
@@ -1098,30 +1100,36 @@ end;
 
 --------------------------------------------------------------------------------
 --Purpose: Drop all Method5 database links for a specific user.
-function generate_link_test_script(p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob is
+function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob is
 	v_plsql clob;
 begin
-	v_plsql := replace(replace(replace(replace(replace(q'[
+	--Check for valid link name to ensure naming standard is maintained.
+	if trim(upper(p_link_name)) not like 'M5\_%' escape '\' then
+		raise_application_error(-20000, 'All Method5 links must start with M5_.');
+	end if;
+
+	--Create script.
+	v_plsql := replace(replace(replace(replace(replace(replace(q'[
 		----------------------------------------
 		--#1: Test a Method5 database link.
 		----------------------------------------
 
 		--#1A: Create a temporary procedure to test the database link on the Method5 schema.
-		create or replace procedure method5.temp_procedure_test_db_link(p_database_name varchar2) is
+		create or replace procedure method5.temp_procedure_test_link(p_link_name varchar2) is
 			v_number number;
 		begin
-			execute immediate 'select 1 from dual@m5_'||p_database_name into v_number;
+			execute immediate 'select 1 from dual@'||p_link_name into v_number;
 		end;
 		$$SLASH$$
 
 		--#1B: Run the temporary procedure to check the link.  This should run without errors.
 		begin
-			method5.temp_procedure_test_db_link('$$DATABASE_NAME$$');
+			method5.temp_procedure_test_link('$$LINK_NAME$$');
 		end;
 		$$SLASH$$
 
 		--#1C: Drop the temporary procedure.
-		drop procedure method5.temp_procedure_test_db_link;
+		drop procedure method5.temp_procedure_test_link;
 
 
 		----------------------------------------
@@ -1129,8 +1137,9 @@ begin
 		----------------------------------------
 
 		--#2A: Create a temporary procedure to drop, create, and test a custom Method5 link.
-		create or replace procedure method5.temp_procedure_test_db_link2
+		create or replace procedure method5.temp_procedure_test_link2
 		(
+			p_link_name     varchar2,
 			p_database_name varchar2,
 			p_host_name     varchar2,
 			p_port_number   number
@@ -1139,14 +1148,19 @@ begin
 			v_database_link_not_found exception;
 			pragma exception_init(v_database_link_not_found, -2024);
 		begin
+			--Check for valid link name to ensure naming standard is maintained.
+			if trim(upper(p_link_name)) not like 'M5\_%' escape '\' then
+				raise_application_error(-20000, 'All Method5 links must start with M5_.');
+			end if;
+
 			begin
-				execute immediate 'drop database link M5_'||p_database_name;
+				execute immediate 'drop database link '||p_link_name;
 			exception when v_database_link_not_found then null;
 			end;
 
-			execute immediate replace(replace(replace(
+			execute immediate replace(replace(replace(replace(
 			'
-				create database link M5_#DATABASE_NAME#
+				create database link #LINK_NAME#
 				connect to METHOD5 identified by not_a_real_password_yet
 
 				--   _____ _    _          _   _  _____ ______    _______ _    _ _____  _____
@@ -1174,6 +1188,7 @@ begin
 					)
 				) ''
 			'
+			, '#LINK_NAME#', p_link_name)
 			, '#DATABASE_NAME#', p_database_name)
 			, '#HOST_NAME#', p_host_name)
 			, '#PORT_NUMBER#', p_port_number)
@@ -1182,23 +1197,24 @@ begin
 			sys.m5_change_db_link_pw(
 				p_m5_username     => 'METHOD5',
 				p_dblink_username => 'METHOD5',
-				p_dblink_name     => 'M5_'||p_database_name);
+				p_dblink_name     => p_link_name);
 			commit;
 
-			execute immediate 'select * from dual@M5_'||p_database_name into v_dummy;
+			execute immediate 'select * from dual@'||p_link_name into v_dummy;
 		end;
 		$$SLASH$$
 
 		--#2B: Test the custom link.  This should run without errors.
 		begin
-			method5.temp_procedure_test_db_link2('$$DATABASE_NAME$$', '$$HOST_NAME$$', '$$PORT_NUMBER$$');
+			method5.temp_procedure_test_link2('$$LINK_NAME$$', '$$DATABASE_NAME$$', '$$HOST_NAME$$', '$$PORT_NUMBER$$');
 		end;
 		$$SLASH$$
 
 		--#2C: Drop the temporary procedure.
-		drop procedure method5.temp_procedure_test_db_link2;
+		drop procedure method5.temp_procedure_test_link2;
 	]'
 	, '$$SLASH$$', '/')
+	, '$$LINK_NAME$$', p_link_name)
 	, '$$DATABASE_NAME$$', p_database_name)
 	, '$$HOST_NAME$$', p_host_name)
 	, '$$PORT_NUMBER$$', p_port_number)
