@@ -55,6 +55,7 @@ Remote database default Method5 schema privileges and why they are granted:
 
 1. DBA - Because Method5 is primarily intended for database administrators.
 2. QUOTA UNLIMITED on default tablespace - Because Method5 needs space to write intermediate results.  In practice it won't use that much space on the remote nodes, since those intermediate results are quickly cleaned up.
+3. SELECT ON SYS.USER$ - Access to this table enables password synchronization.
 
 Remote database minimum Method5 schema privileges and why they are granted:
 

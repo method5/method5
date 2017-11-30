@@ -137,8 +137,7 @@ begin
 					',
 					p_table_name          => 'method5.m5_user$',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false,
-					p_run_as_sys          => true
+					p_asynchronous        => false
 				);
 			end;
 		>'

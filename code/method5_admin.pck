@@ -123,7 +123,7 @@ is
 
 	function create_grants return clob is
 	begin
-		return replace(q'[
+		return replace(replace(q'[
 				--REQUIRED: Create and grant role of minimum Method5 remote target privileges.
 				--Do NOT remove or change this block or Method5 will not work properly.
 				declare
@@ -142,7 +142,7 @@ is
 					execute immediate 'grant create procedure to m5_minimum_remote_privs';
 					execute immediate 'grant execute on sys.dbms_sql to m5_minimum_remote_privs';
 				end;
-				/
+				#SLASH#
 
 				--REQUIRED: Grant Method5 unlimited access to the default tablespace.
 				--You can change the quota or tablespace but Method5 must have at least a little space. 
@@ -156,7 +156,7 @@ is
 
 					execute immediate 'alter user method5 quota unlimited on '||v_default_tablespace;
 				end;
-				/
+				#SLASH#
 
 				--REQUIRED: Create and grant role for additional Method5 remote target privileges.
 				--Do NOT remove or change this block or Method5 will not work properly.
@@ -171,7 +171,7 @@ is
 
 					execute immediate 'grant m5_optional_remote_privs to method5';
 				end;
-				/
+				#SLASH#
 
 				--OPTIONAL, but recommended: Grant DBA to Method5 role.
 				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
@@ -183,6 +183,9 @@ is
 				--	grant select any table to m5_optional_remote_privs;
 				--	grant select any dictionary to m5_optional_remote_privs;
 				grant dba to m5_optional_remote_privs;
+
+				--OPTIONAL, but recommended: Grant access to a table useful for password management and synchronization.
+				grant select on sys.user$ to m5_optional_remote_privs;
 
 				--OPTIONAL, but recommended: Direct grants for objects that are frequently revoked from PUBLIC, as
 				--recommended by the Security Technical Implementation Guide (STIG).
@@ -205,7 +208,8 @@ is
 					end loop;
 				end;
 				/]'||chr(10)||chr(10)
-			,'				', null);
+			,'				', null)
+			,'#SLASH#', '/');
 	end;
 
 	function create_audits return clob is
@@ -891,8 +895,14 @@ is
 			#SLASH#
 		]'||chr(10)||chr(10)
 		, chr(10)||'			', chr(10))
-		,'#SLASH#', '/');
+		,'#SLASH#', '/'); --'--Fix PL/SQL Developer parser bug.
 	end create_sys_m5_run_shell_script;
+
+
+	function create_privilege_limiter return clob is
+	begin
+		return null;
+	end create_privilege_limiter;
 
 
 	function create_footer return clob is
@@ -917,19 +927,20 @@ begin
 		raise_application_error(-20000, 'The RUN_AS_SYS feature must be enabled in order to use the shell script feature.');
 	end if;
 
- 	v_script := v_script ||create_header;
-	v_script := v_script ||create_profile;
-	v_script := v_script ||create_user;
-	v_script := v_script ||create_grants;
-	v_script := v_script ||create_audits;
-	v_script := v_script ||create_trigger;
+ 	v_script := v_script || create_header;
+	v_script := v_script || create_profile;
+	v_script := v_script || create_user;
+	v_script := v_script || create_grants;
+	v_script := v_script || create_audits;
+	v_script := v_script || create_trigger;
 	if lower(trim(p_allow_run_as_sys)) = 'yes' then
-		v_script := v_script ||create_sys_m5_runner;
+		v_script := v_script || create_sys_m5_runner;
 	end if;
 	if lower(trim(p_allow_run_shell_script)) = 'yes' then
-		v_script := v_script ||create_sys_m5_run_shell_script;
+		v_script := v_script || create_sys_m5_run_shell_script;
 	end if;
-	v_script := v_script ||create_footer;
+	v_script := v_script || create_privilege_limiter;
+	v_script := v_script || create_footer;
 
 	return v_script;
 end generate_remote_install_script;
