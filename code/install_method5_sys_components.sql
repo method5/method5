@@ -82,7 +82,7 @@ end;
 audit all statements by method5;
 
 
---#3a: Create SYS procedure to change database link password hashes.
+--#3: Create SYS procedure to change database link password hashes.
 --This procedure is very limited - it only works for one user, for specific link
 --types, when called in a specific context.
 begin

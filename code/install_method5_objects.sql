@@ -92,16 +92,25 @@ select target_guid, host_name, 'testdb2' database_name, 'testdb2' instance_name,
 
 commit;
 
-create table method5.m5_2step_authentication
+create table method5.m5_user_config
 (
 	oracle_username      varchar2(128) not null,
-	os_username          varchar2(4000) not null,
+	os_username          varchar2(4000),
 	can_run_as_sys       varchar2(3) not null,
 	can_run_shell_script varchar2(3) not null,
-	constraint m5_2step_authentication_uq unique(oracle_username, os_username),
+	allowed_targets      varchar2(4000),
+	default_targets      varchar2(4000),
+	constraint m5_user_config_uq unique(oracle_username, os_username),
 	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No'))
 );
+comment on table method5.m5_user_config is 'Method5 users and what they are allowed to run.';
+comment on column method5.m5_user_config.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
+comment on column method5.m5_user_config.os_username is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
+comment on column method5.m5_user_config.can_run_as_sys is 'Can the user run commands as the SYS user.  Either Yes or No.';
+comment on column method5.m5_user_config.can_run_shell_script is 'Can the user run shell scripts.  Either Yes or No.';
+comment on column method5.m5_user_config.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
+comment on column method5.m5_user_config.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
 
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;
@@ -120,9 +129,6 @@ insert into method5.m5_config(config_id, config_name, string_value)
 select method5.m5_config_seq.nextval, name, value
 from
 (
-	select 'Access Control - Username has _DBA suffix'      name, 'ENABLED' value from dual union all
-	select 'Access Control - User has DBA role'             name, 'ENABLED' value from dual union all
-	select 'Access Control - User has DBA_PROFILE'          name, 'ENABLED' value from dual union all
 	select 'Access Control - User is not locked'            name, 'ENABLED' value from dual union all
 	select 'Access Control - User has expected OS username' name, 'ENABLED' value from dual union all
 	select 'Default Targets'                                name, '%'       value from dual
@@ -150,7 +156,7 @@ create table method5.m5_job_timeout
 );
 comment on table method5.m5_job_timeout is 'Used for slow or broken jobs that timed out.  The column names and types are similar to those in DBA_SCHEDULER_*.';
 
---Create trigger to alert admin whenever the configuration changes.
+--Create triggers to alert admin whenever the configuration changes.
 create or replace trigger method5.detect_changes_to_m5_config
 after insert or update or delete on method5.m5_config
 --Purpose: Email the administrator if anyone changes the M5_CONFIG table.
@@ -176,7 +182,35 @@ begin
 				' table M5_CONFIG.'
 		);
 	end if;
-end send_email_and_raise_error;
+end;
+/
+
+create or replace trigger method5.detect_changes_to_m5_user_conf
+after insert or update or delete on method5.m5_user_config
+--Purpose: Email the administrator if anyone changes the M5_USER_CONFIG table.
+declare
+	v_sender_address varchar2(4000);
+	v_recipients varchar2(4000);
+begin
+	--Get email configuration information.
+	select min(string_value) sender_address
+		,listagg(string_value, ',') within group (order by string_value) recipients
+	into v_sender_address, v_recipients
+	from method5.m5_config
+	where config_name = 'Administrator Email Address';
+
+	--Only try to send an email if there is an address configured.
+	if v_sender_address is not null then
+		sys.utl_mail.send(
+			sender => v_sender_address,
+			recipients => v_recipients,
+			subject => 'M5_USER_CONFIG table was changed.',
+			message => 'The database user '||sys_context('userenv', 'session_user')||
+				' (OS user '||sys_context('userenv', 'os_user')||') made a change to the'||
+				' table M5_USER_CONFIG.'
+		);
+	end if;
+end;
 /
 
 create table method5.m5_global_data_dictionary

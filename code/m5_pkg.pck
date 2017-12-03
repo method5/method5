@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid current_user is
 --Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '8.9.0';
+C_VERSION constant varchar2(10) := '9.0.0';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -491,6 +491,19 @@ procedure run(
 	);
 	type links_nt is table of link_rec;
 
+	type config_data_rec is record(
+		admin_email_sender_address   varchar2(4000),
+		admin_email_recipients       varchar2(4000),
+		access_control_locked        varchar2(4000),
+		access_control_os_username   varchar2(4000),
+		global_default_targets       varchar2(4000),
+		has_valid_db_username        varchar2(3),
+		has_valid_db_and_os_username varchar2(3),
+		can_run_as_sys               varchar2(3),
+		can_run_shell_script         varchar2(3),
+		allowed_targets              varchar2(4000),
+		user_default_targets         varchar2(4000)
+	);
 
 	--Code templates.
 	v_select_template constant varchar2(32767) := q'<
@@ -808,6 +821,68 @@ end;
 	end get_sequence_nextval;
 
 	---------------------------------------------------------------------------
+	--Get configuration data from M5_CONFIG and M5_USER_CONFIG.
+	function get_config_data return config_data_rec is
+		v_config_data config_data_rec;
+	begin
+		--M5_CONFIG data.
+		select
+			min(case when config_name = 'Administrator Email Address' then string_value else null end) admin_email_sender_address,
+			listagg(case when config_name = 'Administrator Email Address' then string_value else null end, ',')
+				within group (order by string_value) admin_email_recipients,
+			max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
+			max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username,
+			max(case when config_name = 'Default Targets' then string_value else null end) gloal_default_targets
+		into
+			v_config_data.admin_email_sender_address,
+			v_config_data.admin_email_recipients    ,
+			v_config_data.access_control_locked     ,
+			v_config_data.access_control_os_username,
+			v_config_data.global_default_targets
+		from method5.m5_config;
+
+		--User configuration data for the best match.
+		select
+			case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
+			case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
+			can_run_as_sys, can_run_shell_script, allowed_targets, default_targets
+		into
+			v_config_data.has_valid_db_username       ,
+			v_config_data.has_valid_db_and_os_username,
+			v_config_data.can_run_as_sys              ,
+			v_config_data.can_run_shell_script        ,
+			v_config_data.allowed_targets             ,
+			v_config_data.user_default_targets
+		from
+		(
+			--Find the highest match.
+			select oracle_username, os_username, can_run_as_sys, can_run_shell_script, allowed_targets, default_targets, nomatch_0_db_1_dbAndOS_2
+				,max(nomatch_0_db_1_dbAndOS_2) over () best_match
+			from
+			(
+				--User configuration data.
+				select oracle_username, os_username, can_run_as_sys, can_run_shell_script, allowed_targets, default_targets
+					,case
+						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
+						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER' then 2
+						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+							and os_username is null then 1
+					end nomatch_0_db_1_dbAndOS_2
+				from method5.m5_user_config
+				union all
+				select null oracle_username, null os_username, null can_run_as_sys, null can_run_shell_script, null allowed_targets, null default_targets
+					,0 nomatch_0_db_1_dbAndOS_2
+				from dual
+			)
+		)
+		where best_match = nomatch_0_db_1_dbAndOS_2;
+
+		return v_config_data;
+	end get_config_data;
+
+	---------------------------------------------------------------------------
 	--Set P_TABLE_OWNER and P_TABLE_NAME_WITHOUT_OWNER.
 	--Both are trimmed and upper-cased to use in data dictionary queries later.
 	--P_TABLE_OWNER defaults to the current user.
@@ -907,21 +982,10 @@ end;
 	---------------------------------------------------------------------------
 	--Verify that the user can use Method5.
 	--This package has elevated privileges and must only be used by a true DBA.
-	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean, p_is_shell_script boolean) is
-		v_count                  number;
-		v_profile                varchar2(4000);
-		v_account_status         varchar2(4000);
-		v_dba_suffix_status      varchar2(4000);
-		v_dba_role_status        varchar2(4000);
-		v_dba_profile_status     varchar2(4000);
-		v_user_not_locked_status varchar2(4000);
-		v_os_username_status     varchar2(4000);
-		v_can_run_as_sys         varchar2(4000);
-		v_can_run_shell_script   varchar2(4000);
+	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean, p_is_shell_script boolean, p_config_data config_data_rec) is
+		v_account_status varchar2(4000);
 
 		procedure audit_send_email_raise_error(p_message in varchar2) is
-			v_sender_address varchar2(4000);
-			v_recipients varchar2(4000);
 		begin
 			--Add the message to the audit trail.
 			update method5.m5_audit
@@ -930,18 +994,11 @@ end;
 
 			commit;
 
-			--Get configuration information.
-			select min(string_value) sender_address
-				,listagg(string_value, ',') within group (order by string_value) recipients
-			into v_sender_address, v_recipients
-			from method5.m5_config
-			where config_name = 'Administrator Email Address';
-
 			--Only try to send an email if there is an address configured.
-			if v_sender_address is not null then
+			if p_config_data.admin_email_sender_address is not null then
 				sys.utl_mail.send(
-					sender => v_sender_address,
-					recipients => v_recipients,
+					sender => p_config_data.admin_email_sender_address,
+					recipients => p_config_data.admin_email_recipients,
 					subject => 'Method5 access denied',
 					message => 'The database user '||sys_context('userenv', 'session_user')||
 						' (OS user '||sys_context('userenv', 'os_user')||') tried to use Method5.'||
@@ -950,139 +1007,42 @@ end;
 			end if;
 
 			raise_application_error(-20002, 'Access denied and an email was sent to the administrator(s).  '||
-				p_message||'  Only authorized DBAs can use this package, no exceptions.');
+				p_message||'  Only authorized users can use this package, no exceptions.');
 		end audit_send_email_raise_error;
 
 	begin
-		--Get access control configuration.
-		select
-			max(case when config_name = 'Access Control - Username has _DBA suffix'      then string_value else null end) dba_suffix,
-			max(case when config_name = 'Access Control - User has DBA role'             then string_value else null end) dba_role,
-			max(case when config_name = 'Access Control - User has DBA_PROFILE'          then string_value else null end) dba_profile,
-			max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
-			max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username
-		into v_dba_suffix_status, v_dba_role_status, v_dba_profile_status, v_user_not_locked_status, v_os_username_status
-		from method5.m5_config;
-
-		--Check the name.
-		if v_dba_suffix_status = 'ENABLED' then
-			if sys_context('userenv', 'session_user') not like '%\_DBA' escape '\' then
-				audit_send_email_raise_error('Your account name must end in _DBA.');
-			end if;
+		--Check that the database username is correct.
+		if p_config_data.has_valid_db_username = 'No' then
+			audit_send_email_raise_error('You are not logged into the expected Orace username.');
 		end if;
 
-		--Check the role.
-		if v_dba_role_status = 'ENABLED' then
-			select count(*)
-			into v_count
-			from sys.dba_role_privs
-			where grantee = sys_context('userenv', 'session_user')
-				and granted_role = 'DBA';
-
-			if v_count = 0 then
-				audit_send_email_raise_error('Your account must be directly granted the DBA role.');
-			end if;
-		end if;
-
-		--Check the profile.
-		if v_dba_profile_status = 'ENABLED' then
-			select profile, account_status
-			into v_profile, v_account_status
-			from sys.dba_users
-			where username = sys_context('userenv', 'session_user');
-
-			if v_profile <> 'DBA_PROFILE' then
-				audit_send_email_raise_error('Your account profile must be DBA_PROFILE.');
-			end if;
+		--Check both database and operating system username, if the configuration requires it.
+		if p_config_data.access_control_os_username = 'ENABLED' and p_config_data.has_valid_db_and_os_username = 'No' then
+			audit_send_email_raise_error('You are not logged into the expected client OS username.');
 		end if;
 
 		--Check that the account is not locked.
-		if v_user_not_locked_status = 'ENABLED' then
+		if p_config_data.access_control_locked = 'ENABLED' then
+			--Get the account status.
+			select account_status
+			into v_account_status
+			from sys.dba_users
+			where username = sys_context('userenv', 'session_user');
+
+			--Check account status.
 			if v_account_status like '%LOCKED%' then
 				audit_send_email_raise_error('Your account must not be locked.');
 			end if;
 		end if;
 
-		--Check 2-step authentication.
-		--DBA accounts must be associated with an OS account for interactive jobs.
-		--Or, for scheduler jobs, at least the database user must be allowed.
-		if v_os_username_status = 'ENABLED' then
-			select
-				(
-					--Interactive job.
-					select count(*)
-					from method5.m5_2step_authentication
-					where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-						and lower(os_username) = lower(sys_context('userenv', 'os_user'))
-				)
-				+
-				(
-					--Scheduler job.
-					select count(*)
-					from method5.m5_2step_authentication
-					where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-						and sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
-				)
-			into v_count
-			from sys.dual;
-
-			if v_count = 0 then
-				audit_send_email_raise_error('You are not logged into the expected client OS username.');
-			end if;
-		end if;
-
 		--Check CAN_RUN_AS_SYS, if set.
-		if p_run_as_sys then
-			select
-				max(nvl(
-					(
-						--Interactive job.
-						select can_run_as_sys
-						from method5.m5_2step_authentication
-						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and lower(os_username) = lower(sys_context('userenv', 'os_user'))
-					),
-					(
-						--Scheduler job.
-						select can_run_as_sys
-						from method5.m5_2step_authentication
-						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
-					)
-				)) can_run_as_sys
-			into v_can_run_as_sys
-			from sys.dual;
-
-			if v_can_run_as_sys = 'NO' then
-				audit_send_email_raise_error('You are not authorized to run jobs as SYS.');
-			end if;
+		if p_run_as_sys and p_config_data.can_run_as_sys = 'No' then
+			audit_send_email_raise_error('You are not authorized to run jobs as SYS.');
 		end if;
 
 		--Check CAN_RUN_SHELL_SCRIPT, if set.
-		if p_is_shell_script then
-			select
-				max(nvl(
-					(
-						--Interactive job.
-						select can_run_shell_script
-						from method5.m5_2step_authentication
-						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and lower(os_username) = lower(sys_context('userenv', 'os_user'))
-					),
-					(
-						--Scheduler job.
-						select can_run_shell_script
-						from method5.m5_2step_authentication
-						where lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
-					)
-				)) can_run_shell_script
-			into v_can_run_shell_script
-			from sys.dual;
-
-			if v_can_run_shell_script = 'NO' then
-				audit_send_email_raise_error('You are not authorized to run shell scripts.');
-			end if;
+		if p_is_shell_script and p_config_data.can_run_shell_script = 'No' then
+			audit_send_email_raise_error('You are not authorized to run shell scripts.');
 		end if;
 
 	end control_access;
@@ -1125,23 +1085,20 @@ end;
 
 	---------------------------------------------------------------------------
 	--Add the default targets if null, else return the original string.
-	function add_default_targets_if_null(p_targets varchar2) return varchar2 is
+	function add_default_targets_if_null(p_targets varchar2, p_config_data config_data_rec) return varchar2 is
 	begin
 		--Return the string if it's not null.
 		if trim(p_targets) is not null then
 			return p_targets;
-		--Get and return the default if needed.
+		--Use the per-user default, if it's available.
 		else
-			declare
-				v_string_value varchar2(4000);
-			begin
-				select string_value
-				into v_string_value
-				from method5.m5_config
-				where config_name = 'Default Targets';
-
-				return v_string_value;
-			end;
+			--Return per-user default if it exists.
+			if p_config_data.user_default_targets is not null then
+				return p_config_data.user_default_targets;
+			--Return the global default otherwise.
+			else
+				return p_config_data.global_default_targets;
+			end if;
 		end if;
 	end add_default_targets_if_null;
 
@@ -1326,13 +1283,48 @@ end;
 	end synchronize_links;
 
 	---------------------------------------------------------------------------
+	--Purpose: Return targets that were both requested and allowed. 
+	function get_rqsted_and_allowed_targets
+	(
+		p_target_string_with_default varchar2,
+		p_is_shell_script            boolean,
+		p_config_data                config_data_rec
+	) return method5.string_table is
+		v_requested_targets     method5.string_table;
+		v_allowed_targets       method5.string_table;
+		v_requested_and_allowed method5.string_table;
+	begin
+		--Get requested targets.
+		v_requested_targets := get_target_tab_from_target_str(p_target_string_with_default, case when p_is_shell_script then 'host' else 'database' end);
+
+		--Limit the results if the filter is set.
+		if p_config_data.allowed_targets is not null then
+			v_allowed_targets := get_target_tab_from_target_str(p_config_data.allowed_targets, case when p_is_shell_script then 'host' else 'database' end);
+			v_requested_and_allowed := v_requested_targets multiset intersect v_allowed_targets;
+			return v_requested_and_allowed;
+		--Return all results if there is no filter.
+		else
+			return v_requested_targets;
+		end if;
+	end get_rqsted_and_allowed_targets;
+
+	---------------------------------------------------------------------------
 	procedure raise_exception_if_no_targets
 	(
 		p_target_tab        in string_table,
 		p_original_targets  in varchar2,
-		p_processed_targets in varchar2
+		p_processed_targets in varchar2,
+		p_config_data       in config_data_rec
 	) is
+		v_how_to_fix_message      varchar2(32767) := 'Change P_TARGETS to fix this error.';
+		v_allowed_targets_message varchar2(32767);
 	begin
+		--Change messages if an ALLOWED_TARGETS value may have been involved.
+		if p_config_data.allowed_targets is not null then
+			v_allowed_targets_message := chr(10) || 'These are your ALLOWED_TARGETS: '||p_config_data.allowed_targets;
+			v_how_to_fix_message := 'Change P_TARGETS to fix this error or ask your administrator to change your ALLOWED_TARGETS.';
+		end if;
+
 		--Raise error if no targets are found.
 		if p_target_tab.count = 0 then
 			--Display only one value if they are the same.
@@ -1346,13 +1338,13 @@ end;
 					p_processed_targets is null
 				)
 			) then
-				raise_application_error(-20404, 'No targets were found.  Change P_TARGETS to fix '||
-					'this error.  '||chr(10)||'This was the P_TARGETS used: '||p_original_targets);
+				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
+					'This was the P_TARGETS you asked for: '||p_original_targets||v_allowed_targets_message);
 			--Display both values if they are different.			
 			else
-				raise_application_error(-20404, 'No targets were found.  Change P_TARGETS to fix '||
-					'this error.  '||chr(10)||'This was the P_TARGETS used: '||p_original_targets||chr(10)||
-					'This was the transformed targets used: '||p_processed_targets);
+				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
+					'This was the P_TARGETS you asked for: '||p_original_targets||chr(10)||
+					'This was the default P_TARGETS used: '||p_processed_targets||v_allowed_targets_message);
 			end if;
 		end if;
 	end raise_exception_if_no_targets;
@@ -2912,6 +2904,7 @@ end;
 --Main procedure.
 begin
 	declare
+		v_config_data                config_data_rec;
 		v_start_timestamp            timestamp with time zone := systimestamp;
 		v_transformed_code           clob;
 		v_encrypted_code             clob;
@@ -2937,23 +2930,24 @@ begin
 		if g_debug then
 			sys.dbms_output.enable(null);
 		end if;
+		v_config_data := get_config_data;
 		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
-		v_audit_rowid := audit(p_code, v_original_targets, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
+		v_target_string_with_default := add_default_targets_if_null(v_original_targets, v_config_data);
+		v_audit_rowid := audit(p_code, v_target_string_with_default, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
 		v_is_shell_script := is_shell_script(p_code);
-		control_access(v_audit_rowid, p_run_as_sys, v_is_shell_script);
+		control_access(v_audit_rowid, p_run_as_sys, v_is_shell_script, v_config_data);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job;
-		v_target_string_with_default := add_default_targets_if_null(p_targets);
 		create_db_links(get_links('METHOD5'));
 		synchronize_links;
 		v_links_owned_by_user := get_links(sys_context('userenv', 'session_user'));
-		v_target_tab := get_target_tab_from_target_str(v_target_string_with_default, case when v_is_shell_script then 'host' else 'database' end);
-		raise_exception_if_no_targets(v_target_tab, v_original_targets, v_target_string_with_default);
+		v_target_tab := get_rqsted_and_allowed_targets(v_target_string_with_default, v_is_shell_script, v_config_data);
+		raise_exception_if_no_targets(v_target_tab, v_original_targets, v_target_string_with_default, v_config_data);
 		check_if_already_running(v_table_name);
 		get_transformed_code_and_type(p_code, p_run_as_sys, v_is_shell_script, v_target_tab, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
 		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_target_tab, v_is_first_column_sortable);
-		create_meta_table(v_table_owner, v_table_name, p_code, v_original_targets, v_links_owned_by_user, v_target_tab, v_audit_rowid);
+		create_meta_table(v_table_owner, v_table_name, p_code, v_target_string_with_default, v_links_owned_by_user, v_target_tab, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name, v_is_shell_script);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
@@ -2961,7 +2955,7 @@ begin
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, sys_context('userenv', 'session_user'), v_table_name);
 		end if;
-		print_useful_sql(p_code, v_original_targets, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, p_run_as_sys, v_is_shell_script, v_is_first_column_sortable);
+		print_useful_sql(p_code, v_target_string_with_default, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, p_run_as_sys, v_is_shell_script, v_is_first_column_sortable);
 	end;
 end run;
 

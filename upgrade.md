@@ -4,6 +4,22 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+8.8.4 --> 9.0.0: Security enhancements.
+-------------------------------------
+
+Incompatible version changes: The incompatible changes are actually quite small and only affect the administrative side of things.
+1. M5_AUDIT.TARGETS and _MET.TARGETS now include the default values instead of the actual value entered.  With the new defaults system it's not always obvious what a NULL would be.
+
+2. TODO - Add scripts to upgrade, like this:
+delete from method5.m5_config where config_name in
+(
+	'Access Control - Username has _DBA suffix',
+	'Access Control - User has DBA role',
+	'Access Control - User has DBA_PROFILE'
+);
+3. TODO: Add tests for security features.
+
+
 8.7.2 --> 8.8.4: Added Run Shell Script feature.
 -------------------------------------
 

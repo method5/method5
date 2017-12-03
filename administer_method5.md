@@ -89,9 +89,6 @@ Then insert the permitted values into the 2-step authentication table like this:
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
-	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - Username has _DBA suffix';
-	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has DBA role';
-	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has DBA_PROFILE';
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User is not locked';
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has expected OS username';
 	commit;
