@@ -92,25 +92,30 @@ select target_guid, host_name, 'testdb2' database_name, 'testdb2' instance_name,
 
 commit;
 
-create table method5.m5_user_config
+create table method5.m5_user
 (
 	oracle_username      varchar2(128) not null,
 	os_username          varchar2(4000),
+	email_address        varchar2(4000),
+	is_m5_admin          varchar2(3) not null,
 	can_run_as_sys       varchar2(3) not null,
 	can_run_shell_script varchar2(3) not null,
 	allowed_targets      varchar2(4000),
 	default_targets      varchar2(4000),
-	constraint m5_user_config_uq unique(oracle_username, os_username),
+	constraint m5_user_uq unique(oracle_username, os_username),
+	constraint can_is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
 	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No'))
 );
-comment on table method5.m5_user_config is 'Method5 users and what they are allowed to run.';
-comment on column method5.m5_user_config.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
-comment on column method5.m5_user_config.os_username is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
-comment on column method5.m5_user_config.can_run_as_sys is 'Can the user run commands as the SYS user.  Either Yes or No.';
-comment on column method5.m5_user_config.can_run_shell_script is 'Can the user run shell scripts.  Either Yes or No.';
-comment on column method5.m5_user_config.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
-comment on column method5.m5_user_config.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
+comment on table method5.m5_user is 'Method5 users and what they are allowed to run.';
+comment on column method5.m5_user.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
+comment on column method5.m5_user.os_username is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
+comment on column method5.m5_user.email_address is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
+comment on column method5.m5_user.is_m5_admin is 'Can this user change Method5 configuration tables.  Either Yes or No.';
+comment on column method5.m5_user.can_run_as_sys is 'Can the user run commands as the SYS user.  Either Yes or No.';
+comment on column method5.m5_user.can_run_shell_script is 'Can the user run shell scripts.  Either Yes or No.';
+comment on column method5.m5_user.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
+comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
 
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;
@@ -186,8 +191,8 @@ end;
 /
 
 create or replace trigger method5.detect_changes_to_m5_user_conf
-after insert or update or delete on method5.m5_user_config
---Purpose: Email the administrator if anyone changes the M5_USER_CONFIG table.
+after insert or update or delete on method5.m5_user
+--Purpose: Email the administrator if anyone changes the M5_USER table.
 declare
 	v_sender_address varchar2(4000);
 	v_recipients varchar2(4000);
@@ -204,10 +209,10 @@ begin
 		sys.utl_mail.send(
 			sender => v_sender_address,
 			recipients => v_recipients,
-			subject => 'M5_USER_CONFIG table was changed.',
+			subject => 'M5_USER table was changed.',
 			message => 'The database user '||sys_context('userenv', 'session_user')||
 				' (OS user '||sys_context('userenv', 'os_user')||') made a change to the'||
-				' table M5_USER_CONFIG.'
+				' table M5_USER.'
 		);
 	end if;
 end;
@@ -264,6 +269,11 @@ alter session set current_schema=method5;
 @code/tests/method5_test.pck
 @code/method5_admin.pck
 
+--Create Method5 ACL to enable sending emails.
+begin
+	method5.method5_admin.create_and_assign_m5_acl;
+end;
+/
 
 --Install function and procedure wrappers.
 create or replace function method5.m5

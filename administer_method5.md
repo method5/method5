@@ -11,8 +11,7 @@ Administer Method5
 6. [Change Method5 passwords.](#change_method5_passwords)
 7. [Add and test database links.](#add_and_test_database_links)
 8. [Audit Method5 activity.](#audit_method5_activity)
-9. [Configure administrator email addresses.](#configure_email_addresses)
-10. [Configure Target Groups.](#configure_target_groups)
+9. [Configure Target Groups.](#configure_target_groups)
 
 Method5 administration only needs to be performed by one person.  The configuration will automatically apply to all other users.
 
@@ -20,7 +19,6 @@ These steps must be run on the configuration server as a DBA configured to use M
 
 If you're installing Method5, run these steps in this order:
 
-* 9: Configure administrator email addresses.
 * 4: Access control.
 * 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
 * 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
@@ -77,15 +75,23 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 4: Access control.
 ------------------
 
-4A: Add users to the 2-step authentication table.  First fine your connect information with a query like this:
+4A: Add Method5 users.  Use this query to find your precise OS usernames if you don't know them:
 
 	select user, sys_context('userenv', 'os_user') from dual;
 
-Then insert the permitted values into the 2-step authentication table like this:
+Then insert the permitted values with a query like this.  Make sure to create at least one user with IS_M5_ADMIN = 'Yes' and a valid email address.
 
-	insert into method5.m5_2step_authentication(oracle_username, os_username, can_run_as_sys, can_run_shell_script)
-	values('&oracle_username1','&os_username1', '&Yes_or_No', '&Yes_or_No');
-
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, can_run_as_sys, can_run_shell_script, allowed_targets, default_targets)
+	values(
+		'&oracle_username',
+		'&os_username',
+		'&email_address',
+		'&is_m5_admin_Yes_No',
+		'&can_run_as_sys_Yes_No',
+		'&can_run_shell_script_Yes_No',
+		'&allowed_targets',
+		'&default_targets',
+	);
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
@@ -189,29 +195,10 @@ Use a query like this to display recent Method5 activity.  (The CLOBs are conver
 	order by create_date desc;
 
 
-<a name="configure_email_addresses"/>
-
-9: Configure administrator email addresses.
--------------------------------------------
-
-Create an Access Control List for Method5 so that it can send emails through a definer's rights procedure.
-
-	begin
-		method5.method5_admin.create_and_assign_m5_acl;
-	end;
-	/
-
-Add one or more email addresses for a simple intrusion detection system.  This statement should also generate an email as all changes to M5_CONFIG send an email the administrator.
-
-	insert into method5.m5_config(config_id, config_name, string_value)
-	values (method5.m5_config_seq.nextval, 'Administrator Email Address', '&EMAIL_ADDRESS');
-	commit;
-
-
 <a name="configure_target_groups"/>
 
-10: Configure Target Groups.
-----------------------------
+9: Configure Target Groups.
+---------------------------
 
 Create Target Groups so you don't have to repeat complicated SQL in the P_TARGETS parameter.
 

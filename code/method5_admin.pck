@@ -175,7 +175,7 @@ is
 
 				--OPTIONAL, but recommended: Grant DBA to Method5 role.
 				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
-				--  If you only want to block specific users from having DBA look at the table M5_USER_CONFIG.
+				--  If you only want to block specific users from having DBA look at the table M5_USER.
 				--
 				--If you don't trust Method5 or are not allowed to grant DBA, you can manually modify this block.
 				--Simply removing it would make Method5 worthless.  But you may want to replace it with something
@@ -1310,6 +1310,8 @@ end generate_link_test_script;
 --	http://qdosmsq.dunbar-it.co.uk/blog/2013/02/cannot-send-emails-or-read-web-servers-from-oracle-11g/
 procedure create_and_assign_m5_acl is
 	v_smtp_out_server varchar2(4000);
+	v_entity_exists exception;
+	pragma exception_init(v_entity_exists, -46212);
 begin
 	select value
 	into v_smtp_out_server
@@ -1343,6 +1345,7 @@ begin
 		end;
 	]'
 	using v_smtp_out_server;
+exception when v_entity_exists then null;
 end create_and_assign_m5_acl;
 
 

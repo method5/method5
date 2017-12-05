@@ -15,9 +15,10 @@ delete from method5.m5_config where config_name in
 (
 	'Access Control - Username has _DBA suffix',
 	'Access Control - User has DBA role',
-	'Access Control - User has DBA_PROFILE'
+	'Access Control - User has DBA_PROFILE',
+	'Administrator Email Address'
 );
-3. TODO: Add tests for security features.
+3. TODO: Add (destructive?) tests for security features.
 
 
 8.7.2 --> 8.8.4: Added Run Shell Script feature.

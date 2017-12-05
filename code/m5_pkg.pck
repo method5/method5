@@ -821,21 +821,27 @@ end;
 	end get_sequence_nextval;
 
 	---------------------------------------------------------------------------
-	--Get configuration data from M5_CONFIG and M5_USER_CONFIG.
+	--Get configuration data from M5_CONFIG and M5_USER.
 	function get_config_data return config_data_rec is
 		v_config_data config_data_rec;
 	begin
+		--User configuration for admin email addresses.
+		select
+			listagg(email_address, ';') within group (order by lower(email_address)) admin_email_recipients,
+			min(email_address) admin_email_sender_address
+		into
+			v_config_data.admin_email_sender_address,
+			v_config_data.admin_email_recipients
+		from method5.m5_user
+		where is_m5_admin = 'Yes'
+			and email_address is not null;
+
 		--M5_CONFIG data.
 		select
-			min(case when config_name = 'Administrator Email Address' then string_value else null end) admin_email_sender_address,
-			listagg(case when config_name = 'Administrator Email Address' then string_value else null end, ',')
-				within group (order by string_value) admin_email_recipients,
 			max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
 			max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username,
 			max(case when config_name = 'Default Targets' then string_value else null end) gloal_default_targets
 		into
-			v_config_data.admin_email_sender_address,
-			v_config_data.admin_email_recipients    ,
 			v_config_data.access_control_locked     ,
 			v_config_data.access_control_os_username,
 			v_config_data.global_default_targets
@@ -870,7 +876,7 @@ end;
 						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
 							and os_username is null then 1
 					end nomatch_0_db_1_dbAndOS_2
-				from method5.m5_user_config
+				from method5.m5_user
 				union all
 				select null oracle_username, null os_username, null can_run_as_sys, null can_run_shell_script, null allowed_targets, null default_targets
 					,0 nomatch_0_db_1_dbAndOS_2
@@ -1007,7 +1013,7 @@ end;
 			end if;
 
 			raise_application_error(-20002, 'Access denied and an email was sent to the administrator(s).  '||
-				p_message||'  Only authorized users can use this package, no exceptions.');
+				p_message||'  Only authorized users can use this package.');
 		end audit_send_email_raise_error;
 
 	begin
