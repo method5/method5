@@ -361,7 +361,7 @@ begin
 	--host, lifecycle, line of business, or cluster name.
 	else
 		--Build query to retrieve database attributes as collections of strings.
-		v_configured_target_query := 
+		v_configured_target_query :=
 		q'[
 			with config as
 			(
@@ -1289,7 +1289,7 @@ end;
 	end synchronize_links;
 
 	---------------------------------------------------------------------------
-	--Purpose: Return targets that were both requested and allowed. 
+	--Purpose: Return targets that were both requested and allowed.
 	function get_rqsted_and_allowed_targets
 	(
 		p_target_string_with_default varchar2,
@@ -1346,7 +1346,7 @@ end;
 			) then
 				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
 					'This was the P_TARGETS you asked for: '||p_original_targets||v_allowed_targets_message);
-			--Display both values if they are different.			
+			--Display both values if they are different.
 			else
 				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
 					'This was the P_TARGETS you asked for: '||p_original_targets||chr(10)||
@@ -1567,7 +1567,7 @@ end;
 				#CTAS#
 				select /*+ no_gather_optimizer_statistics */ #DB_NAME_COLUMN##EXPRESSION_LIST#
 				from (#CODE#) subquery#FILTER#]';
-			
+
 		elsif p_has_column_gt_30 then
 			v_template := q'[
 				#CTAS#
@@ -2112,7 +2112,7 @@ end;
 				v_create_table_ddl varchar(32767);
 				v_temp_table_name varchar2(128);
 				v_successful_database_index number;
-				v_failed_database_list varchar2(32767);					
+				v_failed_database_list varchar2(32767);
 				v_last_error varchar2(32767);
 
 				v_illegal_use_of_long exception;
