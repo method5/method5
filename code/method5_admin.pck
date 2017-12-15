@@ -4,7 +4,6 @@ create or replace package method5.method5_admin authid current_user is
 	function set_all_missing_sys_keys return clob;
 	function generate_password_reset_one_db return clob;
 	function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
-	procedure create_and_assign_m5_acl;
 	procedure drop_m5_db_links_for_user(p_username varchar2);
 	function refresh_all_user_m5_db_links return clob;
 	procedure change_m5_user_password;
@@ -109,7 +108,7 @@ is
 					--Change the hash for 12c.
 					$else
 						execute immediate q'!create user method5 profile #PROFILE# identified by values '#12C_HASH#'!';
-					$end				
+					$end
 				end if;
 			end;
 			/]'
@@ -145,7 +144,7 @@ is
 				#SLASH#
 
 				--REQUIRED: Grant Method5 unlimited access to the default tablespace.
-				--You can change the quota or tablespace but Method5 must have at least a little space. 
+				--You can change the quota or tablespace but Method5 must have at least a little space.
 				declare
 					v_default_tablespace varchar2(128);
 				begin
@@ -314,7 +313,7 @@ is
 			create or replace package body sys.m5_runner is
 
 			/******************************************************************************/
-			--Throw an error if the connection is not remote and not from an expected host. 
+			--Throw an error if the connection is not remote and not from an expected host.
 			procedure validate_remote_connection is
 				procedure check_module_for_link is
 				begin
@@ -1153,7 +1152,7 @@ begin
 			--Change the hash for 12c.
 			$else
 				execute immediate q'!alter user method5 identified by values '#12C_HASH#'!';
-			$end				
+			$end
 
 			--Change the profile back to their original values.
 			execute immediate 'alter profile '||v_profile_name||' limit password_reuse_max '||v_password_reuse_max_before;
@@ -1303,53 +1302,6 @@ end generate_link_test_script;
 
 
 --------------------------------------------------------------------------------
---Purpose: Create and assign an ACL so Method5 can send emails from definer's
---	rights objects.
---
---This code is mostly from this site:
---	http://qdosmsq.dunbar-it.co.uk/blog/2013/02/cannot-send-emails-or-read-web-servers-from-oracle-11g/
-procedure create_and_assign_m5_acl is
-	v_smtp_out_server varchar2(4000);
-	v_entity_exists exception;
-	pragma exception_init(v_entity_exists, -46212);
-begin
-	select value
-	into v_smtp_out_server
-	from v$parameter where name = 'smtp_out_server';
-
-	execute immediate
-	q'[
-		begin
-			dbms_network_acl_admin.create_acl(
-				acl         => 'method5_email_access.xml',
-				description => 'Allows access to UTL_HTTP, UTL_SMTP etc',
-				principal   => 'METHOD5',
-				is_grant    => true,
-				privilege   => 'connect',
-				start_date  => systimestamp,
-				end_date    => null
-			);
-			commit;
-		end;
-	]';
-
-	execute immediate
-	q'[
-		begin
-			dbms_network_acl_admin.assign_acl(
-				acl        => 'method5_email_access.xml',
-				host       => :v_smtp_out_server,
-				lower_port => 25,
-				upper_port => 25);
-			commit;
-		end;
-	]'
-	using v_smtp_out_server;
-exception when v_entity_exists then null;
-end create_and_assign_m5_acl;
-
-
---------------------------------------------------------------------------------
 --Purpose: Drop all Method5 database links for a specific user.
 --	This may be a good idea when someone leaves your organization or chanes roles.
 procedure drop_m5_db_links_for_user(p_username varchar2) is
@@ -1493,7 +1445,7 @@ begin
 				--Change the hash for 12c.
 				$else
 					execute immediate q'!alter user method5 identified by values '#12C_HASH#'!';
-				$end				
+				$end
 			end if;
 		end;
 	]'

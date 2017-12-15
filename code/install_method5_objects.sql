@@ -269,10 +269,49 @@ alter session set current_schema=method5;
 @code/tests/method5_test.pck
 @code/method5_admin.pck
 
---Create Method5 ACL to enable sending emails.
+--Create and assign an ACL so Method5 can send emails from definer's rights objects.
+--
+--This code is mostly from this site:
+--	http://qdosmsq.dunbar-it.co.uk/blog/2013/02/cannot-send-emails-or-read-web-servers-from-oracle-11g/
+declare
+	v_smtp_out_server varchar2(4000);
+	v_entity_exists exception;
+	pragma exception_init(v_entity_exists, -46212);
 begin
-	method5.method5_admin.create_and_assign_m5_acl;
-end;
+	select value
+	into v_smtp_out_server
+	from v$parameter where name = 'smtp_out_server';
+
+	execute immediate
+	q'[
+		begin
+			dbms_network_acl_admin.create_acl(
+				acl         => 'method5_email_access.xml',
+				description => 'Allows access to UTL_HTTP, UTL_SMTP etc',
+				principal   => 'METHOD5',
+				is_grant    => true,
+				privilege   => 'connect',
+				start_date  => systimestamp,
+				end_date    => null
+			);
+			commit;
+		end;
+	]';
+
+	execute immediate
+	q'[
+		begin
+			dbms_network_acl_admin.assign_acl(
+				acl        => 'method5_email_access.xml',
+				host       => :v_smtp_out_server,
+				lower_port => 25,
+				upper_port => 25);
+			commit;
+		end;
+	]'
+	using v_smtp_out_server;
+exception when v_entity_exists then null;
+end create_and_assign_m5_acl;
 /
 
 --Install function and procedure wrappers.

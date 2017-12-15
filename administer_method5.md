@@ -22,7 +22,7 @@ If you're installing Method5, run these steps in this order:
 * 4: Access control.
 * 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
 * 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
-* 10: Configure Target Groups.
+* 9: Configure Target Groups.
 * 7: Add and test database links.
 
 
@@ -77,7 +77,7 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 
 4A: Add Method5 users.  Use this query to find your precise OS usernames if you don't know them:
 
-	select user, sys_context('userenv', 'os_user') from dual;
+	select user oracle_username, sys_context('userenv', 'os_user') os_username from dual;
 
 Then insert the permitted values with a query like this.  Make sure to create at least one user with IS_M5_ADMIN = 'Yes' and a valid email address.
 
@@ -90,7 +90,7 @@ Then insert the permitted values with a query like this.  Make sure to create at
 		'&can_run_as_sys_Yes_No',
 		'&can_run_shell_script_Yes_No',
 		'&allowed_targets',
-		'&default_targets',
+		'&default_targets'
 	);
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
