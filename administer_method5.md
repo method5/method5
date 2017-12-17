@@ -81,7 +81,7 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 
 Then insert the permitted values with a query like this.  Make sure to create at least one user with IS_M5_ADMIN = 'Yes' and a valid email address.
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, can_run_as_sys, can_run_shell_script, allowed_targets, default_targets)
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets)
 	values(
 		'&oracle_username',
 		'&os_username',
@@ -89,9 +89,16 @@ Then insert the permitted values with a query like this.  Make sure to create at
 		'&is_m5_admin_Yes_No',
 		'&can_run_as_sys_Yes_No',
 		'&can_run_shell_script_Yes_No',
+		'&install_links_in_schema_Yes_No', 
 		'&allowed_targets',
 		'&default_targets'
 	);
+
+Grant new users a role and the ability to write at least a little data.  This gives them the minimum object and system privileges to run Method5.  The privileges are very minor, see install_method5_objects.sql for details.
+
+	grant role_m5_user to &oracle_username;
+	--You can use a quota instead of unlimited if you want.
+	alter &oracle_username quota unlimited on users;
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 

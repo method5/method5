@@ -126,6 +126,7 @@ Login to each remote target as SYS and run the below command.  THERE'S NO TURNIN
 	drop database link m5_sys_key;
 	drop role m5_minimum_remote_privs;
 	drop role m5_optional_remote_privs;
+	drop role role_m5_user;
 	begin
 		dbms_network_acl_admin.drop_acl(acl => 'method5_email_access.xml');
 	end;

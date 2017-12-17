@@ -20,7 +20,7 @@ You can run any SQL statement, PL/SQL block, or Linux/Unix shell commands inside
 
 See [the Method5 User Guide](user_guide.md) for an explanation of all the features, such as: parameters that control the targets and how the statements are run; where the data, metadata, and errors are stored; running as a procedure; and many more features.
 
-See [the scripts folder](scripts/) for more examples and pre-built solutions to some complex problems.
+See [the examples folder](examples/) for more examples and pre-built solutions to some complex problems.
 
 
 Advantages

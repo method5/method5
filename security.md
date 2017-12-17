@@ -12,7 +12,7 @@ Method5 is a great tool to help comply with security policies.  It enables rapid
 Many organizations have procedures to control the changes made to database but few of them have a system that can rapidly and periodically verify those changes.
 
 Below is a list of security issues that can be trivially checked with Method5 on all databases:
-1. List all users granted DBA.  See /scripts/Email Active DBA Users Job.sql for code to send a weekly email of all administrators.
+1. List all users granted DBA.  See /examples/Email Active DBA Users Job.sql for code to send a weekly email of all administrators.
 2. Check any other privilege using M5_DBA_*_PRIVS global data dictionary.
 3. Compare sqlnet.ora files.
 4. Compare cron jobs.
@@ -77,10 +77,9 @@ Management database privilege configuration:
 
 Management database default Method5 schema privileges and why they are granted:
 
-1. DBA - Because Method5 is primarily intended for database administrators.
+1. DBA - Because Method5 is primarily intended for database administrators.  (TODO: This will be changed soon.)
 2. QUOTA UNLIMITED on default tablespace - Because Method5 needs space to write intermediate results.  In practice it won't use that much space on the remote nodes, since those intermediate results are quickly cleaned up.
 
-Management database minimum Method5 schema privileges and why they are granted:
+Management database minimum Method5 user privileges and why they are granted:
 
-**TODO** Currently the minimum and the default are the same.  This will be changed in a future release.
-
+1. The minimum privileges to call Method5 on the management database are very minor.  See the steps to populate the role role_m5_user in install_method5_objects.sql for details.  However it is up to the M5_USER configuration to limit what those users can run through Method5.

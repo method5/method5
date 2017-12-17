@@ -22,13 +22,75 @@ declare
 begin
 	--Create user, grant it privileges.
 	execute immediate 'create user method5 identified by "'||v_password_youll_never_know||'"';
+
+
+	--Necessary master Method5 privileges and why they are needed:
+		--If a user creates object in a different schema Method5 must grant them access to write to it.
+		execute immediate 'grant grant any object privilege to method5';
+		--Allows users to write tables to another user's schema.  (TODO: Add flag to control and limit this ability?)
+		execute immediate 'grant create any table to method5';
+		--Allows Method5 to monitor progress and update M5_AUDIT with metadata when the results are complete.
+		execute immediate 'grant create any trigger to method5';
+		--Allows Method5 to INSERT itno the results, _META, and _ERR tables on a user's schema.
+		execute immediate 'grant insert any table to method5';
+		--Allows Method5 to create the M5_RESULTS, M5_METADATA, and M5_ERRORS views on the user's schema.
+		execute immediate 'grant create any view to method5';
+		--Allows Method5 to create jobs for the user.  The jobs are what gathers the results and enable parallelism.
+		execute immediate 'grant create any job to method5';
+		--Allows Method5 read the tables created in the user's schem, so it can update M5_AUDIT and display some useful information to DBMS_OUTPUT.
+		execute immediate 'grant select any table to method5';
+		--Allows Method5 to update _META tables with new metadata as the results come in.
+		execute immediate 'grant update any table to method5';
+		--Allows Method5 to drop existing tables, for the parameter P_TABLE_EXISTS_ACTION = DROP or TRUNCATE.
+		execute immediate 'grant drop any table to method5';
+		--Allows Method5 to drop existing tables, for the parameter P_TABLE_EXISTS_ACTION = DELETE.
+		execute immediate 'grant delete any table to method5';
+
+
+
+	--Optional, but useful and recommended master privileges:
+		execute immediate 'grant dba to method5';
+
+
+	--Direct grants necessary for packages.
+
+	--TODO: Are these all truly necessary?
+
+	execute immediate 'grant create database link to method5';
+	execute immediate 'grant select on dba_db_links to method5';
+	execute immediate 'grant select on dba_profiles to method5';
+	execute immediate 'grant select on dba_role_privs to method5';
+	execute immediate 'grant select on dba_scheduler_job_run_details to method5';
+	execute immediate 'grant select on dba_scheduler_jobs to method5';
+	execute immediate 'grant select on dba_scheduler_running_jobs to method5';
+	execute immediate 'grant select on dba_synonyms to method5';
+	execute immediate 'grant select on dba_tables to method5';
+	execute immediate 'grant select on dba_tab_columns to method5';
+	execute immediate 'grant select on dba_users to method5';
+	execute immediate 'grant select on sys.v_$parameter to method5';
+	execute immediate 'grant select on sys.v_$sql to method5';
+	execute immediate 'grant execute on sys.dbms_pipe to method5';
+	execute immediate 'grant execute on sys.utl_mail to method5';
+	execute immediate 'grant execute on sys.dbms_crypto to method5';
+	execute immediate 'grant execute on sys.dbms_random to method5';
+
+	begin
+		execute immediate 'grant select on sysman.em_global_target_properties to method5';
+		execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
+	exception when v_table_or_view_does_not_exist then null;
+	end;
+
+
+
+
+
+
+/*
+	OLD PRIVILEGES
+
 	execute immediate 'grant dba to method5';
 	--Need this for definer's rights procedure to grant custom tables to users:
 	execute immediate 'grant grant any object privilege to method5';
-	--Needed for some password security measures, such as removing the insecure DES password hashes.
-	--(The column "PASSWORD" is not a password, it's a DES password hash that may need to be removed.)
-	execute immediate 'grant select on sys.user$ to method5';
-	execute immediate 'grant update (password) on sys.user$ to method5';
 
 	--Direct grants necessary for packages.
 	execute immediate 'grant create database link to method5';
@@ -54,6 +116,9 @@ begin
 		execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
 	exception when v_table_or_view_does_not_exist then null;
 	end;
+*/
+
+
 
 	--Create database link for retrieving the database link hash.
 	execute immediate replace(

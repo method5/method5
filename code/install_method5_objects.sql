@@ -94,18 +94,20 @@ commit;
 
 create table method5.m5_user
 (
-	oracle_username      varchar2(128) not null,
-	os_username          varchar2(4000),
-	email_address        varchar2(4000),
-	is_m5_admin          varchar2(3) not null,
-	can_run_as_sys       varchar2(3) not null,
-	can_run_shell_script varchar2(3) not null,
-	allowed_targets      varchar2(4000),
-	default_targets      varchar2(4000),
+	oracle_username         varchar2(128) not null,
+	os_username             varchar2(4000),
+	email_address           varchar2(4000),
+	is_m5_admin             varchar2(3) not null,
+	can_run_as_sys          varchar2(3) not null,
+	can_run_shell_script    varchar2(3) not null,
+	install_links_in_schema varchar2(3) not null,
+	allowed_targets         varchar2(4000),
+	default_targets         varchar2(4000),
 	constraint m5_user_uq unique(oracle_username, os_username),
 	constraint can_is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
 	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
-	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No'))
+	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
+	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))
 );
 comment on table method5.m5_user is 'Method5 users and what they are allowed to run.';
 comment on column method5.m5_user.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
@@ -114,6 +116,7 @@ comment on column method5.m5_user.email_address is 'Only necessary for administr
 comment on column method5.m5_user.is_m5_admin is 'Can this user change Method5 configuration tables.  Either Yes or No.';
 comment on column method5.m5_user.can_run_as_sys is 'Can the user run commands as the SYS user.  Either Yes or No.';
 comment on column method5.m5_user.can_run_shell_script is 'Can the user run shell scripts.  Either Yes or No.';
+comment on column method5.m5_user.install_links_in_schema is 'Are database links installed directly on this user''s schema?';
 comment on column method5.m5_user.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
 comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
 
@@ -332,7 +335,7 @@ create or replace procedure method5.m5_proc(
 	p_table_exists_action varchar2 default 'ERROR',
 	p_asynchronous        boolean default true,
 	p_run_as_sys          boolean default false
-) authid current_user is
+) authid definer is
 begin
 	method5.m5_pkg.run(
 		p_code                => p_code,
@@ -351,15 +354,39 @@ end m5_proc;
 
 ---------------------------------------
 --#5: Create public synonyms.
-create public synonym m5_database for method5.m5_database;
-create public synonym m5 for method5.m5;
-create public synonym m5_proc for method5.m5_proc;
-create public synonym m5_pkg for method5.m5_pkg;
+create public synonym m5_database   for method5.m5_database;
+create public synonym m5            for method5.m5;
+create public synonym m5_proc       for method5.m5_proc;
+create public synonym m5_pkg        for method5.m5_pkg;
 create public synonym m5_synch_user for method5.m5_synch_user;
 
 
 ---------------------------------------
---#6: Audit Method5 objects. 
+--#6: Role, minimum privileges, and why they are needed, for the Method5 users.
+create role role_m5_user;
+
+--These object privileges allow users to run Method5.
+--But they can only use the packages as permitted by the M5_USER configuration.
+grant select  on method5.m5_database         to role_m5_user;
+grant execute on method5.m5                  to role_m5_user;
+grant execute on method5.m5_proc             to role_m5_user;
+grant execute on method5.m5_pkg              to role_m5_user;
+grant execute on method5.m5_synch_user       to role_m5_user;
+grant select  on method5.m5_generic_sequence to role_m5_user;
+
+--For Method4 dynamic SQL to return "anything" creating a type is necessary to describe the results.
+grant create type      to role_m5_user;
+--For Method4 dynamic SQL a function is needed to return the "anything".
+grant create procedure to role_m5_user;
+--The job allows Method4 dynamic SQL to purge each specific query from the
+--shared pool, forcing hard parsing on every statement.  This is useful with
+--Oracle Data Cartridge because the same query may be "described" differently
+--after each run.
+grant create job       to role_m5_user;
+
+
+---------------------------------------
+--#7: Audit Method5 objects. 
 audit all on method5.m5_audit;
 audit all on method5.m5_pkg;
 
