@@ -55,7 +55,7 @@ comment on column method5.m5_database.instance_name    is 'A short string to uni
 comment on column method5.m5_database.lifecycle_status is 'A value like "DEV" or "PROD".  (Your organization may refer to this as the "environment" or "tier".)';
 comment on column method5.m5_database.line_of_business is 'A value to identify a database by business unit, contract, company, etc.';
 comment on column method5.m5_database.target_version   is 'A value like "11.2.0.4.0" or "12.1.0.2.0".  This value may be used to select the lowest or highest version so only use numbers.';
-comment on column method5.m5_database.operating_system is 'A value like "SunOS" or "Windows".';
+comment on column method5.m5_database.operating_system is 'A value like "Linux", "Windows", "SunOS", etc.';
 comment on column method5.m5_database.user_comment     is 'Any additional comments.';
 comment on column method5.m5_database.cluster_name     is 'The Real Application Cluster (RAC) name for the cluster.';
 comment on column method5.m5_database.connect_string   is 'Used to create the database link.  You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column (for each entry, use the text after the first equal sign).  You may want to remove spaces and newlines, it is easier to compare the strings without them.  It is OK if not all CONNECT_STRING values are 100% perfect, problems can be manually adjusted later if necessary.';
@@ -103,7 +103,9 @@ create table method5.m5_user
 	install_links_in_schema varchar2(3) not null,
 	allowed_targets         varchar2(4000),
 	default_targets         varchar2(4000),
-	constraint m5_user_uq unique(oracle_username, os_username),
+	changed_by              varchar2(128) not null,
+	changed_date            date not null,
+	constraint m5_user_pk primary key(oracle_username),
 	constraint can_is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
 	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
@@ -119,6 +121,44 @@ comment on column method5.m5_user.can_run_shell_script is 'Can the user run shel
 comment on column method5.m5_user.install_links_in_schema is 'Are database links installed directly on this user''s schema?';
 comment on column method5.m5_user.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
 comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
+comment on column method5.m5_user.changed_by is 'User who last changed this row.';
+comment on column method5.m5_user.changed_date is 'Date this row was last changed.';
+
+create or replace trigger method5.m5_user_trg
+before insert or update on method5.m5_user
+for each row
+begin
+	:new.changed_by := user;
+	:new.changed_date := sysdate;
+end;
+/
+
+--Used to limit user privileges.
+create table method5.m5_user_priv
+(
+	oracle_username varchar2(128) not null,
+	privilege       varchar2(4000) not null,
+	changed_by      varchar2(128) not null,
+	changed_date    date not null,
+	constraint m5_user_priv_pk primary key (oracle_username, privilege),
+	constraint m5_user_priv_fk foreign key (oracle_username) references method5.m5_user(oracle_username)
+);
+
+comment on table method5.m5_user_priv is 'The only role, system, and object privileges that this user runs with.  If no privileges are set then the user runs with the same privileges granted to the remote Method5 schema.';
+comment on column method5.m5_user_priv.oracle_username is 'The Oracle username.';
+comment on column method5.m5_user_priv.privilege is 'A role name, system privilege fragment, or object privilege fragment.  For roles, just use the name.  For system and object privileges, include everything between "grant" and "to".  For example: "select on schema_name.table_name" or "select any table".';
+comment on column method5.m5_user_priv.changed_by is 'User who last changed this row.';
+comment on column method5.m5_user_priv.changed_date is 'Date this row was last changed.';
+
+create or replace trigger method5.m5_user_priv_trg
+before insert or update on method5.m5_user_priv
+for each row
+begin
+	:new.changed_by := user;
+	:new.changed_date := sysdate;
+end;
+/
+
 
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;

@@ -100,6 +100,8 @@ Grant new users a role and the ability to write at least a little data.  This gi
 	--You can use a quota instead of unlimited if you want.
 	alter &oracle_username quota unlimited on users;
 
+TODO: Add M5_USER_PRIV
+
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User is not locked';

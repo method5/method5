@@ -571,7 +571,8 @@ procedure run(
 		install_links_in_schema      varchar2(3),
 		job_owner                    varchar2(128),
 		allowed_targets              varchar2(4000),
-		user_default_targets         varchar2(4000)
+		user_default_targets         varchar2(4000),
+		allowed_privs                string_table
 	);
 
 	--Code templates.
@@ -920,7 +921,7 @@ end;
 		select
 			case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
 			case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
-			can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
+			can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets, allowed_privs
 		into
 			v_config_data.has_valid_db_username       ,
 			v_config_data.has_valid_db_and_os_username,
@@ -928,27 +929,32 @@ end;
 			v_config_data.can_run_shell_script        ,
 			v_config_data.install_links_in_schema     ,
 			v_config_data.allowed_targets             ,
-			v_config_data.user_default_targets
+			v_config_data.user_default_targets        ,
+			v_config_data.allowed_privs
 		from
 		(
 			--Find the highest match.
-			select oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets, nomatch_0_db_1_dbAndOS_2
+			select oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets, allowed_privs, nomatch_0_db_1_dbAndOS_2
 				,max(nomatch_0_db_1_dbAndOS_2) over () best_match
 			from
 			(
-				--User configuration data.
-				select oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
+				select m5_user.oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
+					,cast(collect(privilege) as method5.string_table) allowed_privs
 					,case
-						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
 							and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
-						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
 							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER' then 2
-						when lower(oracle_username) = lower(sys_context('userenv', 'session_user'))
+						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
 							and os_username is null then 1
 					end nomatch_0_db_1_dbAndOS_2
 				from method5.m5_user
+				left join method5.m5_user_priv
+					on m5_user.oracle_username = m5_user_priv.oracle_username
+				group by m5_user.oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
 				union all
 				select null oracle_username, null os_username, null can_run_as_sys, null can_run_shell_script, null install_links_in_schema, null allowed_targets, null default_targets
+					,cast(null as method5.string_table)
 					,0 nomatch_0_db_1_dbAndOS_2
 				from dual
 			)
@@ -2999,6 +3005,8 @@ begin
 		v_explicit_column_list       varchar2(32767);
 		v_explicit_expression_list   varchar2(32767);
 	begin
+		--TODO: ADD ALLOWED_PRIVS processing.
+
 		if g_debug then
 			sys.dbms_output.enable(null);
 		end if;
