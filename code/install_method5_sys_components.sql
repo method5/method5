@@ -45,7 +45,8 @@ begin
 		execute immediate 'grant drop any table to method5';
 		--Allows Method5 to drop existing tables, for the parameter P_TABLE_EXISTS_ACTION = DELETE.
 		execute immediate 'grant delete any table to method5';
-
+		--Allows Method5 to sleep, in the M4 procedures, so it can wait for more results.
+		execute immediate 'grant execute on dbms_lock to method5';
 
 
 	--Optional, but useful and recommended master privileges:

@@ -269,7 +269,6 @@ create table method5.m5_global_data_dictionary
 create unique index method5.m5_global_data_dictionary_uq on method5.m5_global_data_dictionary(upper(owner), upper(table_name));
 comment on table method5.m5_global_data_dictionary is 'Tables used in the global data dictionary.  These tables are monitored by the daily email job.';
 
-
 create table method5.m5_sys_key
 (
 	db_link varchar2(128),
@@ -277,6 +276,13 @@ create table method5.m5_sys_key
 );
 comment on table method5.m5_sys_key is 'Private keys used for encrypting and decrypting Method5 commands to run as SYS.';
 
+create or replace procedure method5.m5_sleep(seconds in number) is
+--Purpose: Sleep for the specified number of seconds.
+--This procedure is necessary because DBMS_LOCK.SLEEP is not available by default.
+begin
+	sys.dbms_lock.sleep(seconds);
+end;
+/
 
 ---------------------------------------
 --#3: Install packages used by Method5.
@@ -413,6 +419,7 @@ grant execute on method5.m5_proc             to role_m5_user;
 grant execute on method5.m5_pkg              to role_m5_user;
 grant execute on method5.m5_synch_user       to role_m5_user;
 grant select  on method5.m5_generic_sequence to role_m5_user;
+grant execute on method5.m5_sleep            to role_m5_user;
 
 --For Method4 dynamic SQL to return "anything" creating a type is necessary to describe the results.
 grant create type      to role_m5_user;

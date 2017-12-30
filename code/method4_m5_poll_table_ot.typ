@@ -137,7 +137,7 @@ begin
 
 		--Wait 1 second.  Use execute immediate to simplify privilege requirements.
 		if v_condition = 0 then
-			execute immediate 'begin dbms_lock.sleep(1); end;';
+			execute immediate 'begin method5.m5_sleep(1); end;';
 		end if;
 	end loop;
 end;

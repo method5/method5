@@ -590,7 +590,7 @@ begin
 			--Create remote temporary table with results.
 			##DBA_OR_SYS_RUN_CTAS##
 
-			--Insert data using database link.
+			--Insert data into local tble using database link.
 			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
 			execute immediate q'##QUOTE_DELIMITER1##
 				insert into ##TABLE_OWNER##.##TABLE_NAME##
@@ -631,6 +631,99 @@ exception when others then
 		, sysdate, sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 
 	commit;
+
+	raise;
+end;
+>';
+
+
+	v_select_limit_privs_template constant varchar2(32767) := q'<
+create procedure m5_temp_proc_##SEQUENCE## authid current_user is
+	v_dummy varchar2(1);
+begin
+	--Ping database with simple select to create simple error message if link fails.
+	execute immediate 'select dummy from sys.dual@##DB_LINK_NAME##' into v_dummy;
+
+	execute immediate q'##QUOTE_DELIMITER2##
+		declare
+			v_rowcount number;
+			v_default_permanent_tablespace varchar2(128);
+		begin
+			--Create temporary user to run function.
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+				create user m5_temp_user_##SEQUENCE##
+				identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
+				account lock password expire
+			');
+
+			--Grant the user tablespace.
+			select property_value
+			into v_default_permanent_tablespace
+			from database_properties@##DB_LINK_NAME##
+			where property_name = 'DEFAULT_PERMANENT_TABLESPACE';
+
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+				alter user m5_temp_user_##SEQUENCE## quota unlimited on '||v_default_permanent_tablespace
+			);
+
+			--TODO: Grant privileges: create table, allowed_privs.
+			--TODO: Create function that executes the CTAS.
+			--TODO: Run the function.
+
+			--Create remote temporary table with results.
+			##DBA_OR_SYS_RUN_CTAS##
+
+			--TODO: Change below to read from the temporary schema.
+
+			--Insert data into local tble using database link.
+			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
+			execute immediate q'##QUOTE_DELIMITER1##
+				insert into ##TABLE_OWNER##.##TABLE_NAME##
+				select '##DATABASE_NAME##', m5_temp_table_##SEQUENCE##.*
+				from m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##
+			##QUOTE_DELIMITER1##';
+
+			v_rowcount := sql%rowcount;
+
+			--Update _META table.
+			update ##TABLE_OWNER##.##TABLE_NAME##_meta
+			set targets_completed = targets_completed + 1,
+				date_updated = sysdate,
+				is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No'),
+				num_rows = num_rows + v_rowcount
+			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+			--Drop temporary table.
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
+				drop user m5_temp_user_##SEQUENCE## cascade
+			##QUOTE_DELIMITER1##');
+		end;
+	##QUOTE_DELIMITER2##';
+
+--Exception block must be outside of dynamic PL/SQL.
+--Exceptions like "ORA-00257: archiver error. Connect internal only, until freed."
+--will make the whole block fail and must be caught by higher level block.
+exception when others then
+	update ##TABLE_OWNER##.##TABLE_NAME##_meta
+	set targets_with_errors = targets_with_errors + 1,
+		date_updated = sysdate,
+		is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No')
+	where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+	insert into ##TABLE_OWNER##.##TABLE_NAME##_err
+	values ('##DATABASE_NAME##', '##DB_LINK_NAME##'
+		, sysdate, sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+
+	commit;
+
+	--Cleanup by dropping the temporary user.
+	execute immediate q'##QUOTE_DELIMITER2##
+		begin
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
+				drop user m5_temp_user_##SEQUENCE## cascade
+			##QUOTE_DELIMITER1##');
+		end;
+	##QUOTE_DELIMITER2##';
 
 	raise;
 end;
@@ -2528,7 +2621,7 @@ end;
 	procedure create_jobs(
 		p_table_owner              varchar2,
 		p_table_name               varchar2,
-		p_job_owner                varchar2,
+		p_config_data              config_data_rec,
 		p_run_as_sys               boolean,
 		p_has_version_star         boolean,
 		p_has_column_gt_30         boolean,
@@ -2604,15 +2697,28 @@ end;
 						>';
 					end if;
 
-					--Complete the template.
-					v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
-						,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
-						,'##SEQUENCE##', to_char(v_sequence))
-						,'##TABLE_OWNER##', p_table_owner)
-						,'##TABLE_NAME##', p_table_name)
-						,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
-						,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
-						,'##CTAS_DDL##', v_ctas_ddl);
+					--Regular SELECT statement if there are no privileges.
+					if p_config_data.allowed_privs is null then
+						v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
+							,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
+							,'##SEQUENCE##', to_char(v_sequence))
+							,'##TABLE_OWNER##', p_table_owner)
+							,'##TABLE_NAME##', p_table_name)
+							,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
+							,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+							,'##CTAS_DDL##', v_ctas_ddl);
+					--Create a temporary user if only specific privileges are allowed.
+					else
+						v_code := replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
+							,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
+							,'##SEQUENCE##', to_char(v_sequence))
+							,'##TABLE_OWNER##', p_table_owner)
+							,'##TABLE_NAME##', p_table_name)
+							,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
+							,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+							,'##CTAS_DDL##', v_ctas_ddl);
+					end if;
+
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 
@@ -2698,7 +2804,7 @@ end;
 			v_jobs.extend;
 			v_jobs(v_jobs.count) := sys.job_definition
 			(
-				job_name   => p_job_owner||'.'||p_links_owned_by_user(i).db_link_name||'_'||v_sequence,
+				job_name   => p_config_data.job_owner||'.'||p_links_owned_by_user(i).db_link_name||'_'||v_sequence,
 				job_type   => 'PLSQL_BLOCK',
 				job_action => replace(replace(replace(q'<
 					declare
@@ -3031,7 +3137,7 @@ begin
 		create_error_table(v_table_owner, v_table_name, v_is_shell_script);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, v_config_data.job_owner, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_links_owned_by_user, v_target_tab, v_command_name);
+		create_jobs(v_table_owner, v_table_name, v_config_data, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_links_owned_by_user, v_target_tab, v_command_name);
 		if not p_asynchronous then
 			wait_for_jobs_to_finish(v_start_timestamp, v_config_data.job_owner, v_table_name);
 		end if;
