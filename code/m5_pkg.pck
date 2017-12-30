@@ -666,7 +666,20 @@ begin
 				alter user m5_temp_user_##SEQUENCE## quota unlimited on '||v_default_permanent_tablespace
 			);
 
-			--TODO: Grant privileges: create table, allowed_privs.
+			--Grant the user privileges.
+			declare
+				v_privs sys.odcivarchar2list := sys.odcivarchar2list('create table'##ALLOWED_PRIVS##);
+			begin
+				for i in 1 .. v_privs.count loop
+					begin
+						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(
+							'grant '||v_privs(i)||' to m5_temp_user_##SEQUENCE##'
+						);
+					exception when others then null;
+					end;
+				end loop;
+			end;
+
 			--TODO: Create function that executes the CTAS.
 			--TODO: Run the function.
 
@@ -2709,14 +2722,24 @@ end;
 							,'##CTAS_DDL##', v_ctas_ddl);
 					--Create a temporary user if only specific privileges are allowed.
 					else
-						v_code := replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
-							,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
-							,'##SEQUENCE##', to_char(v_sequence))
-							,'##TABLE_OWNER##', p_table_owner)
-							,'##TABLE_NAME##', p_table_name)
-							,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
-							,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
-							,'##CTAS_DDL##', v_ctas_ddl);
+						declare
+							v_privs_string varchar2(32767);
+						begin
+							--Create string of privileges.
+							for i in 1 .. p_config_data.allowed_privs.count loop
+								v_privs_string := ',''' || p_config_data.allowed_privs(i) || '''';
+							end loop;
+
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
+								,'##ALLOWED_PRIVS##', v_privs_string)
+								,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
+								,'##SEQUENCE##', to_char(v_sequence))
+								,'##TABLE_OWNER##', p_table_owner)
+								,'##TABLE_NAME##', p_table_name)
+								,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
+								,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+								,'##CTAS_DDL##', v_ctas_ddl);
+						end;
 					end if;
 
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));

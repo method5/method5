@@ -98,9 +98,11 @@ Grant new users a role and the ability to write at least a little data.  This gi
 
 	grant role_m5_user to &oracle_username;
 	--You can use a quota instead of unlimited if you want.
-	alter &oracle_username quota unlimited on users;
+	alter user &oracle_username quota unlimited on users;
 
 TODO: Add M5_USER_PRIV
+Note: You do not need to grant "create session" privilege.
+
 
 4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
