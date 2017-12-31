@@ -644,7 +644,7 @@ begin
 	--Ping database with simple select to create simple error message if link fails.
 	execute immediate 'select dummy from sys.dual@##DB_LINK_NAME##' into v_dummy;
 
-	execute immediate q'##QUOTE_DELIMITER2##
+	execute immediate q'##QUOTE_DELIMITER3##
 		declare
 			v_rowcount number;
 			v_default_permanent_tablespace varchar2(128);
@@ -680,21 +680,19 @@ begin
 				end loop;
 			end;
 
-			--TODO: Create function that executes the CTAS.
-			--TODO: Run the function.
+			--Create remote temporary procedure with CTAS.
+			##CREATE_CTAS_PROC##
 
-			--Create remote temporary table with results.
-			##DBA_OR_SYS_RUN_CTAS##
-
-			--TODO: Change below to read from the temporary schema.
+			--Run the procedure.
+			execute immediate 'begin m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE##@##DB_LINK_NAME##; end;';
 
 			--Insert data into local tble using database link.
 			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
-			execute immediate q'##QUOTE_DELIMITER1##
+			execute immediate q'##QUOTE_DELIMITER2##
 				insert into ##TABLE_OWNER##.##TABLE_NAME##
 				select '##DATABASE_NAME##', m5_temp_table_##SEQUENCE##.*
-				from m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##
-			##QUOTE_DELIMITER1##';
+				from m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##
+			##QUOTE_DELIMITER2##';
 
 			v_rowcount := sql%rowcount;
 
@@ -707,11 +705,11 @@ begin
 			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
 
 			--Drop temporary table.
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
 				drop user m5_temp_user_##SEQUENCE## cascade
-			##QUOTE_DELIMITER1##');
+			##QUOTE_DELIMITER2##');
 		end;
-	##QUOTE_DELIMITER2##';
+	##QUOTE_DELIMITER3##';
 
 --Exception block must be outside of dynamic PL/SQL.
 --Exceptions like "ORA-00257: archiver error. Connect internal only, until freed."
@@ -730,13 +728,13 @@ exception when others then
 	commit;
 
 	--Cleanup by dropping the temporary user.
-	execute immediate q'##QUOTE_DELIMITER2##
+	execute immediate q'##QUOTE_DELIMITER3##
 		begin
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER1##
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
 				drop user m5_temp_user_##SEQUENCE## cascade
-			##QUOTE_DELIMITER1##');
+			##QUOTE_DELIMITER2##');
 		end;
-	##QUOTE_DELIMITER2##';
+	##QUOTE_DELIMITER3##';
 
 	raise;
 end;
@@ -1702,6 +1700,7 @@ end;
 	function get_ctas_sql
 	(
 		p_code                     in varchar2,
+		p_owner                    in varchar2,
 		p_table_name               in varchar2,
 		p_has_version_star         in boolean,
 		p_has_column_gt_30         in boolean,
@@ -1717,7 +1716,7 @@ end;
 		v_template varchar2(32767);
 	begin
 		--Set some components.
-		v_ctas := 'create table method5.'||p_table_name||' nologging pctfree 0 as';
+		v_ctas := 'create table '||p_owner||'.'||p_table_name||' nologging pctfree 0 as';
 
 		if p_add_database_name_column then
 			v_db_name := 'cast(''database name'' as varchar2(30)) database_name, ';
@@ -2324,6 +2323,7 @@ end;
 				--Create a table to hold the required table structure.
 				v_create_table_ddl := get_ctas_sql(
 					p_code                     => p_code,
+					p_owner                    => 'method5',
 					p_table_name               => v_temp_table_name,
 					p_has_version_star         => p_has_version_star,
 					p_has_column_gt_30         => p_has_column_gt_30,
@@ -2379,6 +2379,7 @@ end;
 							get_column_metadata(p_code, p_run_as_sys, p_target_tab(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 							v_create_table_ddl := get_ctas_sql(
 								p_code                     => p_code,
+								p_owner                    => 'method5',
 								p_table_name               => v_temp_table_name,
 								p_has_version_star         => p_has_version_star,
 								p_has_column_gt_30         => p_has_column_gt_30,
@@ -2648,12 +2649,12 @@ end;
 		p_target_tab               string_table,
 		p_command_name             varchar2
 	) is
-		v_ctas_ddl varchar2(32767);
-		v_dba_or_sys_ddl_call varchar2(32767);
-		v_code varchar2(32767);
-		v_sequence number;
-		v_pipe_count number;
-		v_jobs sys.job_definition_array := sys.job_definition_array();
+		v_ctas_ddl            varchar2(32767);
+		v_ctas_call           varchar2(32767);
+		v_code                varchar2(32767);
+		v_sequence            number;
+		v_pipe_count          number;
+		v_jobs                sys.job_definition_array := sys.job_definition_array();
 	begin
 		--Create a job to insert for each link.
 		for i in 1 .. p_links_owned_by_user.count loop
@@ -2670,50 +2671,51 @@ end;
 			begin
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
-					--Build the CTAS.
-					v_ctas_ddl := get_ctas_sql(
-						p_code                     => p_code,
-						p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
-						p_has_version_star         => p_has_version_star,
-						p_has_column_gt_30         => p_has_column_gt_30,
-						p_has_long                 => p_has_long,
-						p_column_list              => p_explicit_column_list,
-						p_expression_list          => p_explicit_expression_list,
-						p_add_database_name_column => false,
-						p_copy_data                => true
-					);
+					--Regular SELECT statement if there are no privileges.
+					if p_config_data.allowed_privs is null then
+						--Build the CTAS.
+						v_ctas_ddl := get_ctas_sql(
+							p_code                     => p_code,
+							p_owner                    => 'method5',
+							p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
+							p_has_version_star         => p_has_version_star,
+							p_has_column_gt_30         => p_has_column_gt_30,
+							p_has_long                 => p_has_long,
+							p_column_list              => p_explicit_column_list,
+							p_expression_list          => p_explicit_expression_list,
+							p_add_database_name_column => false,
+							p_copy_data                => true
+						);
 
-					--The CTAS requires encryption and a special procedure to run as SYS.
-					if p_run_as_sys then
-						v_dba_or_sys_ddl_call :=
-						q'<
-							sys.m5_runner.run_as_sys@##DB_LINK_NAME##
-							(
-								method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##',
+						--The CTAS requires encryption and a special procedure to run as SYS.
+						if p_run_as_sys then
+							v_ctas_call :=
+							q'<
+								sys.m5_runner.run_as_sys@##DB_LINK_NAME##
+								(
+									method5.m5_pkg.get_encrypted_raw('##DATABASE_NAME##',
+										q'##QUOTE_DELIMITER1##
+											##CTAS_DDL##
+										##QUOTE_DELIMITER1##'
+									)
+								);
+							>';
+						--The CTAS can be called directly if run as DBA.
+						else
+							v_ctas_call :=
+							q'<
+								--Create remote temporary table with results.
+								sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
+								(
 									q'##QUOTE_DELIMITER1##
 										##CTAS_DDL##
 									##QUOTE_DELIMITER1##'
-								)
-							);
-						>';
-					--The CTAS can be called directly if run as DBA.
-					else
-						v_dba_or_sys_ddl_call :=
-						q'<
-							--Create remote temporary table with results.
-							sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
-							(
-								q'##QUOTE_DELIMITER1##
-									##CTAS_DDL##
-								##QUOTE_DELIMITER1##'
-							);
-						>';
-					end if;
+								);
+							>';
+						end if;
 
-					--Regular SELECT statement if there are no privileges.
-					if p_config_data.allowed_privs is null then
 						v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
-							,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
+							,'##DBA_OR_SYS_RUN_CTAS##', v_ctas_call)
 							,'##SEQUENCE##', to_char(v_sequence))
 							,'##TABLE_OWNER##', p_table_owner)
 							,'##TABLE_NAME##', p_table_name)
@@ -2725,14 +2727,44 @@ end;
 						declare
 							v_privs_string varchar2(32767);
 						begin
+							--Build the CTAS.
+							v_ctas_ddl := get_ctas_sql(
+								p_code                     => p_code,
+								p_owner                    => 'm5_temp_user_'||to_char(v_sequence),
+								p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
+								p_has_version_star         => p_has_version_star,
+								p_has_column_gt_30         => p_has_column_gt_30,
+								p_has_long                 => p_has_long,
+								p_column_list              => p_explicit_column_list,
+								p_expression_list          => p_explicit_expression_list,
+								p_add_database_name_column => false,
+								p_copy_data                => true
+							);
+
+							v_ctas_call :=
+							q'<
+								--Create remote procedure to create table with results.
+								sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
+								(
+									q'##QUOTE_DELIMITER2##
+										create procedure m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE## is
+										begin
+											execute immediate q'##QUOTE_DELIMITER1##
+												##CTAS_DDL##
+											##QUOTE_DELIMITER1##';
+										end;
+									##QUOTE_DELIMITER2##'
+								);
+							>';
+
 							--Create string of privileges.
 							for i in 1 .. p_config_data.allowed_privs.count loop
-								v_privs_string := ',''' || p_config_data.allowed_privs(i) || '''';
+								v_privs_string := v_privs_string || ',''' || p_config_data.allowed_privs(i) || '''';
 							end loop;
 
 							v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
 								,'##ALLOWED_PRIVS##', v_privs_string)
-								,'##DBA_OR_SYS_RUN_CTAS##', v_dba_or_sys_ddl_call)
+								,'##CREATE_CTAS_PROC##', v_ctas_call)
 								,'##SEQUENCE##', to_char(v_sequence))
 								,'##TABLE_OWNER##', p_table_owner)
 								,'##TABLE_NAME##', p_table_name)
@@ -2744,6 +2776,7 @@ end;
 
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
+					v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
 
 				--PL/SQL CTAS.
 				elsif p_select_plsql_script = 'PLSQL' then
@@ -3134,8 +3167,6 @@ begin
 		v_explicit_column_list       varchar2(32767);
 		v_explicit_expression_list   varchar2(32767);
 	begin
-		--TODO: ADD ALLOWED_PRIVS processing.
-
 		if g_debug then
 			sys.dbms_output.enable(null);
 		end if;
