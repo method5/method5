@@ -106,7 +106,7 @@ create table method5.m5_user
 	changed_by              varchar2(128) not null,
 	changed_date            date not null,
 	constraint m5_user_pk primary key(oracle_username),
-	constraint can_is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
+	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
 	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
 	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))

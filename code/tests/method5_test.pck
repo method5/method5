@@ -83,7 +83,7 @@ procedure assert_equals(p_test nvarchar2, p_expected nvarchar2, p_actual nvarcha
 begin
 	g_test_count := g_test_count + 1;
 
-	if p_expected = p_actual or p_expected is null and p_actual is null then
+	if p_expected = p_actual or (p_expected is null and p_actual is null) then
 		g_passed_count := g_passed_count + 1;
 	else
 		g_failed_count := g_failed_count + 1;
@@ -962,6 +962,21 @@ begin
 		assert_equals(v_test_name, v_expected_results,
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 	end;
+
+	begin
+		v_test_name := 'Target SELECT string only returns valid targets.';
+		v_expected_results := null;
+
+		select max(column_value)
+		into v_actual_results
+		from table(method5.m5_pkg.get_target_tab_from_target_str(q'[select 'this_is_a_fake_target_does_not_exist' from dual]'));
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
 end test_get_target_tab_from_targe;
 
 

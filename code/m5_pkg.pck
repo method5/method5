@@ -405,8 +405,16 @@ begin
 	--Execute P_TARGET_STRING as a SELECT statement if it looks like one.
 	if v_clean_select_sql is not null then
 		--Try to run query, raise helpful error message if it doesn't work.
+		--TODO: SQL injection threat if this function is runnable by unprivileged users.
 		begin
-			execute immediate v_clean_select_sql bulk collect into v_target_tab;
+			--Add an "intersect" to ensure that only valid rows are returned.
+			if lower(trim(p_database_or_host)) = 'database' then
+				execute immediate v_clean_select_sql || ' intersect select database_name from method5.m5_database'
+				bulk collect into v_target_tab;
+			else
+				execute immediate v_clean_select_sql || ' intersect select host_name from method5.m5_database'
+				bulk collect into v_target_tab;
+			end if;
 		exception when others then
 			dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
 			raise_application_error(-20006, 'Error executing P_TARGETS.'||chr(10)||
@@ -2672,7 +2680,7 @@ end;
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
 					--Regular SELECT statement if there are no privileges.
-					if p_config_data.allowed_privs is null then
+					if p_config_data.allowed_privs is null or p_config_data.allowed_privs.count = 0 then
 						--Build the CTAS.
 						v_ctas_ddl := get_ctas_sql(
 							p_code                     => p_code,
