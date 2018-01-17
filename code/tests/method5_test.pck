@@ -1176,6 +1176,7 @@ begin
 	test_long(v_database_name_1);
 	test_version_star(v_database_name_1, v_database_name_2);
 	test_get_target_tab_from_targe(v_database_name_1, v_database_name_2);
+	--TODO: Test dropping and recreating a database link.
 	if p_test_run_as_sys then
 		test_run_as_sys(v_database_name_1);
 	end if;

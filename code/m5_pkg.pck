@@ -199,6 +199,8 @@ procedure stop_jobs
 	v_must_be_a_job exception;
 	pragma exception_init(v_must_be_a_job, -27475);
 begin
+	--TODO: What about if the job hasn't even started yet?
+
 	for jobs_to_kill in
 	(
 		select dba_scheduler_running_jobs.owner, dba_scheduler_running_jobs.job_name, comments, elapsed_time
@@ -208,8 +210,8 @@ begin
 			and dba_scheduler_running_jobs.owner = dba_scheduler_jobs.owner
 		where dba_scheduler_jobs.auto_drop = 'TRUE'
 			and dba_scheduler_running_jobs.job_name like 'M5%'
-			and (dba_scheduler_running_jobs.owner = upper(trim(p_owner)) or p_owner is null)
-			and (upper(dba_scheduler_jobs.comments) = upper(p_table_name) or p_table_name is null)
+			and (regexp_replace(dba_scheduler_jobs.comments, 'TABLE:(.*)"CALLER:.*', '\1') = upper(p_table_name) or p_table_name is null)
+			and (regexp_replace(dba_scheduler_jobs.comments, 'TABLE:.*"CALLER:(.*)', '\1') = upper(trim(p_owner)) or p_owner is null)
 			and (dba_scheduler_running_jobs.elapsed_time > p_elapsed_minutes * interval '1' minute or p_elapsed_minutes is null)
 		order by dba_scheduler_jobs.owner, dba_scheduler_jobs.job_name
 	) loop
@@ -561,8 +563,7 @@ procedure run(
 		database_name  varchar2(30),   --Only one of DATABASE_NAME or HOST_NAME can be non-null per row.
 		host_name      varchar2(256),
 		connect_string varchar2(4000),
-		link_exists    number,
-		is_running     number
+		link_exists    number
 	);
 	type links_nt is table of link_rec;
 
@@ -574,14 +575,21 @@ procedure run(
 		global_default_targets       varchar2(4000),
 		has_valid_db_username        varchar2(3),
 		has_valid_db_and_os_username varchar2(3),
-		can_run_as_sys               varchar2(3),
-		can_run_shell_script         varchar2(3),
-		install_links_in_schema      varchar2(3),
-		job_owner                    varchar2(128),
-		allowed_targets              varchar2(4000),
-		user_default_targets         varchar2(4000),
-		allowed_privs                string_table
+		user_default_targets         varchar2(4000)
 	);
+
+	type allowed_privs_rec is record(
+		os_username              varchar2(128),
+		target                   varchar2(4000),
+		db_link_name             varchar2(4000),
+		default_targets          varchar2(4000),
+		run_as_m5_or_temp_user   varchar2(9),
+		install_links_in_schema  varchar2(3),
+		job_owner                varchar2(128),
+		privileges               method5.string_table,
+		has_any_install_links    varchar2(3)
+	);
+	type allowed_privs_nt is table of allowed_privs_rec;
 
 	--Code templates.
 	v_select_template constant varchar2(32767) := q'<
@@ -1033,25 +1041,19 @@ end;
 		select
 			case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
 			case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
-			can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets, allowed_privs
+			default_targets
 		into
 			v_config_data.has_valid_db_username       ,
 			v_config_data.has_valid_db_and_os_username,
-			v_config_data.can_run_as_sys              ,
-			v_config_data.can_run_shell_script        ,
-			v_config_data.install_links_in_schema     ,
-			v_config_data.allowed_targets             ,
-			v_config_data.user_default_targets        ,
-			v_config_data.allowed_privs
+			v_config_data.user_default_targets        
 		from
 		(
 			--Find the highest match.
-			select oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets, allowed_privs, nomatch_0_db_1_dbAndOS_2
+			select oracle_username, os_username, default_targets, nomatch_0_db_1_dbAndOS_2
 				,max(nomatch_0_db_1_dbAndOS_2) over () best_match
 			from
 			(
-				select m5_user.oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
-					,cast(collect(privilege) as method5.string_table) allowed_privs
+				select m5_user.oracle_username, os_username, default_targets
 					,case
 						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
 							and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
@@ -1061,27 +1063,80 @@ end;
 							and os_username is null then 1
 					end nomatch_0_db_1_dbAndOS_2
 				from method5.m5_user
-				left join method5.m5_user_priv
-					on m5_user.oracle_username = m5_user_priv.oracle_username
-				group by m5_user.oracle_username, os_username, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets
+				group by m5_user.oracle_username, os_username, default_targets
 				union all
-				select null oracle_username, null os_username, null can_run_as_sys, null can_run_shell_script, null install_links_in_schema, null allowed_targets, null default_targets
-					,cast(null as method5.string_table)
+				select null oracle_username, null os_username, null default_targets
 					,0 nomatch_0_db_1_dbAndOS_2
 				from dual
 			)
 		)
 		where best_match = nomatch_0_db_1_dbAndOS_2;
 
-		--Set JOB_OWNER, which depends on if the user has links in their schema.
-		if v_config_data.install_links_in_schema = 'Yes' then
-			v_config_data.job_owner := sys_context('userenv', 'session_user');
-		else
-			v_config_data.job_owner := 'METHOD5';
-		end if;
-
 		return v_config_data;
 	end get_config_data;
+
+	---------------------------------------------------------------------------
+	--Get the privileges allowed for this user.
+	function get_allowed_privs
+	(
+		p_run_as_sys                 in boolean,
+		p_is_shell_script            in boolean,
+		p_target_string_with_default in varchar2
+	)
+	return allowed_privs_nt is
+		v_allowed_privs allowed_privs_nt;
+		v_run_as_sys varchar2(3) := case when p_run_as_sys then 'Yes' else 'No' end;
+		v_is_shell_script varchar2(3) := case when p_is_shell_script then 'Yes' else 'No' end;
+		v_database_or_host varchar2(8) := case when p_is_shell_script then 'host' else 'database' end;
+	begin
+		--Requested and allowed privileges.
+		select
+			os_username,
+			requested_privileges.target,
+			'M5_'||upper(requested_privileges.target) db_link_name,
+			allowed_privileges.default_targets,
+			allowed_privileges.run_as_m5_or_temp_user,
+			allowed_privileges.install_links_in_schema,
+			case
+				when install_links_in_schema = 'Yes' then
+					sys_context('userenv', 'session_user')
+				else
+					'METHOD5'
+			end job_owner,
+			allowed_privileges.privileges,
+			max(case when install_links_in_schema = 'Yes' then 'Yes' else 'No' end) over () has_any_install_links
+		bulk collect into v_allowed_privs
+		from
+		(
+			--Requested privileges
+			select column_value target, v_run_as_sys run_as_sys, v_is_shell_script run_shell_script
+			from table(method5.m5_pkg.get_target_tab_from_target_str
+				(
+					p_target_string => p_target_string_with_default,
+					p_database_or_host => v_database_or_host
+				)
+			)
+			order by column_value
+		) requested_privileges
+		join method5.m5_allowed_privs_vw allowed_privileges
+			on requested_privileges.target = allowed_privileges.target
+		where trim(lower(oracle_username)) = lower(sys_context('userenv', 'session_user'))
+			and 
+			(
+				(requested_privileges.run_as_sys = 'Yes' and allowed_privileges.can_run_as_sys = 'Yes')
+				or
+				requested_privileges.run_as_sys = 'No'
+			)
+			and
+			(
+				(requested_privileges.run_shell_script = 'Yes' and allowed_privileges.can_run_shell_script = 'Yes')
+				or
+				requested_privileges.run_shell_script = 'No'
+			)
+		order by requested_privileges.target;
+
+		return v_allowed_privs;
+	end get_allowed_privs;
 
 	---------------------------------------------------------------------------
 	--Set P_TABLE_OWNER and P_TABLE_NAME_WITHOUT_OWNER.
@@ -1090,6 +1145,7 @@ end;
 	--P_TABLE_NAME defaults to a name with a sequence.
 	procedure set_table_owner_and_name(
 		p_table_name                in varchar2,
+		p_sequence                  in number,
 		p_table_owner              out varchar2,
 		p_table_name_without_owner out varchar2
 	) is
@@ -1098,7 +1154,7 @@ end;
 		--Defaults.
 		if p_table_name is null then
 			p_table_owner := sys_context('userenv', 'session_user');
-			p_table_name_without_owner := 'M5_TEMP_'||get_sequence_nextval();
+			p_table_name_without_owner := 'M5_TEMP_'||p_sequence;
 		else
 			--Split into owner and name if there is a period.
 			if instr(p_table_name, '.') > 0 then
@@ -1183,7 +1239,7 @@ end;
 	---------------------------------------------------------------------------
 	--Verify that the user can use Method5.
 	--This package has elevated privileges and must only be used by a true DBA.
-	procedure control_access(p_audit_rowid rowid, p_run_as_sys boolean, p_is_shell_script boolean, p_config_data config_data_rec) is
+	procedure control_access(p_audit_rowid rowid, p_config_data config_data_rec) is
 		v_account_status varchar2(4000);
 
 		procedure audit_send_email_raise_error(p_message in varchar2) is
@@ -1236,16 +1292,6 @@ end;
 			end if;
 		end if;
 
-		--Check CAN_RUN_AS_SYS, if set.
-		if p_run_as_sys and p_config_data.can_run_as_sys = 'No' then
-			audit_send_email_raise_error('You are not authorized to run jobs as SYS.');
-		end if;
-
-		--Check CAN_RUN_SHELL_SCRIPT, if set.
-		if p_is_shell_script and p_config_data.can_run_shell_script = 'No' then
-			audit_send_email_raise_error('You are not authorized to run shell scripts.');
-		end if;
-
 	end control_access;
 
 	---------------------------------------------------------------------------
@@ -1259,13 +1305,13 @@ end;
 	end validate_input;
 
 	---------------------------------------------------------------------------
-	--Create a link refresh job for this user if it does not exist, if they are
-	--allowed to use database links directly.
+	--Create a link refresh job for this user if it does not exist and if
+	--they are allowed to use any database links directly.
 	--These jobs let the administrator automatically update user's links.
-	procedure create_link_refresh_job(p_config_data config_data_rec) is
+	procedure create_link_refresh_job(p_allowed_privs allowed_privs_nt) is
 		v_count number;
 	begin
-		if p_config_data.install_links_in_schema = 'Yes' then
+		if p_allowed_privs.count >= 1 and p_allowed_privs(1).has_any_install_links = 'Yes' then
 			--Look for job.
 			select count(*)
 			into v_count
@@ -1278,7 +1324,7 @@ end;
 				sys.dbms_scheduler.create_job(
 					job_name   => sys_context('userenv', 'session_user')||'.M5_LINK_REFRESH_JOB',
 					job_type   => 'PLSQL_BLOCK',
-					job_action => q'[ begin m5_proc('select * from dual'); end; ]',
+					job_action => q'[ begin m5_proc('select * from dual', '%'); end; ]',
 					enabled    => false,
 					comments   => 'This job helps refresh the M5 links in this schema.',
 					auto_drop  => false
@@ -1322,8 +1368,7 @@ end;
 				database_name,
 				host_name,
 				connect_string,
-				case when my_database_links.db_link is not null then 1 else 0 end link_exists,
-				case when dba_scheduler_running_jobs.owner is not null then 1 else 0 end is_running
+				case when my_database_links.db_link is not null then 1 else 0 end link_exists
 			from
 			(
 				--Links for databases.
@@ -1353,15 +1398,12 @@ end;
 				where owner = :owner
 			) my_database_links
 				on database_names.link_name = db_link
-			left join sys.dba_scheduler_running_jobs
-				on database_names.link_name = job_name
-				and dba_scheduler_running_jobs.owner = :owner
 			where instance_number = 1
 			order by lower(link_name)
 		]';
 
 		--Open, fetch, close, and return results.
-		open v_link_query for v_link_sql using p_owner, p_owner;
+		open v_link_query for v_link_sql using p_owner;
 		fetch v_link_query bulk collect into v_link_results;
 		close v_link_query;
 		return v_link_results;
@@ -1376,9 +1418,8 @@ end;
 
 	---------------------------------------------------------------------------
 	--Create database links for the Method5 user.
-	procedure create_db_links_in_m5_schema(p_links_owned_by_m5 links_nt) is
+	procedure create_db_links_in_m5_schema(p_links_owned_by_m5 links_nt, p_sequence number) is
 		v_sql varchar2(32767);
-		v_sequence number := get_sequence_nextval();
 
 		pragma autonomous_transaction;
 	begin
@@ -1397,7 +1438,7 @@ end;
 						!';
 					end;
 				>'
-				,'##SEQUENCE##', to_char(v_sequence))
+				,'##SEQUENCE##', to_char(p_sequence))
 				,'##DB_LINK_NAME##', p_links_owned_by_m5(v_link_index).db_link_name)
 				,'##CONNECT_STRING##', p_links_owned_by_m5(v_link_index).connect_string);
 
@@ -1408,15 +1449,15 @@ end;
 				--Execute procedure to create the link, then correct the password.
 				--No matter what happens, drop the temp procedure since it has a password hash in it.
 				begin
-					execute immediate 'begin method5.m5_temp_procedure_'||v_sequence||'; end;';
+					execute immediate 'begin method5.m5_temp_procedure_'||p_sequence||'; end;';
 					commit;
 					sys.m5_change_db_link_pw(p_m5_username => 'METHOD5', p_dblink_username => 'METHOD5', p_dblink_name => p_links_owned_by_m5(v_link_index).db_link_name);
 					commit;
-					execute immediate 'drop procedure method5.m5_temp_procedure_'||v_sequence;
+					execute immediate 'drop procedure method5.m5_temp_procedure_'||p_sequence;
 					commit;
 				exception when others then
 					raise_application_error(-20003, 'Error executing or dropping '||
-						'method5.m5_temp_procedure_'||v_sequence||'.  Investigate that procedure and drop it when done.'||
+						'method5.m5_temp_procedure_'||p_sequence||'.  Investigate that procedure and drop it when done.'||
 						chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 				end;
 			end if;
@@ -1426,16 +1467,47 @@ end;
 
 	---------------------------------------------------------------------------
 	--Copy links from package owner to the running user.
-	procedure synchronize_links(p_config_data config_data_rec) is
+	procedure synchronize_links(p_allowed_privs allowed_privs_nt) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
+
+		--Procedures to create, run, and drop procedures on the user's schema.
+		procedure create_temp_proc(p_sql varchar2) is
+		begin
+			execute immediate replace(replace(q'[
+				create or replace procedure #OWNER#.m5_temp_create_db_link is
+				begin
+					--This is a temporary procedure used by Method5.
+					--You may safely drop this procedure.
+					execute immediate q'!
+						#SQL#
+					!';
+				end;
+			]'
+			, '#OWNER#', sys_context('userenv', 'session_user'))
+			, '#SQL#', p_sql);
+		end;
+
+		procedure run_temp_proc is
+		begin
+			execute immediate replace(
+				'begin #OWNER#.m5_temp_create_db_link; end;'
+			, '#OWNER#', sys_context('userenv', 'session_user'));
+		end;
+
+		procedure drop_temp_proc is
+		begin
+			execute immediate replace(
+				'drop procedure #OWNER#.m5_temp_create_db_link'
+			, '#OWNER#', sys_context('userenv', 'session_user'));
+		end;
 	begin
 		--Only run this if the user is allowed to have links.
-		if p_config_data.install_links_in_schema = 'Yes' then
+		if p_allowed_privs.count >= 1 and p_allowed_privs(1).has_any_install_links = 'Yes' then
 			--Create missing links.
 			for missing_links in
 			(
-				--Links that need to be copied to user's schema:
+				--Links that might need to be copied to user's schema:
 				--Default links that do not exist or were created after the user's link
 				select default_links.db_link default_db_link, user_links.db_link user_db_link
 				from
@@ -1458,31 +1530,49 @@ end;
 				where user_links.db_link is null
 					or default_links.created > user_links.created
 			) loop
-				--Drop user link if it exists
-				if missing_links.user_db_link is not null then
-					execute immediate 'drop database link '||missing_links.user_db_link;
-					commit;
-				end if;
+				--Only create the link if the user is authorized to have it.
+				for i in 1 .. p_allowed_privs.count loop
+					if missing_links.default_db_link = p_allowed_privs(i).db_link_name then
+						--Drop user link if it exists
+						if missing_links.user_db_link is not null then
+							create_temp_proc('drop database link '||missing_links.user_db_link);
+							commit;
+							run_temp_proc;
+							commit;
+							drop_temp_proc;
+							commit;
+						end if;
 
-				--Get the link DDL.
-				v_sql := sys.dbms_metadata.get_ddl('DB_LINK', missing_links.default_db_link, 'METHOD5');
+						--Get the link DDL.
+						v_sql := sys.dbms_metadata.get_ddl('DB_LINK', missing_links.default_db_link, 'METHOD5');
 
-				--11.2.0.4 use a bind variable instead of putting the hash in the GET_DDL output.
-				if v_sql like '%IDENTIFIED BY VALUES '':1''%' then
-					--Replace the bind variable with a temporary password.
-					execute immediate replace(v_sql, 'IDENTIFIED BY VALUES '':1''', 'identified by not_a_real_password_yet');
-					commit;
+						--11.2.0.4 use a bind variable instead of putting the hash in the GET_DDL output.
+						if v_sql like '%IDENTIFIED BY VALUES '':1''%' then
+							--Replace the bind variable with a temporary password.
+							v_sql := replace(v_sql, 'IDENTIFIED BY VALUES '':1''', 'identified by not_a_real_password_yet');
+							create_temp_proc(v_sql);
+							commit;
+							run_temp_proc;
+							commit;
+							drop_temp_proc;
+							commit;
 
-					--Reset the temporary password.
-					sys.m5_change_db_link_pw(
-						p_m5_username => 'METHOD5',
-						p_dblink_username => sys_context('userenv', 'session_user'),
-						p_dblink_name => missing_links.default_db_link);
-				--11.2.0.3 and below can execute as-is
-				else
-					execute immediate v_sql;
-					commit;
-				end if;
+							--Reset the temporary password.
+							sys.m5_change_db_link_pw(
+								p_m5_username => 'METHOD5',
+								p_dblink_username => sys_context('userenv', 'session_user'),
+								p_dblink_name => missing_links.default_db_link);
+						--11.2.0.3 and below can execute as-is
+						else
+							create_temp_proc(v_sql);
+							commit;
+							run_temp_proc;
+							commit;
+							drop_temp_proc;
+							commit;
+						end if;
+					end if;
+				end loop;
 			end loop;
 
 			commit;
@@ -1490,74 +1580,71 @@ end;
 	end synchronize_links;
 
 	---------------------------------------------------------------------------
-	--Purpose: Return targets that were both requested and allowed.
-	function get_rqsted_and_allowed_targets
+	--Purpose: Convert allowed_privs_nt into a string_table of targets.
+	function get_target_tab
 	(
-		p_target_string_with_default varchar2,
-		p_is_shell_script            boolean,
-		p_config_data                config_data_rec
+		p_allowed_privs allowed_privs_nt
 	) return method5.string_table is
-		v_requested_targets     method5.string_table;
-		v_allowed_targets       method5.string_table;
-		v_requested_and_allowed method5.string_table;
+		v_targets method5.string_table := method5.string_table();
 	begin
-		--Get requested targets.
-		v_requested_targets := get_target_tab_from_target_str(p_target_string_with_default, case when p_is_shell_script then 'host' else 'database' end);
+		for i in 1 .. p_allowed_privs.count loop
+			v_targets.extend;
+			v_targets(v_targets.count) := p_allowed_privs(i).target;
+		end loop;
 
-		--Limit the results if the filter is set.
-		if p_config_data.allowed_targets is not null then
-			v_allowed_targets := get_target_tab_from_target_str(p_config_data.allowed_targets, case when p_is_shell_script then 'host' else 'database' end);
-			v_requested_and_allowed := v_requested_targets multiset intersect v_allowed_targets;
-			return v_requested_and_allowed;
-		--Return all results if there is no filter.
-		else
-			return v_requested_targets;
-		end if;
-	end get_rqsted_and_allowed_targets;
+		return v_targets;
+	end get_target_tab;
 
 	---------------------------------------------------------------------------
 	procedure raise_exception_if_no_targets
 	(
-		p_target_tab        in string_table,
+		p_allowed_privs     in allowed_privs_nt,
 		p_original_targets  in varchar2,
 		p_processed_targets in varchar2,
-		p_config_data       in config_data_rec
+		p_is_shell_script   in boolean
 	) is
+		v_database_or_host        varchar2(8) := case when p_is_shell_script then 'host' else 'database' end;
+		v_targets                 method5.string_table;
 		v_how_to_fix_message      varchar2(32767) := 'Change P_TARGETS to fix this error.';
 		v_allowed_targets_message varchar2(32767);
 	begin
-		--Change messages if an ALLOWED_TARGETS value may have been involved.
-		if p_config_data.allowed_targets is not null then
-			v_allowed_targets_message := chr(10) || 'These are your ALLOWED_TARGETS: '||p_config_data.allowed_targets;
-			v_how_to_fix_message := 'Change P_TARGETS to fix this error or ask your administrator to change your ALLOWED_TARGETS.';
-		end if;
+		--Only continue if there are no rows.
+		if p_allowed_privs.count = 0 then
+			--Convert string to table.
+			v_targets := get_target_tab_from_target_str(p_processed_targets, v_database_or_host);
 
-		--Raise error if no targets are found.
-		if p_target_tab.count = 0 then
-			--Display only one value if they are the same.
-			if
-			(
-				p_original_targets = p_processed_targets
-				or
+			--Raise error because the target string returns nothing.
+			if v_targets.count = 0 then
+				--Display only one value if they are the same.
+				if
 				(
-					p_original_targets is null
-					and
-					p_processed_targets is null
-				)
-			) then
-				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
-					'This was the P_TARGETS you asked for: '||p_original_targets||v_allowed_targets_message);
-			--Display both values if they are different.
+					p_original_targets = p_processed_targets
+					or
+					(
+						p_original_targets is null
+						and
+						p_processed_targets is null
+					)
+				) then
+					raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
+						'This was the P_TARGETS you asked for: '||p_original_targets||v_allowed_targets_message);
+				--Display both values if they are different.
+				else
+					raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
+						'This was the P_TARGETS you asked for: '||p_original_targets||chr(10)||
+						'This was the default P_TARGETS used: '||p_processed_targets||v_allowed_targets_message);
+				end if;
+			--Else raise error because the user has no privileges on the requested targets.
 			else
-				raise_application_error(-20404, 'No targets were found.  '||v_how_to_fix_message||'  '||chr(10)||
-					'This was the P_TARGETS you asked for: '||p_original_targets||chr(10)||
-					'This was the default P_TARGETS used: '||p_processed_targets||v_allowed_targets_message);
+				raise_application_error(-20035, 'You do not have access to any of targets requested.'||chr(10)||
+					'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+					'Contact your Method5 administrator to change your access.');
 			end if;
 		end if;
 	end raise_exception_if_no_targets;
 
 	---------------------------------------------------------------------------
-	procedure check_if_already_running(p_table_name varchar2, p_config_data config_data_rec) is
+	procedure check_if_already_running(p_table_name varchar2) is
 		v_table_name varchar2(128) := upper(trim(p_table_name));
 		v_conflicting_job_count number;
 	begin
@@ -1566,15 +1653,21 @@ end;
 		select count(*)
 		into v_conflicting_job_count
 		from sys.dba_scheduler_jobs
-		where owner = p_config_data.job_owner
-			and job_name like 'M5%'
-			and comments = v_table_name;
+		where job_name like 'M5%'
+			and regexp_replace(comments, 'TABLE:(.*)"CALLER:.*', '\1') = v_table_name
+			and regexp_replace(comments, 'TABLE:.*"CALLER:(.*)', '\1') = sys_context('userenv', 'session_user');
 
 		--Raise an error if there are any conflicts.
 		if v_conflicting_job_count > 0 then
 			raise_application_error(-20009,
 				'There are already '||v_conflicting_job_count||' jobs writing to '||v_table_name||'.'||chr(10)||
-				'Use this statement to find currently running jobs: select * from sys.dba_scheduler_running_jobs where owner = '''||p_config_data.job_owner||''';'||chr(10)||
+				'Use this statement to find currently running jobs: '||chr(10)||
+				q'!select *!'||chr(10)||
+				q'!from dba_scheduler_jobs!'||chr(10)||
+				q'!where state in ('SCHEDULED', 'RUNNING')!'||chr(10)||
+				q'!  and job_name like 'M5_%'!'||chr(10)||
+				q'!  and regexp_replace(comments, 'TABLE:.*"CALLER:(.*)', '\1') = sys_context('userenv', 'session_user')!'||chr(10)||
+				q'!order by last_start_date desc, job_name;!'||chr(10)||
 				'Either wait for those jobs to finish or stop them with this: begin dbms_scheduler.stop_job(job_name => ''$JOB_NAME$'', force => true); end;'
 			);
 		end if;
@@ -2302,6 +2395,7 @@ end;
 		p_select_plsql_script             varchar2,
 		p_command_name                    varchar2,
 		p_target_tab                      string_table,
+		p_sequence                        number,
 		p_is_first_column_sortable in out boolean
 	) is
 		v_data_type varchar2(100);
@@ -2326,7 +2420,7 @@ end;
 				v_retry_counter number := 0;
 			begin
 				--Generate a temporary table name.
-				v_temp_table_name := 'm5_temp_table_'||get_sequence_nextval;
+				v_temp_table_name := 'm5_temp_table_'||p_sequence;
 
 				--Create a table to hold the required table structure.
 				v_create_table_ddl := get_ctas_sql(
@@ -2491,27 +2585,19 @@ end;
 
 	---------------------------------------------------------------------------
 	procedure create_meta_table(
-		p_table_owner varchar2,
-		p_table_name varchar2,
-		p_code varchar2,
-		p_targets varchar2,
-		p_links_owned_by_user links_nt,
-		p_target_tab string_table,
-		p_audit_rowid rowid
+		p_table_owner      varchar2,
+		p_table_name       varchar2,
+		p_sequence         number,
+		p_code             varchar2,
+		p_targets          varchar2,
+		p_targets_expected number,
+		p_audit_rowid      rowid
 	) is
-		v_targets_expected number := 0;
 		v_name_already_used exception;
 		pragma exception_init(v_name_already_used, -955);
 		--This prevents weird errors in METHOD5_POLL_TABLE_OT, I'm not sure why.
 		pragma autonomous_transaction;
 	begin
-		--Count number of expected results and missing links.
-		for i in 1 .. p_links_owned_by_user.count loop
-			if nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name) member of p_target_tab then
-				v_targets_expected := v_targets_expected + 1;
-			end if;
-		end loop;
-
 		--Create _META table.
 		begin
 			execute immediate '
@@ -2552,7 +2638,7 @@ end;
 				end if;
 			end;
 		]'
-		, '#SEQUENCE#', get_sequence_nextval)
+		, '#SEQUENCE#', p_sequence)
 		, '#TABLE_OWNER#', p_table_owner)
 		, '#TABLE_NAME#', p_table_name||'_meta')
 		, '#ROWID#', p_audit_rowid);
@@ -2565,8 +2651,8 @@ end;
 		execute immediate
 			'insert into '||p_table_owner||'.'||p_table_name||'_meta
 			values(sysdate, null, :username, :is_complete, :expected, 0, 0, 0, :p_code, :p_targets)'
-			using sys_context('userenv', 'session_user'), case when v_targets_expected = 0 then 'Yes' else 'No' end
-				,v_targets_expected, p_code, p_targets;
+			using sys_context('userenv', 'session_user'), case when p_targets_expected = 0 then 'Yes' else 'No' end
+				,p_targets_expected, p_code, p_targets;
 
 		--Required for autonomous_transaction.
 		commit;
@@ -2643,7 +2729,6 @@ end;
 	procedure create_jobs(
 		p_table_owner              varchar2,
 		p_table_name               varchar2,
-		p_config_data              config_data_rec,
 		p_run_as_sys               boolean,
 		p_has_version_star         boolean,
 		p_has_column_gt_30         boolean,
@@ -2653,8 +2738,7 @@ end;
 		p_code                     varchar2,
 		p_encrypted_code           varchar2,
 		p_select_plsql_script      varchar2,
-		p_links_owned_by_user      links_nt,
-		p_target_tab               string_table,
+		p_allowed_privs            allowed_privs_nt,
 		p_command_name             varchar2
 	) is
 		v_ctas_ddl            varchar2(32767);
@@ -2665,12 +2749,7 @@ end;
 		v_jobs                sys.job_definition_array := sys.job_definition_array();
 	begin
 		--Create a job to insert for each link.
-		for i in 1 .. p_links_owned_by_user.count loop
-
-			--Skip this loop if a query was provided and this link is not a match.
-			if nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name) not member of p_target_tab then
-				continue;
-			end if;
+		for i in 1 .. p_allowed_privs.count loop
 
 			--Get sequence to ensure a unique name for the procedure and the job.
 			v_sequence := get_sequence_nextval();
@@ -2680,7 +2759,7 @@ end;
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
 					--Regular SELECT statement if there are no privileges.
-					if p_config_data.allowed_privs is null or p_config_data.allowed_privs.count = 0 then
+					if p_allowed_privs(i).privileges is null or p_allowed_privs(i).privileges.count = 0 then
 						--Build the CTAS.
 						v_ctas_ddl := get_ctas_sql(
 							p_code                     => p_code,
@@ -2727,8 +2806,8 @@ end;
 							,'##SEQUENCE##', to_char(v_sequence))
 							,'##TABLE_OWNER##', p_table_owner)
 							,'##TABLE_NAME##', p_table_name)
-							,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
-							,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+							,'##DATABASE_NAME##', p_allowed_privs(i).target)
+							,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
 							,'##CTAS_DDL##', v_ctas_ddl);
 					--Create a temporary user if only specific privileges are allowed.
 					else
@@ -2766,8 +2845,8 @@ end;
 							>';
 
 							--Create string of privileges.
-							for i in 1 .. p_config_data.allowed_privs.count loop
-								v_privs_string := v_privs_string || ',''' || p_config_data.allowed_privs(i) || '''';
+							for j in 1 .. p_allowed_privs(i).privileges.count loop
+								v_privs_string := v_privs_string || ',''' || p_allowed_privs(i).privileges(j) || '''';
 							end loop;
 
 							v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
@@ -2776,8 +2855,8 @@ end;
 								,'##SEQUENCE##', to_char(v_sequence))
 								,'##TABLE_OWNER##', p_table_owner)
 								,'##TABLE_NAME##', p_table_name)
-								,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
-								,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+								,'##DATABASE_NAME##', p_allowed_privs(i).target)
+								,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
 								,'##CTAS_DDL##', v_ctas_ddl);
 						end;
 					end if;
@@ -2794,8 +2873,8 @@ end;
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
-						,'##DATABASE_NAME##', p_links_owned_by_user(i).database_name)
-						,'##DB_LINK_NAME##', p_links_owned_by_user(i).db_link_name)
+						,'##DATABASE_NAME##', p_allowed_privs(i).target)
+						,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
 						,'##CODE##', p_code);
 
 					if p_command_name = 'PL/SQL EXECUTE' then
@@ -2816,8 +2895,8 @@ end;
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
 						,'##TABLE_NAME##', p_table_name)
-						,'##HOST_NAME##', p_links_owned_by_user(i).host_name)
-						,'##HOST_LINK_NAME##', p_links_owned_by_user(i).db_link_name);
+						,'##HOST_NAME##', p_allowed_privs(i).target)
+						,'##HOST_LINK_NAME##', p_allowed_privs(i).db_link_name);
 					v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 					v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
@@ -2846,7 +2925,7 @@ end;
 
 				for pipe_index in 1 .. v_pipe_count loop
 					--Create private pipe.
-					v_pipename := 'M5_'||nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name)||'_'||v_sequence||'_'||pipe_index;
+					v_pipename := p_allowed_privs(i).db_link_name||'_'||v_sequence||'_'||pipe_index;
 					v_result := sys.dbms_pipe.create_pipe(v_pipename);
 					if v_result <> 0 then
 						raise_application_error(-20023, 'Pipe error.  Result = '||v_result||'.');
@@ -2868,7 +2947,7 @@ end;
 			v_jobs.extend;
 			v_jobs(v_jobs.count) := sys.job_definition
 			(
-				job_name   => p_config_data.job_owner||'.'||p_links_owned_by_user(i).db_link_name||'_'||v_sequence,
+				job_name   => p_allowed_privs(i).job_owner||'.'||p_allowed_privs(i).db_link_name||'_'||v_sequence,
 				job_type   => 'PLSQL_BLOCK',
 				job_action => replace(replace(replace(q'<
 					declare
@@ -2890,11 +2969,11 @@ end;
 						end;
 						execute immediate 'drop procedure m5_temp_proc_##SEQUENCE##';
 					end;
-				>','##SEQUENCE##', to_char(v_sequence)), '##PIPE_COUNT##', v_pipe_count), '##TARGET_NAME##', nvl(p_links_owned_by_user(i).database_name, p_links_owned_by_user(i).host_name)),
+				>','##SEQUENCE##', to_char(v_sequence)), '##PIPE_COUNT##', v_pipe_count), '##TARGET_NAME##', p_allowed_privs(i).target),
 				start_date => systimestamp,
 				enabled    => true,
 				--Used to prevent the same user from writing to the same table with multiple processes.
-				comments   => p_table_name,
+				comments   => 'TABLE:'||p_table_name||'"CALLER:'||sys_context('userenv', 'session_user'),
 				number_of_arguments => 0
 			);
 		end loop;
@@ -2906,13 +2985,11 @@ end;
 	---------------------------------------------------------------------------
 	--Wait for jobs to finish, for synchronous processing.
 	procedure wait_for_jobs_to_finish(
-		p_start_timestamp timestamp with time zone,
-		p_job_owner       varchar2,
-		p_table_name_or_check_link varchar2,
-		p_max_seconds_to_wait number default 999999999
+		p_start_timestamp          timestamp with time zone,
+		p_table_name               varchar2,
+		p_max_seconds_to_wait      number default 999999999
 	) is
 		v_running_jobs number;
-		v_table_name_or_check_link varchar2(128) := upper(trim(p_table_name_or_check_link));
 	begin
 		--Wait for all jobs to be finished.
 		loop
@@ -2921,9 +2998,9 @@ end;
 			select count(*)
 			into v_running_jobs
 			from sys.dba_scheduler_jobs
-			where owner = p_job_owner
-				and job_name like 'M5%'
-				and comments = v_table_name_or_check_link;
+			where job_name like 'M5%'
+				and regexp_replace(comments, 'TABLE:(.*)"CALLER:.*', '\1') = trim(upper(p_table_name))
+				and regexp_replace(comments, 'TABLE:.*"CALLER:(.*)', '\1') = sys_context('userenv', 'session_user');
 
 			exit when
 				v_running_jobs = 0
@@ -3075,7 +3152,10 @@ end;
 			v_job_information := q'[
 				--------------------------------------------------------------------------------
 				--Find jobs that have not finished yet:
-				select * from sys.dba_scheduler_running_jobs where owner = user;
+				select *
+				from sys.dba_scheduler_job
+				where regexp_replace(dba_scheduler_jobs.comments, 'TABLE:(.*)"CALLER:.*', '\1') = '#P_TABLE_NAME#'
+					and regexp_replace(dba_scheduler_jobs.comments, 'TABLE:.*"CALLER:(.*)', '\1') = user;
 
 				--------------------------------------------------------------------------------
 				--Stop all jobs from this run (commented out so you don't run it by accident):
@@ -3153,6 +3233,8 @@ end;
 begin
 	declare
 		v_config_data                config_data_rec;
+		v_allowed_privs              allowed_privs_nt;
+		v_sequence                   number;
 		v_start_timestamp            timestamp with time zone := systimestamp;
 		v_transformed_code           clob;
 		v_encrypted_code             clob;
@@ -3166,7 +3248,6 @@ begin
 		v_table_exists_action        varchar2(100) := upper(trim(p_table_exists_action));
 		v_audit_rowid                rowid;
 		v_is_shell_script            boolean;
-		v_links_owned_by_user        links_nt;
 		v_target_tab                 string_table;
 		--Variables used for creating CTAS:
 		v_has_version_star           boolean := false;
@@ -3179,29 +3260,31 @@ begin
 			sys.dbms_output.enable(null);
 		end if;
 		v_config_data := get_config_data;
-		set_table_owner_and_name(p_table_name, v_table_owner, v_table_name);
-		v_target_string_with_default := add_default_targets_if_null(v_original_targets, v_config_data);
-		v_audit_rowid := audit(p_code, v_target_string_with_default, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
 		v_is_shell_script := is_shell_script(p_code);
-		control_access(v_audit_rowid, p_run_as_sys, v_is_shell_script, v_config_data);
+		v_target_string_with_default := add_default_targets_if_null(v_original_targets, v_config_data);
+		v_allowed_privs := get_allowed_privs(p_run_as_sys, v_is_shell_script, v_target_string_with_default);
+		v_sequence := get_sequence_nextval;
+		set_table_owner_and_name(p_table_name, v_sequence, v_table_owner, v_table_name);
+		v_audit_rowid := audit(p_code, v_target_string_with_default, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
+		control_access(v_audit_rowid, v_config_data);
 		validate_input(v_table_exists_action);
-		create_link_refresh_job(v_config_data);
-		create_db_links_in_m5_schema(get_links('METHOD5'));
-		synchronize_links(v_config_data);
-		v_links_owned_by_user := get_links(v_config_data.job_owner);
-		v_target_tab := get_rqsted_and_allowed_targets(v_target_string_with_default, v_is_shell_script, v_config_data);
-		raise_exception_if_no_targets(v_target_tab, v_original_targets, v_target_string_with_default, v_config_data);
-		check_if_already_running(v_table_name, v_config_data);
+		create_link_refresh_job(v_allowed_privs);
+		--TODO: Simplify
+		create_db_links_in_m5_schema(get_links('METHOD5'), v_sequence);
+		synchronize_links(v_allowed_privs);
+		v_target_tab := get_target_tab(v_allowed_privs);
+		raise_exception_if_no_targets(v_allowed_privs, v_original_targets, v_target_string_with_default, v_is_shell_script);
+		check_if_already_running(v_table_name);
 		get_transformed_code_and_type(p_code, p_run_as_sys, v_is_shell_script, v_target_tab, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_target_tab, v_is_first_column_sortable);
-		create_meta_table(v_table_owner, v_table_name, p_code, v_target_string_with_default, v_links_owned_by_user, v_target_tab, v_audit_rowid);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_target_tab, v_sequence, v_is_first_column_sortable);
+		create_meta_table(v_table_owner, v_table_name, v_sequence, p_code, v_target_string_with_default, v_allowed_privs.count, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name, v_is_shell_script);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));
 		create_views(v_table_owner, v_table_name);
-		create_jobs(v_table_owner, v_table_name, v_config_data, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_links_owned_by_user, v_target_tab, v_command_name);
+		create_jobs(v_table_owner, v_table_name, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_allowed_privs, v_command_name);
 		if not p_asynchronous then
-			wait_for_jobs_to_finish(v_start_timestamp, v_config_data.job_owner, v_table_name);
+			wait_for_jobs_to_finish(v_start_timestamp, v_table_name);
 		end if;
 		print_useful_sql(p_code, v_target_string_with_default, v_table_owner, v_table_name, p_asynchronous, v_table_exists_action, p_run_as_sys, v_is_shell_script, v_is_first_column_sortable);
 	end;

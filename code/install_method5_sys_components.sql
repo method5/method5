@@ -47,7 +47,10 @@ begin
 		execute immediate 'grant delete any table to method5';
 		--Allows Method5 to sleep, in the M4 procedures, so it can wait for more results.
 		execute immediate 'grant execute on dbms_lock to method5';
-
+		--Allows Method5 to create database links on the user's schemas.
+		execute immediate 'grant create any procedure to method5';
+		execute immediate 'grant execute any procedure to method5';
+		execute immediate 'grant drop any procedure to method5;';
 
 	--Optional, but useful and recommended master privileges:
 		execute immediate 'grant dba to method5';

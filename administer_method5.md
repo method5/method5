@@ -94,13 +94,15 @@ Then insert the permitted values with a query like this.  Make sure to create at
 		'&default_targets'
 	);
 
-Grant new users a role and the ability to write at least a little data.  This gives them the minimum object and system privileges to run Method5.  The privileges are very minor, see install_method5_objects.sql for details.
+Grant new users a role, the ability to create database links, and the ability to write at least a little data.  This gives them the minimum object and system privileges to run Method5.  The privileges are very minor, see install_method5_objects.sql for details.
 
-	grant role_m5_user to &oracle_username;
+	grant m5_user_role to &oracle_username;
+	grant create database link to &oracle_username;
+
 	--You can use a quota instead of unlimited if you want.
 	alter user &oracle_username quota unlimited on users;
 
-TODO: Add M5_USER_PRIV
+TODO: Add M5_ROLE and other new tables.
 Note: You do not need to grant "create session" privilege.
 
 

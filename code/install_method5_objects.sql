@@ -94,71 +94,65 @@ commit;
 
 create table method5.m5_user
 (
-	oracle_username         varchar2(128) not null,
+	oracle_username         varchar2(128)   not null,
 	os_username             varchar2(4000),
 	email_address           varchar2(4000),
-	is_m5_admin             varchar2(3) not null,
-	can_run_as_sys          varchar2(3) not null,
-	can_run_shell_script    varchar2(3) not null,
-	install_links_in_schema varchar2(3) not null,
-	allowed_targets         varchar2(4000),
+	is_m5_admin             varchar2(3)     not null,
 	default_targets         varchar2(4000),
-	changed_by              varchar2(128) not null,
-	changed_date            date not null,
+	changed_by              varchar2(128)   default user not null,
+	changed_date            date            default sysdate not null,
 	constraint m5_user_pk primary key(oracle_username),
-	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
-	constraint can_run_as_sys_ck check(can_run_as_sys in ('Yes', 'No')),
-	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
-	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))
+	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No'))
 );
-comment on table method5.m5_user is 'Method5 users and what they are allowed to run.';
+comment on table method5.m5_user is 'Method5 users.';
 comment on column method5.m5_user.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
 comment on column method5.m5_user.os_username is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
 comment on column method5.m5_user.email_address is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
 comment on column method5.m5_user.is_m5_admin is 'Can this user change Method5 configuration tables.  Either Yes or No.';
-comment on column method5.m5_user.can_run_as_sys is 'Can the user run commands as the SYS user.  Either Yes or No.';
-comment on column method5.m5_user.can_run_shell_script is 'Can the user run shell scripts.  Either Yes or No.';
-comment on column method5.m5_user.install_links_in_schema is 'Are database links installed directly on this user''s schema?';
-comment on column method5.m5_user.allowed_targets is 'Restrict a user to this target list of databases.  It works the same as P_TARGETS, and can be a comma-separated list of databases, hosts, lifecycles, wildcards, target groups, etc.  Leave NULL to allow access to everything.';
 comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
 comment on column method5.m5_user.changed_by is 'User who last changed this row.';
 comment on column method5.m5_user.changed_date is 'Date this row was last changed.';
 
-create or replace trigger method5.m5_user_trg
-before insert or update on method5.m5_user
-for each row
-begin
-	:new.changed_by := user;
-	:new.changed_date := sysdate;
-end;
-/
-
---Used to limit user privileges.
-create table method5.m5_user_priv
+create table method5.m5_role
 (
-	oracle_username varchar2(128) not null,
-	privilege       varchar2(4000) not null,
-	changed_by      varchar2(128) not null,
-	changed_date    date not null,
-	constraint m5_user_priv_pk primary key (oracle_username, privilege),
-	constraint m5_user_priv_fk foreign key (oracle_username) references method5.m5_user(oracle_username)
+	role_name                varchar2(128)  not null,
+	target_string            varchar2(4000) not null,
+	run_as_m5_or_temp_user   varchar2(9)    not null,
+	can_run_as_sys           varchar2(3)    not null,
+	can_run_shell_script     varchar2(3)    not null,
+	install_links_in_schema  varchar2(3)    not null,
+	changed_by               varchar2(128)  default user not null,
+	changed_date             date           default sysdate not null,
+	constraint m5_role_pk primary key(role_name),
+	constraint run_as_m5_or_temp_user_ck check (run_as_m5_or_temp_user in ('M5', 'TEMP_USER')),
+	constraint can_run_as_sys_ck check (can_run_as_sys in ('Yes', 'No')),
+	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
+	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))
 );
+--TODO: Comments
 
-comment on table method5.m5_user_priv is 'The only role, system, and object privileges that this user runs with.  If no privileges are set then the user runs with the same privileges granted to the remote Method5 schema.';
-comment on column method5.m5_user_priv.oracle_username is 'The Oracle username.';
-comment on column method5.m5_user_priv.privilege is 'A role name, system privilege fragment, or object privilege fragment.  For roles, just use the name.  For system and object privileges, include everything between "grant" and "to".  For example: "select on schema_name.table_name" or "select any table".';
-comment on column method5.m5_user_priv.changed_by is 'User who last changed this row.';
-comment on column method5.m5_user_priv.changed_date is 'Date this row was last changed.';
+create table method5.m5_role_priv
+(
+	role_name     varchar2(128)  not null,
+	privilege     varchar2(4000) not null,
+	changed_by    varchar2(128)  default user not null,
+	changed_date  date           default sysdate not null,
+	constraint m5_role_temp_user_priv_pk primary key(role_name, privilege),
+	constraint m5_role_temp_user_fk1 foreign key(role_name) references method5.m5_role(role_name)
+);
+--TODO: Comments
 
-create or replace trigger method5.m5_user_priv_trg
-before insert or update on method5.m5_user_priv
-for each row
-begin
-	:new.changed_by := user;
-	:new.changed_date := sysdate;
-end;
-/
-
+create table method5.m5_user_role
+(
+	oracle_username  varchar2(128) not null,
+	role_name        varchar2(128) not null,
+	changed_by       varchar2(128) default user not null,
+	changed_date     date          default sysdate not null,
+	constraint m5_user_role_pk primary key(oracle_username, role_name),
+	constraint m5_user_role_fk1 foreign key(oracle_username) references method5.m5_user(oracle_username),
+	constraint m5_user_role_fk2 foreign key(role_name) references method5.m5_role(role_name)
+);
+--TODO: Comments
 
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;
@@ -399,7 +393,70 @@ end m5_proc;
 
 
 ---------------------------------------
---#5: Create public synonyms.
+--#5: Create views.
+create or replace view method5.m5_allowed_privs_vw as
+select
+--Allowed privileges.
+--Aggregated and max privileges for each target.
+--If there are conflicts, use the highest privilege.
+--This allows roles to stack on top of each other.
+	oracle_username,
+	os_username,
+	target,
+	max(default_targets) default_targets,
+	min(run_as_m5_or_temp_user) run_as_m5_or_temp_user,
+	max(can_run_as_sys) can_run_as_sys,
+	max(can_run_shell_script) can_run_shell_script,
+	max(install_links_in_schema) install_links_in_schema,
+	set(cast(collect(privilege) as method5.string_table)) privileges
+from
+(
+	--Privileges for each role and target.
+	select
+		m5_user.oracle_username,
+		m5_user.os_username,
+		m5_user.default_targets,
+		target_role.role_name,
+		target_role.target_string,
+		target_role.run_as_m5_or_temp_user,
+		target_role.can_run_as_sys,
+		target_role.can_run_shell_script,
+		target_role.install_links_in_schema,
+		target_role.target,
+		m5_role_priv.privilege
+	from method5.m5_user
+	join method5.m5_user_role
+		on m5_user.oracle_username = m5_user_role.oracle_username
+	join
+	(
+		--Expand the M5_ROLE target_string to a table of targets.
+		select
+			role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			column_value target
+		from method5.m5_role
+		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'database')
+		union all
+		select
+			role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			column_value target
+		from method5.m5_role
+		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'host')
+	) target_role
+		on m5_user_role.role_name = target_role.role_name
+	left join method5.m5_role_priv
+		on target_role.role_name = m5_role_priv.role_name
+) privileges
+group by oracle_username, os_username, target
+order by oracle_username;
+
+create or replace view method5.m5_my_access_vw as
+select *
+from method5.m5_allowed_privs_vw
+where upper(trim(oracle_username)) = sys_context('userenv', 'session_user');
+
+
+---------------------------------------
+--#6: Create public synonyms.
 create public synonym m5_database   for method5.m5_database;
 create public synonym m5            for method5.m5;
 create public synonym m5_proc       for method5.m5_proc;
@@ -408,32 +465,33 @@ create public synonym m5_synch_user for method5.m5_synch_user;
 
 
 ---------------------------------------
---#6: Role, minimum privileges, and why they are needed, for the Method5 users.
-create role role_m5_user;
+--#7: Role, minimum privileges, and why they are needed, for the Method5 users.
+create role m5_user_role;
 
 --These object privileges allow users to run Method5.
 --But they can only use the packages as permitted by the M5_USER configuration.
-grant select  on method5.m5_database         to role_m5_user;
-grant execute on method5.m5                  to role_m5_user;
-grant execute on method5.m5_proc             to role_m5_user;
-grant execute on method5.m5_pkg              to role_m5_user;
-grant execute on method5.m5_synch_user       to role_m5_user;
-grant select  on method5.m5_generic_sequence to role_m5_user;
-grant execute on method5.m5_sleep            to role_m5_user;
+grant select  on method5.m5_database         to m5_user_role;
+grant execute on method5.m5                  to m5_user_role;
+grant execute on method5.m5_proc             to m5_user_role;
+grant execute on method5.m5_pkg              to m5_user_role;
+grant execute on method5.m5_synch_user       to m5_user_role;
+grant select  on method5.m5_generic_sequence to m5_user_role;
+grant execute on method5.m5_sleep            to m5_user_role;
+grant select on method5.m5_my_access_vw      to m5_user_role;
 
 --For Method4 dynamic SQL to return "anything" creating a type is necessary to describe the results.
-grant create type      to role_m5_user;
+grant create type      to m5_user_role;
 --For Method4 dynamic SQL a function is needed to return the "anything".
-grant create procedure to role_m5_user;
+grant create procedure to m5_user_role;
 --The job allows Method4 dynamic SQL to purge each specific query from the
 --shared pool, forcing hard parsing on every statement.  This is useful with
 --Oracle Data Cartridge because the same query may be "described" differently
 --after each run.
-grant create job       to role_m5_user;
+grant create job       to m5_user_role;
 
 
 ---------------------------------------
---#7: Audit Method5 objects. 
+--#8: Audit Method5 objects. 
 audit all on method5.m5_audit;
 audit all on method5.m5_pkg;
 
