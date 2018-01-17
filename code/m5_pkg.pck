@@ -1003,6 +1003,9 @@ begin
 end;
 >';
 
+--TODO: PLSQL limit privileges.
+
+
 	---------------------------------------------------------------------------
 	--Get a sequence value to help ensure uniqueness.
 	function get_sequence_nextval return number is
@@ -2759,7 +2762,7 @@ end;
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
 					--Regular SELECT statement if there are no privileges.
-					if p_allowed_privs(i).privileges is null or p_allowed_privs(i).privileges.count = 0 then
+					if p_allowed_privs(i).run_as_m5_or_temp_user = 'M5' then
 						--Build the CTAS.
 						v_ctas_ddl := get_ctas_sql(
 							p_code                     => p_code,
@@ -3153,9 +3156,9 @@ end;
 				--------------------------------------------------------------------------------
 				--Find jobs that have not finished yet:
 				select *
-				from sys.dba_scheduler_job
+				from sys.dba_scheduler_jobs
 				where regexp_replace(dba_scheduler_jobs.comments, 'TABLE:(.*)"CALLER:.*', '\1') = '#P_TABLE_NAME#'
-					and regexp_replace(dba_scheduler_jobs.comments, 'TABLE:.*"CALLER:(.*)', '\1') = user;
+				  and regexp_replace(dba_scheduler_jobs.comments, 'TABLE:.*"CALLER:(.*)', '\1') = user;
 
 				--------------------------------------------------------------------------------
 				--Stop all jobs from this run (commented out so you don't run it by accident):
