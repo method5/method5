@@ -81,16 +81,12 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 
 Then insert the permitted values with a query like this.  Make sure to create at least one user with IS_M5_ADMIN = 'Yes' and a valid email address.
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, can_run_as_sys, can_run_shell_script, install_links_in_schema, allowed_targets, default_targets)
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
 	values(
 		'&oracle_username',
 		'&os_username',
 		'&email_address',
 		'&is_m5_admin_Yes_No',
-		'&can_run_as_sys_Yes_No',
-		'&can_run_shell_script_Yes_No',
-		'&install_links_in_schema_Yes_No', 
-		'&allowed_targets',
 		'&default_targets'
 	);
 
@@ -102,11 +98,42 @@ Grant new users a role, the ability to create database links, and the ability to
 	--You can use a quota instead of unlimited if you want.
 	alter user &oracle_username quota unlimited on users;
 
-TODO: Add M5_ROLE and other new tables.
-Note: You do not need to grant "create session" privilege.
+Create a Method5 role, if a relevant role does not already exist:
 
+	insert into method5.m5_role(role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema)
+	values(
+		'&role_name',
+		'&target_string',
+		'&run_as_m5_or_temp_user',
+		'&can_run_as_sys',
+		'&can_run_shell_script',
+		'&install_links_in_schema'
+	);
 
-4B: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
+If the role will have limited privileges, instead of using the same privileges as Method5, add privileges to it:
+
+	insert into method5.m5_role_priv(role_name, privilege)
+	values(
+		'&role_name',
+		'&privilege'
+	);
+
+Assign the role to the user:
+
+	insert into method5.m5_user_role(oracle_username, role_name)
+	values(
+		'&oracle_username',
+		'&role_name'
+	);
+
+4B: (OPTIONAL) Check the assigned Method5 privileges, as well as all available users, roles, and role privileges.
+
+	select * from method5.m5_priv_vw;
+	select * from method5.m5_user;
+	select * from method5.m5_role;
+	select * from method5.m5_role_priv;
+
+4C: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User is not locked';
 	update method5.m5_config set string_value = 'DISABLED' where config_name = 'Access Control - User has expected OS username';

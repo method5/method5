@@ -1121,7 +1121,7 @@ end;
 			)
 			order by column_value
 		) requested_privileges
-		join method5.m5_allowed_privs_vw allowed_privileges
+		join method5.m5_privs_vw allowed_privileges
 			on requested_privileges.target = allowed_privileges.target
 		where trim(lower(oracle_username)) = lower(sys_context('userenv', 'session_user'))
 			and 

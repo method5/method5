@@ -102,24 +102,24 @@ begin
 				for grants_and_revokes in
 				(
 					--Grant and revoke direct access to Method5 objects to all users with DBA role.
-					--This direct access does not add any privileges, it just simplifies buildign procedures.
+					--This direct access does not add any privileges, it only simplifies building procedures.
 					--
 					with expected_grants as
 					(
 						--Expected grants.
-						select grantee, table_name, privilege, grantable
-						from dba_role_privs
+						select username grantee, table_name, privilege, grantable
+						from method5.m5_user
+						join dba_users
+							on trim(upper(m5_user.oracle_username)) = dba_users.username
+							and account_status not like '%LOCK'
 						cross join
 						(
 							select 'M5'                  table_name, 'EXECUTE' privilege, 'NO'  grantable from dual union all
-							select 'M5_DATABASE'         table_name, 'SELECT'  privilege, 'YES' grantable from dual union all
+							select 'M5_DATABASE'         table_name, 'SELECT'  privilege, 'NO' grantable from dual union all
 							select 'M5_GENERIC_SEQUENCE' table_name, 'SELECT'  privilege, 'NO'  grantable from dual union all
 							select 'M5_PROC'             table_name, 'EXECUTE' privilege, 'NO'  grantable from dual union all
 							select 'M5_PKG'              table_name, 'EXECUTE' privilege, 'NO'  grantable from dual
 						)
-						where granted_role = 'DBA'
-							and grantee in (select username from dba_users where account_status not like '%LOCK%')
-							and grantee not in ('METHOD5', 'SYS')
 						order by grantee, table_name
 					),
 					actual_grants as
@@ -174,7 +174,7 @@ begin
 		start_date      => systimestamp at time zone 'US/Eastern',
 		repeat_interval => 'freq=daily; byhour=0; byminute=20; bysecond=0',
 		enabled         => true,
-		comments        => 'Cleanup some Method5 objects that are sometimes left on the target databases.',
+		comments        => 'Cleanup old Method5 objects and temporary users that are sometimes left on the target databases if there was an error.',
 		job_action      => q'<
 			begin
 				m5_proc(
@@ -203,6 +203,12 @@ begin
 										and (object_name like 'M5_TEMP_FUNCTION_%' or object_name like 'M5_TEMP_TABLE_%')
 										and created < sysdate - 7
 								)
+								union all
+								--Drop old, temporary Method5 users.
+								select 'drop user m5_temp_user_'||replace(username, 'M5_TEMP_USER_')||' cascade' v_sql
+								from dba_users
+								where username like 'M5_TEMP_USER%'
+									and created < sysdate - 7
 								order by v_sql
 							) loop
 								execute immediate objects_to_drop.v_sql;

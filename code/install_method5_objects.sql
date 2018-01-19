@@ -121,6 +121,7 @@ create table method5.m5_role
 	can_run_as_sys           varchar2(3)    not null,
 	can_run_shell_script     varchar2(3)    not null,
 	install_links_in_schema  varchar2(3)    not null,
+	description              varchar2(4000),
 	changed_by               varchar2(128)  default user not null,
 	changed_date             date           default sysdate not null,
 	constraint m5_role_pk primary key(role_name),
@@ -130,6 +131,11 @@ create table method5.m5_role
 	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))
 );
 --TODO: Comments
+
+--Default "all" role.  This role does not need to exist and can be dropped if necessary.
+insert into method5.m5_role(role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema, description)
+values ('ALL', '%', 'M5', 'Yes', 'Yes', 'Yes', 'This role grants everything.  It is created by default but you do not need to assign it to anyone and you may delete this role.');
+commit;
 
 create table method5.m5_role_priv
 (
@@ -394,7 +400,7 @@ end m5_proc;
 
 ---------------------------------------
 --#5: Create views.
-create or replace view method5.m5_allowed_privs_vw as
+create or replace view method5.m5_priv_vw as
 select
 --Allowed privileges.
 --Aggregated and max privileges for each target.
@@ -451,7 +457,7 @@ order by oracle_username;
 
 create or replace view method5.m5_my_access_vw as
 select *
-from method5.m5_allowed_privs_vw
+from method5.m5_priv_vw
 where upper(trim(oracle_username)) = sys_context('userenv', 'session_user');
 
 
