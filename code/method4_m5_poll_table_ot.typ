@@ -79,15 +79,18 @@ is table of m4_temp_type_#ID
 
 v_function_template varchar2(32767) := q'[
 create or replace function m4_temp_function_#ID return m4_temp_table_#ID pipelined authid current_user is
-	v_cursor sys_refcursor;
-	v_rows m4_temp_table_#ID;
-	v_condition number;
+	v_loop_counter number := 0;
+	v_cursor       sys_refcursor;
+	v_rows         m4_temp_table_#ID;
+	v_condition    number;
 	v_target_names sys.dbms_debug_vc2coll := sys.dbms_debug_vc2coll();
 
 	pragma autonomous_transaction;
 begin
 	--Continually poll table.
 	loop
+		v_loop_counter := v_loop_counter + 1;
+
 		--Open cursor to retrieve all new rows - those with a new target name.
 		open v_cursor for q'`
 			select m4_temp_type_#ID(#COLUMNS) v_result
@@ -137,7 +140,20 @@ begin
 
 		--Wait 1 second.  Use execute immediate to simplify privilege requirements.
 		if v_condition = 0 then
-			execute immediate 'begin method5.m5_sleep(1); end;';
+			--Exponential backoff.
+			--Some workloads return data right away so sleeping 0.1 seconds is enough.
+			--Others may take a while and we don't want to run queries too often.
+			if v_loop_counter = 1 then
+				execute immediate 'begin method5.m5_sleep(0.1); end;';
+			elsif v_loop_counter = 2 then
+				execute immediate 'begin method5.m5_sleep(0.2); end;';
+			elsif v_loop_counter = 3 then
+				execute immediate 'begin method5.m5_sleep(0.4); end;';
+			elsif v_loop_counter = 4 then
+				execute immediate 'begin method5.m5_sleep(0.8); end;';
+			else
+				execute immediate 'begin method5.m5_sleep(1); end;';
+			end if;
 		end if;
 	end loop;
 end;

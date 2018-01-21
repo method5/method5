@@ -1121,7 +1121,7 @@ end;
 			)
 			order by column_value
 		) requested_privileges
-		join method5.m5_privs_vw allowed_privileges
+		join method5.m5_priv_vw allowed_privileges
 			on requested_privileges.target = allowed_privileges.target
 		where trim(lower(oracle_username)) = lower(sys_context('userenv', 'session_user'))
 			and 
@@ -1273,7 +1273,7 @@ end;
 	begin
 		--Check that the database username is correct.
 		if p_config_data.has_valid_db_username = 'No' then
-			audit_send_email_raise_error('You are not logged into the expected Orace username.');
+			audit_send_email_raise_error('You are not logged into the expected Oracle username.');
 		end if;
 
 		--Check both database and operating system username, if the configuration requires it.

@@ -14,8 +14,8 @@ end;
 
 begin
 	method5.method5_test.run(
-		p_database_name_1 =>   'devdb01',
-		p_database_name_2 =>   'devdb02',
+		p_database_name_1 =>   'devdb1',
+		p_database_name_2 =>   'devdb2',
 		p_other_schema_name => 'SOMEONE_ELSE');
 end;
 
