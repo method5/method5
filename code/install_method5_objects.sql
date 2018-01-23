@@ -128,7 +128,8 @@ create table method5.m5_role
 	constraint run_as_m5_or_temp_user_ck check (run_as_m5_or_temp_user in ('M5', 'TEMP_USER')),
 	constraint can_run_as_sys_ck check (can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
-	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No'))
+	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No')),
+	constraint temp_usr_cant_run_sys_or_shell check (not (run_as_m5_or_temp_user = 'TEMP_USER' and (can_run_as_sys = 'Yes' or can_run_shell_script = 'Yes')))
 );
 --TODO: Comments
 
@@ -143,8 +144,8 @@ create table method5.m5_role_priv
 	privilege     varchar2(4000) not null,
 	changed_by    varchar2(128)  default user not null,
 	changed_date  date           default sysdate not null,
-	constraint m5_role_temp_user_priv_pk primary key(role_name, privilege),
-	constraint m5_role_temp_user_fk1 foreign key(role_name) references method5.m5_role(role_name)
+	constraint m5_role_priv_pk primary key(role_name, privilege),
+	constraint m5_role_user_fk1 foreign key(role_name) references method5.m5_role(role_name)
 );
 --TODO: Comments
 

@@ -2837,7 +2837,7 @@ end;
 								sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
 								(
 									q'##QUOTE_DELIMITER2##
-										create procedure m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE## is
+										create procedure m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE## authid current_user is
 										begin
 											execute immediate q'##QUOTE_DELIMITER1##
 												##CTAS_DDL##
