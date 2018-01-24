@@ -264,23 +264,21 @@ begin
 	end;
 
 	begin
-		--Create a table that only exists on your schema in another database.
 		v_test_name := 'P_CODE 3 - Table that only exists in another database.';
 		v_expected_results := p_database_name_1||'-2';
 
+		--Create a table that only exists on your schema in another database.
 		v_table_name := get_custom_temp_table_name;
 		execute immediate replace(replace(replace(q'[
-			begin
-				dbms_utility.exec_ddl_statement@m5_#DATABASE_1#
-				('
-					create table #OWNER#.#TABLE_NAME# as select * from (select 1+1 from dual)
-				');
-			end;
+			select 1
+			from table(m5('create table #OWNER#.#TABLE_NAME# as select * from (select 1+1 from dual) ', '#DATABASE_1#'))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
 		, '#OWNER#', sys_context('userenv', 'current_user'))
-		, '#TABLE_NAME#', v_table_name);
+		, '#TABLE_NAME#', v_table_name)
+		into v_actual_results;
 
+		--Query that table.
 		execute immediate replace(replace(replace(q'[
 			select database_name||'-'||"1+1"
 			from table(m5(q'!select * from #OWNER#.#TABLE_NAME#!', '#DATABASE_1#'))
@@ -320,18 +318,18 @@ begin
 
 		--Create a temporary procedure that only exists on your schema in another database.
 		execute immediate replace(replace(q'[
-			begin
-				dbms_utility.exec_ddl_statement@m5_#DATABASE_1#
-				('
-					create or replace procedure #OWNER#.temp_proc_for_m5_testing is
-					begin
-						dbms_output.put_line(''CALL DBMS_OUTPUT test'');
-					end;
-				');
-			end;
+			select 1
+			from table(m5(q'!
+				create or replace procedure #OWNER#.temp_proc_for_m5_testing is
+				begin
+					dbms_output.put_line('CALL DBMS_OUTPUT test');
+				end;!',
+				'#DATABASE_1#'
+			))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
-		, '#OWNER#', sys_context('userenv', 'current_user'));
+		, '#OWNER#', sys_context('userenv', 'current_user'))
+		into v_actual_results;
 
 		execute immediate replace(replace(q'[
 			select database_name||'-'||result
@@ -618,7 +616,7 @@ begin
 		]', '#DATABASE_1#', p_database_name_1), '#TABLE_NAME#', v_table_name);
 
 		--Must wait between runs with same table name, to avoid primary key violation.
-		execute immediate 'begin dbms_lock.sleep(1); end;';
+		execute immediate 'begin method5.m5_sleep(1); end;';
 
 		execute immediate replace(replace(q'[
 			begin
@@ -637,7 +635,7 @@ begin
 		--#2: Test DELETE with similar code.
 		v_test_name := 'P_TABLE_EXISTS_ACTION - DELETE';
 		v_expected_results := p_database_name_1||'-X';
-		execute immediate 'begin dbms_lock.sleep(1); end;';
+		execute immediate 'begin method5.m5_sleep(1); end;';
 
 		execute immediate replace(replace(q'[
 			begin
@@ -656,7 +654,7 @@ begin
 		--#3: Error
 		v_test_name := 'P_TABLE_EXISTS_ACTION - ERROR';
 		v_expected_results := 'Exception caught';
-		execute immediate 'begin dbms_lock.sleep(1); end;';
+		execute immediate 'begin method5.m5_sleep(1); end;';
 
 		begin
 			execute immediate replace(replace(q'[
@@ -677,7 +675,7 @@ begin
 		--#4: Append 1 - results
 		v_test_name := 'P_TABLE_EXISTS_ACTION - APPEND 1';
 		v_expected_results := p_database_name_1||'-X,'||p_database_name_1||'-X';
-		execute immediate 'begin dbms_lock.sleep(1); end;';
+		execute immediate 'begin method5.m5_sleep(1); end;';
 
 		execute immediate replace(replace(q'[
 			begin
@@ -694,7 +692,7 @@ begin
 		assert_equals(v_test_name, v_expected_results, v_actual_results);
 
 		--#4: Append 2 - metadata
-		execute immediate 'begin dbms_lock.sleep(1); end;';
+		execute immediate 'begin method5.m5_sleep(1); end;';
 		v_test_name := 'P_TABLE_EXISTS_ACTION - APPEND 2';
 		v_expected_results := '2';
 		execute immediate q'[select count(*) from ]'||v_table_name || '_meta' into v_actual_results;

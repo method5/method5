@@ -115,21 +115,37 @@ comment on column method5.m5_user.changed_date is 'Date this row was last change
 
 create table method5.m5_role
 (
-	role_name                varchar2(128)  not null,
-	target_string            varchar2(4000) not null,
-	run_as_m5_or_temp_user   varchar2(9)    not null,
-	can_run_as_sys           varchar2(3)    not null,
-	can_run_shell_script     varchar2(3)    not null,
-	install_links_in_schema  varchar2(3)    not null,
-	description              varchar2(4000),
-	changed_by               varchar2(128)  default user not null,
-	changed_date             date           default sysdate not null,
+	role_name                  varchar2(128)  not null,
+	target_string              varchar2(4000) not null,
+	can_run_as_sys             varchar2(3)    not null,
+	can_run_shell_script       varchar2(3)    not null,
+	install_links_in_schema    varchar2(3)    not null,
+	run_as_m5_or_temp_user     varchar2(9)    not null,
+	temp_user_default_ts       varchar2(30),
+	temp_user_temporary_ts     varchar2(30),
+	temp_user_quota            varchar2(100),
+	temp_user_profile          varchar2(128),
+	description                varchar2(4000),
+	changed_by                 varchar2(128)  default user not null,
+	changed_date               date           default sysdate not null,
 	constraint m5_role_pk primary key(role_name),
-	constraint run_as_m5_or_temp_user_ck check (run_as_m5_or_temp_user in ('M5', 'TEMP_USER')),
 	constraint can_run_as_sys_ck check (can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
 	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No')),
-	constraint temp_usr_cant_run_sys_or_shell check (not (run_as_m5_or_temp_user = 'TEMP_USER' and (can_run_as_sys = 'Yes' or can_run_shell_script = 'Yes')))
+	constraint run_as_m5_or_temp_user_ck check (run_as_m5_or_temp_user in ('M5', 'TEMP_USER')),
+	constraint temp_properties_not_set_for_m5 check
+		(not (run_as_m5_or_temp_user = 'M5' and
+			(
+				temp_user_default_ts   is not null or
+				temp_user_temporary_ts is not null or
+				temp_user_quota        is not null or
+				temp_user_profile      is not null)
+			)),
+	constraint ts_quota_size_clause check(
+		upper(temp_user_quota) = 'UNLIMITED'
+		or
+		regexp_like(upper(temp_user_quota), '^[0-9]+[KMGTPE]?$')
+	)
 );
 --TODO: Comments
 
