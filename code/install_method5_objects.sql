@@ -427,10 +427,14 @@ select
 	os_username,
 	target,
 	max(default_targets) default_targets,
-	min(run_as_m5_or_temp_user) run_as_m5_or_temp_user,
 	max(can_run_as_sys) can_run_as_sys,
 	max(can_run_shell_script) can_run_shell_script,
 	max(install_links_in_schema) install_links_in_schema,
+	min(run_as_m5_or_temp_user) run_as_m5_or_temp_user,
+	max(temp_user_default_ts) temp_user_default_ts,
+	max(temp_user_temporary_ts) temp_user_temporary_ts,
+	max(temp_user_quota) temp_user_quota,
+	max(temp_user_profile) temp_user_profile,
 	set(cast(collect(privilege) as method5.string_table)) privileges
 from
 (
@@ -441,10 +445,24 @@ from
 		m5_user.default_targets,
 		target_role.role_name,
 		target_role.target_string,
-		target_role.run_as_m5_or_temp_user,
 		target_role.can_run_as_sys,
 		target_role.can_run_shell_script,
 		target_role.install_links_in_schema,
+		target_role.run_as_m5_or_temp_user,
+		target_role.temp_user_default_ts,
+		target_role.temp_user_temporary_ts,
+		--Convert a "size clause" into a number.
+		--(The column has a constraint so this conversion should be safe.)
+		case
+			when lower(target_role.temp_user_quota) like '%k' then to_number(replace(lower(temp_user_quota), 'k')) * 1024
+			when lower(target_role.temp_user_quota) like '%m' then to_number(replace(lower(temp_user_quota), 'm')) * 1024*1024
+			when lower(target_role.temp_user_quota) like '%g' then to_number(replace(lower(temp_user_quota), 'g')) * 1024*1024*1024
+			when lower(target_role.temp_user_quota) like '%t' then to_number(replace(lower(temp_user_quota), 't')) * 1024*1024*1024*1024
+			when lower(target_role.temp_user_quota) like '%p' then to_number(replace(lower(temp_user_quota), 'p')) * 1024*1024*1024*1024*1024
+			when lower(target_role.temp_user_quota) like '%e' then to_number(replace(lower(temp_user_quota), 'e')) * 1024*1024*1024*1024*1024*1024
+			else to_number(temp_user_quota)
+		end temp_user_quota,
+		target_role.temp_user_profile,
 		target_role.target,
 		m5_role_priv.privilege
 	from method5.m5_user
@@ -454,13 +472,15 @@ from
 	(
 		--Expand the M5_ROLE target_string to a table of targets.
 		select
-			role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			run_as_m5_or_temp_user, temp_user_default_ts, temp_user_temporary_ts, temp_user_quota, temp_user_profile,
 			column_value target
 		from method5.m5_role
 		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'database')
 		union all
 		select
-			role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
+			run_as_m5_or_temp_user, temp_user_default_ts, temp_user_temporary_ts, temp_user_quota, temp_user_profile,
 			column_value target
 		from method5.m5_role
 		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'host')

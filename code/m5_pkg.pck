@@ -583,9 +583,13 @@ procedure run(
 		target                   varchar2(4000),
 		db_link_name             varchar2(4000),
 		default_targets          varchar2(4000),
-		run_as_m5_or_temp_user   varchar2(9),
 		install_links_in_schema  varchar2(3),
+		run_as_m5_or_temp_user   varchar2(9),
 		job_owner                varchar2(128),
+		temp_user_default_ts     varchar2(30),
+		temp_user_temporary_ts   varchar2(30),
+		temp_user_quota          number,
+		temp_user_profile        varchar2(128),
 		privileges               method5.string_table,
 		has_any_install_links    varchar2(3)
 	);
@@ -1098,14 +1102,18 @@ end;
 			requested_privileges.target,
 			'M5_'||upper(requested_privileges.target) db_link_name,
 			allowed_privileges.default_targets,
-			allowed_privileges.run_as_m5_or_temp_user,
 			allowed_privileges.install_links_in_schema,
+			allowed_privileges.run_as_m5_or_temp_user,
 			case
 				when install_links_in_schema = 'Yes' then
 					sys_context('userenv', 'session_user')
 				else
 					'METHOD5'
 			end job_owner,
+			temp_user_default_ts,
+			temp_user_temporary_ts,
+			temp_user_quota,
+			temp_user_profile,
 			allowed_privileges.privileges,
 			max(case when install_links_in_schema = 'Yes' then 'Yes' else 'No' end) over () has_any_install_links
 		bulk collect into v_allowed_privs
