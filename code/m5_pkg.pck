@@ -668,23 +668,59 @@ begin
 		declare
 			v_rowcount number;
 			v_default_permanent_tablespace varchar2(128);
+			v_default_temporary_tablespace varchar2(128);
+			v_quota varchar2(128);
+			v_profile varchar2(128);
 		begin
+			--Find the temporary user properties if they exist, else use defaults.
+			select
+				nvl(requested_and_avail_ts, default_ts) tablespace,
+				nvl(requested_and_avail_temp_ts, default_temp_ts) temp_tablespace,
+				nvl(to_char('##QUOTA##'), 'UNLIMITED') quota,
+				nvl(requested_and_avail_profile, 'DEFAULT') profile
+			into v_default_permanent_tablespace, v_default_temporary_tablespace, v_quota, v_profile
+			from
+			(
+				--Requested and available values
+				select
+					(
+						select max(tablespace_name)
+						from dba_tablespaces
+						where contents = 'PERMANENT'
+							and tablespace_name = trim(upper('##DEFAULT_PERMANENT_TABLESPACE##'))
+					) requested_and_avail_ts,
+					(
+						select max(tablespace_name)
+						from dba_tablespaces
+						where contents = 'TEMPORARY'
+							and tablespace_name = trim(upper('##DEFAULT_TEMPORARY_TABLESPACE##'))
+					) requested_and_avail_temp_ts,
+					(
+						select distinct profile
+						from dba_profiles
+						where profile = trim(upper('##PROFILE##'))
+					) requested_and_avail_profile
+				from dual
+			)
+			cross join
+			(
+				--Default values.
+				select
+					max(case when property_name = 'DEFAULT_PERMANENT_TABLESPACE' then property_value else null end) default_ts,
+					max(case when property_name = 'DEFAULT_TEMP_TABLESPACE' then property_value else null end) default_temp_ts
+				from database_properties
+			);
+
 			--Create temporary user to run function.
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
 				create user m5_temp_user_##SEQUENCE##
 				identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
 				account lock password expire
+				quota '||v_quota||'
+				on '||v_default_permanent_tablespace||'
+				temporary tablespace '||v_default_temporary_tablespace||'
+				profile '||v_profile||'
 			');
-
-			--Grant the user tablespace.
-			select property_value
-			into v_default_permanent_tablespace
-			from database_properties@##DB_LINK_NAME##
-			where property_name = 'DEFAULT_PERMANENT_TABLESPACE';
-
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
-				alter user m5_temp_user_##SEQUENCE## quota unlimited on '||v_default_permanent_tablespace
-			);
 
 			--Grant the user privileges.
 			declare
@@ -2860,7 +2896,11 @@ end;
 								v_privs_string := v_privs_string || ',''' || p_allowed_privs(i).privileges(j) || '''';
 							end loop;
 
-							v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
+								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).temp_user_default_ts)
+								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).temp_user_temporary_ts)
+								,'##QUOTA##', p_allowed_privs(i).temp_user_quota)
+								,'##PROFILE##', p_allowed_privs(i).temp_user_profile)
 								,'##ALLOWED_PRIVS##', v_privs_string)
 								,'##CREATE_CTAS_PROC##', v_ctas_call)
 								,'##SEQUENCE##', to_char(v_sequence))
