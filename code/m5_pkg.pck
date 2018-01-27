@@ -685,19 +685,19 @@ begin
 				select
 					(
 						select max(tablespace_name)
-						from dba_tablespaces
+						from dba_tablespaces@##DB_LINK_NAME##
 						where contents = 'PERMANENT'
 							and tablespace_name = trim(upper('##DEFAULT_PERMANENT_TABLESPACE##'))
 					) requested_and_avail_ts,
 					(
 						select max(tablespace_name)
-						from dba_tablespaces
+						from dba_tablespaces@##DB_LINK_NAME##
 						where contents = 'TEMPORARY'
 							and tablespace_name = trim(upper('##DEFAULT_TEMPORARY_TABLESPACE##'))
 					) requested_and_avail_temp_ts,
 					(
 						select distinct profile
-						from dba_profiles
+						from dba_profiles@##DB_LINK_NAME##
 						where profile = trim(upper('##PROFILE##'))
 					) requested_and_avail_profile
 				from dual
@@ -708,7 +708,7 @@ begin
 				select
 					max(case when property_name = 'DEFAULT_PERMANENT_TABLESPACE' then property_value else null end) default_ts,
 					max(case when property_name = 'DEFAULT_TEMP_TABLESPACE' then property_value else null end) default_temp_ts
-				from database_properties
+				from database_properties@##DB_LINK_NAME##
 			);
 
 			--Create temporary user to run function.
@@ -716,9 +716,9 @@ begin
 				create user m5_temp_user_##SEQUENCE##
 				identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
 				account lock password expire
-				quota '||v_quota||'
-				on '||v_default_permanent_tablespace||'
+				default tablespace '||v_default_permanent_tablespace||'
 				temporary tablespace '||v_default_temporary_tablespace||'
+				quota '||v_quota||' on '||v_default_permanent_tablespace||'
 				profile '||v_profile||'
 			');
 
@@ -760,7 +760,7 @@ begin
 				num_rows = num_rows + v_rowcount
 			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
 
-			--Drop temporary table.
+			--Drop temporary user.
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
 				drop user m5_temp_user_##SEQUENCE## cascade
 			##QUOTE_DELIMITER2##');
