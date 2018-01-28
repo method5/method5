@@ -418,7 +418,7 @@ begin
 				bulk collect into v_target_tab;
 			end if;
 		exception when others then
-			dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
+			sys.dbms_output.put_line('Target Name Query: '||chr(10)||p_target_string);
 			raise_application_error(-20006, 'Error executing P_TARGETS.'||chr(10)||
 				'Please check that the query is valid and only returns one VARCHAR2 column.'||chr(10)||
 				'Check the query stored in M5_CONFIG or check the DBMS_OUTPUT for the query.'||
@@ -485,7 +485,7 @@ begin
 			execute immediate v_configured_target_query
 			bulk collect into v_config_type, v_config_key, v_config_values;
 		exception when others then
-			dbms_output.put_line('Configuration query that generated an error: '||v_configured_target_query);
+			sys.dbms_output.put_line('Configuration query that generated an error: '||v_configured_target_query);
 			raise_application_error(-20008, 'Error retrieving database configuration.'||
 				'  Check the query stored in M5_CONFIG.  Or check the DBMS_OUTPUT for the query.'||
 				chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
@@ -739,8 +739,24 @@ begin
 			--Create remote temporary procedure with CTAS.
 			##CREATE_CTAS_PROC##
 
-			--Run the procedure.
-			execute immediate 'begin m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE##@##DB_LINK_NAME##; end;';
+			--Create remote scheduler job to run the procedure as the sandbox user.
+			dbms_scheduler.create_job@##DB_LINK_NAME##(
+				job_name => 'm5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
+				job_type => 'stored_procedure',
+				job_action => 'm5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE##',
+				comments => 'Temporary Method5 job for a temporary Method5 user.  Both will be dropped after the job finishes.'
+			);
+
+			--Workaround to PLS-00960: RPCs cannot use parameters with schema-level object types in this release.
+			dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+				create procedure m5_temp_user_##SEQUENCE##.run_job is
+				begin
+					dbms_scheduler.run_job(''m5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
+				end;
+			');
+
+			--Run the procedure, that runs the job, that runs the proc, that runs the code.
+			execute immediate 'begin m5_temp_user_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
 
 			--Insert data into local tble using database link.
 			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
@@ -761,9 +777,7 @@ begin
 			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
 
 			--Drop temporary user.
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
-				drop user m5_temp_user_##SEQUENCE## cascade
-			##QUOTE_DELIMITER2##');
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER3##';
 
@@ -786,9 +800,7 @@ exception when others then
 	--Cleanup by dropping the temporary user.
 	execute immediate q'##QUOTE_DELIMITER3##
 		begin
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
-				drop user m5_temp_user_##SEQUENCE## cascade
-			##QUOTE_DELIMITER2##');
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER3##';
 
@@ -1043,7 +1055,250 @@ begin
 end;
 >';
 
---TODO: PLSQL limit privileges.
+	v_plsql_limit_privs_template constant varchar2(32767) := q'<
+create procedure m5_temp_proc_##SEQUENCE## authid current_user is
+begin
+	execute immediate q'##QUOTE_DELIMITER4##
+		declare
+			v_dummy varchar2(1);
+			v_return_value varchar2(32767);
+
+			--Exception handling is the same, except it will print a different message if
+			--the error was in compiling or running.
+			procedure handle_exception(p_compile_or_run varchar2) is
+			begin
+				update ##TABLE_OWNER##.##TABLE_NAME##_meta
+				set targets_with_errors = targets_with_errors + 1,
+					date_updated = sysdate,
+					is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No')
+				where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+				insert into ##TABLE_OWNER##.##TABLE_NAME##_err
+				values ('##DATABASE_NAME##', '##DB_LINK_NAME##'
+					, sysdate, p_compile_or_run||' error: '||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+
+				commit;
+
+				--Drop the temporary function.
+				declare
+					v_does_not_exist exception;
+					pragma exception_init(v_does_not_exist, -1918);
+				begin
+					--Drop temporary user.
+					sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+				exception when v_does_not_exist then null;
+				end;
+			end handle_exception;
+		begin
+			--Create a function with the PLSQL block.
+			--This is nested because job must still compile even if the block is invalid, and execute immediate allows role privileges.
+			declare
+				v_rowid rowid;
+				v_result varchar2(1000);
+			begin
+				--Ping database with simple select to create simple error message if link fails.
+				execute immediate 'select dummy from sys.dual@##DB_LINK_NAME##' into v_dummy;
+
+				execute immediate q'##QUOTE_DELIMITER3##
+					declare
+						v_default_permanent_tablespace varchar2(128);
+						v_default_temporary_tablespace varchar2(128);
+						v_quota varchar2(128);
+						v_profile varchar2(128);
+					begin
+						--Find the temporary user properties if they exist, else use defaults.
+						select
+							nvl(requested_and_avail_ts, default_ts) tablespace,
+							nvl(requested_and_avail_temp_ts, default_temp_ts) temp_tablespace,
+							nvl(to_char('##QUOTA##'), 'UNLIMITED') quota,
+							nvl(requested_and_avail_profile, 'DEFAULT') profile
+						into v_default_permanent_tablespace, v_default_temporary_tablespace, v_quota, v_profile
+						from
+						(
+							--Requested and available values
+							select
+								(
+									select max(tablespace_name)
+									from dba_tablespaces@##DB_LINK_NAME##
+									where contents = 'PERMANENT'
+										and tablespace_name = trim(upper('##DEFAULT_PERMANENT_TABLESPACE##'))
+								) requested_and_avail_ts,
+								(
+									select max(tablespace_name)
+									from dba_tablespaces@##DB_LINK_NAME##
+									where contents = 'TEMPORARY'
+										and tablespace_name = trim(upper('##DEFAULT_TEMPORARY_TABLESPACE##'))
+								) requested_and_avail_temp_ts,
+								(
+									select distinct profile
+									from dba_profiles@##DB_LINK_NAME##
+									where profile = trim(upper('##PROFILE##'))
+								) requested_and_avail_profile
+							from dual
+						)
+						cross join
+						(
+							--Default values.
+							select
+								max(case when property_name = 'DEFAULT_PERMANENT_TABLESPACE' then property_value else null end) default_ts,
+								max(case when property_name = 'DEFAULT_TEMP_TABLESPACE' then property_value else null end) default_temp_ts
+							from database_properties@##DB_LINK_NAME##
+						);
+
+						--Create temporary user to run function.
+						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+							create user m5_temp_user_##SEQUENCE##
+							identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
+							account lock password expire
+							default tablespace '||v_default_permanent_tablespace||'
+							temporary tablespace '||v_default_temporary_tablespace||'
+							quota '||v_quota||' on '||v_default_permanent_tablespace||'
+							profile '||v_profile||'
+						');
+
+						--Grant the user privileges.
+						declare
+							v_privs sys.odcivarchar2list := sys.odcivarchar2list('create table,create procedure'##ALLOWED_PRIVS##);
+						begin
+							for i in 1 .. v_privs.count loop
+								begin
+									sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(
+										'grant '||v_privs(i)||' to m5_temp_user_##SEQUENCE##'
+									);
+								exception when others then null;
+								end;
+							end loop;
+						end;
+
+						--Create function to run code.
+						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
+							create function m5_temp_user_##SEQUENCE##.m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
+								--Required for DDL over database link.
+								pragma autonomous_transaction;
+
+								v_lines sys.dbmsoutput_linesarray;
+								v_numlines number := 32767;
+								v_dbms_output_clob clob;
+							begin
+								sys.dbms_output.enable(null);
+
+								execute immediate q'##QUOTE_DELIMITER1##
+									begin
+										##CODE##
+									end;
+								##QUOTE_DELIMITER1##';
+
+								--Retrieve and concatenate the output.
+								sys.dbms_output.get_lines(lines => v_lines, numlines => v_numlines);
+								for i in 1 .. v_numlines loop
+									v_dbms_output_clob := v_dbms_output_clob || case when i = 1 then null else chr(10) end || v_lines(i);
+								end loop;
+
+								return v_dbms_output_clob;
+							end;
+						##QUOTE_DELIMITER2##');
+
+						--Create remote scheduler job to create remote temporary table with results, as the sandbox user.
+						dbms_scheduler.create_job@##DB_LINK_NAME##(
+							job_name => 'm5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
+							job_type => 'plsql_block',
+							job_action => '
+								begin
+									execute immediate ''
+										create table m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE## nologging pctfree 0 as
+										select m5_temp_user_##SEQUENCE##.m5_temp_function_##SEQUENCE## result from dual
+									'';
+								end;
+							',
+							comments => 'Temporary Method5 job for a temporary Method5 user.  Both will be dropped after the job finishes.'
+						);
+
+						--Workaround to PLS-00960: RPCs cannot use parameters with schema-level object types in this release.
+						dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+							create procedure m5_temp_user_##SEQUENCE##.run_job is
+							begin
+								dbms_scheduler.run_job(''m5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
+							end;
+						');
+
+						--Run the procedure, that runs the job, that runs the proc, that runs the code.
+						execute immediate 'begin m5_temp_user_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
+					end;
+				##QUOTE_DELIMITER3##';
+
+				--Create local row and get ROWID.
+				--(Must use INSERT VALUES and UPDATE because INSERT SUBQUERY doesn't support RETURNING
+				-- and INSERT VALUES doesn't support CLOBs.)
+				execute immediate q'##QUOTE_DELIMITER3##
+					insert into ##TABLE_OWNER##.##TABLE_NAME##(database_name)
+					values('##DATABASE_NAME##')
+					returning rowid into :v_rowid
+				##QUOTE_DELIMITER3##'
+				returning into v_rowid;
+
+				--Update local value.
+				execute immediate q'##QUOTE_DELIMITER3##
+					update ##TABLE_OWNER##.##TABLE_NAME##
+					set result = (select result from m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##)
+					where rowid = :v_rowid
+				##QUOTE_DELIMITER3##'
+				using v_rowid;
+
+				--Get part of the result.
+				execute immediate q'##QUOTE_DELIMITER3##
+					select to_char(substr(result, 1, 1000))
+					from ##TABLE_OWNER##.##TABLE_NAME##
+					where rowid = :v_rowid
+				##QUOTE_DELIMITER3##'
+				into v_result
+				using v_rowid;
+
+				--Convert return value into a SQL*PLus-like feedback message, if necessary.
+				if v_result like 'M5_FEEDBACK_MESSAGE:COMMAND_NAME=%' then
+					declare
+						v_command_name varchar2(1000);
+						v_rowcount number;
+						v_success_message varchar2(4000);
+						v_compile_warning_message varchar2(4000);
+					begin
+						v_command_name := regexp_replace(v_result, '.*COMMAND_NAME=(.*);.*', '\1');
+						v_rowcount := regexp_replace(v_result, '.*ROWCOUNT=(.*)$', '\1');
+						method5.statement_feedback.get_feedback_message(
+							p_command_name => v_command_name,
+							p_rowcount => v_rowcount,
+							p_success_message => v_success_message,
+							p_compile_warning_message => v_compile_warning_message
+						);
+						v_result := v_success_message;
+
+						execute immediate q'##QUOTE_DELIMITER3##
+							update ##TABLE_OWNER##.##TABLE_NAME##
+							set result = :new_result
+							where rowid = :v_rowid
+						##QUOTE_DELIMITER3##'
+						using v_result, v_rowid;
+					end;
+				end if;
+
+			exception when others then
+				handle_exception('Run');
+				raise;
+			end;
+
+			--Update _META table.
+			update ##TABLE_OWNER##.##TABLE_NAME##_meta
+			set targets_completed = targets_completed + 1,
+				date_updated = sysdate,
+				is_complete = decode(targets_expected, targets_completed+targets_with_errors+1, 'Yes', 'No'),
+				num_rows = num_rows + 1
+			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
+
+			--Drop temporary user.
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+		end;
+	##QUOTE_DELIMITER4##';
+end;
+>';
 
 
 	---------------------------------------------------------------------------
@@ -2805,7 +3060,7 @@ end;
 			begin
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
-					--Regular SELECT statement if there are no privileges.
+					--Regular SELECT statement if it runs as Method5.
 					if p_allowed_privs(i).run_as_m5_or_temp_user = 'M5' then
 						--Build the CTAS.
 						v_ctas_ddl := get_ctas_sql(
@@ -2856,7 +3111,7 @@ end;
 							,'##DATABASE_NAME##', p_allowed_privs(i).target)
 							,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
 							,'##CTAS_DDL##', v_ctas_ddl);
-					--Create a temporary user if only specific privileges are allowed.
+					--Create a temporary user.
 					else
 						declare
 							v_privs_string varchar2(32767);
@@ -2877,7 +3132,6 @@ end;
 
 							v_ctas_call :=
 							q'<
-								--Create remote procedure to create table with results.
 								sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
 								(
 									q'##QUOTE_DELIMITER2##
@@ -2918,15 +3172,41 @@ end;
 
 				--PL/SQL CTAS.
 				elsif p_select_plsql_script = 'PLSQL' then
-					v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
-						,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
-						,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
-						,'##SEQUENCE##', to_char(v_sequence))
-						,'##TABLE_OWNER##', p_table_owner)
-						,'##TABLE_NAME##', p_table_name)
-						,'##DATABASE_NAME##', p_allowed_privs(i).target)
-						,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
-						,'##CODE##', p_code);
+					--Regular PL/SQL template if it runs as Method5.
+					if p_allowed_privs(i).run_as_m5_or_temp_user = 'M5' then
+						v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
+							,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
+							,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
+							,'##SEQUENCE##', to_char(v_sequence))
+							,'##TABLE_OWNER##', p_table_owner)
+							,'##TABLE_NAME##', p_table_name)
+							,'##DATABASE_NAME##', p_allowed_privs(i).target)
+							,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
+							,'##CODE##', p_code);
+					--Create a temporary user.
+					else
+						declare
+							v_privs_string varchar2(32767);
+						begin
+							--Create string of privileges.
+							for j in 1 .. p_allowed_privs(i).privileges.count loop
+								v_privs_string := v_privs_string || ',''' || p_allowed_privs(i).privileges(j) || '''';
+							end loop;
+
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_limit_privs_template
+								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).temp_user_default_ts)
+								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).temp_user_temporary_ts)
+								,'##QUOTA##', p_allowed_privs(i).temp_user_quota)
+								,'##PROFILE##', p_allowed_privs(i).temp_user_profile)
+								,'##ALLOWED_PRIVS##', v_privs_string)
+								,'##SEQUENCE##', to_char(v_sequence))
+								,'##TABLE_OWNER##', p_table_owner)
+								,'##TABLE_NAME##', p_table_name)
+								,'##DATABASE_NAME##', p_allowed_privs(i).target)
+								,'##DB_LINK_NAME##', p_allowed_privs(i).db_link_name)
+								,'##CODE##', p_code);
+						end;
+					end if;
 
 					if p_command_name = 'PL/SQL EXECUTE' then
 						v_code := replace(v_code, '##CLOB_OR_VARCHAR2##', 'clob');
