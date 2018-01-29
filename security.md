@@ -33,23 +33,64 @@ It's important that Method5 itself does not create any security issues.  To keep
 5. **Multi-step authentication.**  Authentication requires an existing database account, as well as the proper role, profile, account name, account status, and operating system username.
 6. **Intrusion detection.**  Un-authorized access attempts will send an email to an administrator.  Even in the worst-case scenario, where someone gains root access to your central management host, they would likely generate an alert.
 7. **SYS protection.**  Method5 has an optional feature to allow authorized users to run remote commands as SYS.  This feature is well protected to ensure that attackers on remote databases cannot use it, even if they get DBA access.  Remote SYS commands are only allowed if they come from the master database.  Those commands must be encrypted using AES 256, using a secret key that is randomly generated for each database, and stored in the SYS.LINK$ table that not even the DBA role can read.  Those commands also include a session GUID to prevent re-running old commands.
-8. **Open Source.**  All code is available for inspection.  Method5 does not rely on security through obscurity.
+8. **Open Source.**  All code is available for inspection.  Method5 does not rely only on security through obscurity.
 
 
 
 ##Configure Method5 to limit privileges for users, remote Method5 schema, and management Method5 schema.
 
 There are three ways to control Method5 privileges:
-1. Limit features, databases, and privileges available for each user.  For example, this can be useful if you have a junior DBA or a data analyst that should only have read-only access.
+1. Limit targets, features, and privileges available for each user.  Temporary sandbox users can be created to precisely limit the privileges available to Method5 users.  For example, this can be useful if you have a junior DBA or a data analyst that should only have read-only access.
 2. Limit installed features and privileges granted to Method5 on remote databases.  For example, this can be useful if you want to limit all Method5 users to read-only access.
 3. Limit installed features and privileges granted to Method5 on the management database.  This is similar to the above limits on remote databases, but Method5 does require slightly more privileges on the management database.
 
+Options #2 and #3 can be tricky to configure and are not recommended.
 
-**Limit features, databases, and privileges available for each user.**
 
-TODO
+**1. Limit targets, features, and privileges available for each user.**
 
-**Limit installed features and privileges granted to Method5 on remote databases.**
+The table METHOD5.M5_ROLE allows complete control over the targets and features available to each user.  The column comments explain how to use each setting:
+
+* ROLE_NAME: Name of the role.
+* TARGET_STRING: String that describes available targets.  Works the same way as the parameter P_TARGETS.  Use % to mean everything.
+* CAN_RUN_AS_SYS: Can run commands as SYS.  Either Yes or No.
+* CAN_RUN_SHELL_SCRIPT: Can run shell scripts on the host.  Either Yes or No.
+* INSTALL_LINKS_IN_SCHEMA: Are private links installed in the user schemas.  Either Yes or NO.
+* RUN_AS_M5_OR_SANDBOX: Run as the user Method5 (with all privileges) or as a temporary sandbox users with precisely controlled privileges.  Either M5 or SANDBOX.
+* SANDBOX_DEFAULT_TS: The permanent tablespace for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the tablespace is not found the default permanent tablespace is used.
+* SANDBOX_TEMPORARY_TS: The temporary tablespace for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the tablespace is not found the default temporary tablespace is used.
+* SANDBOX_QUOTA: The quota on the permanent tablespace for the sanbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  This string can be a SIZE_CLAUSE.  For example, the values can be 10G, 9999999, 5M, etc.  If NULL then UNLIMITED will be used.
+* SANDBOX_PROFILE: The profile used for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the profile is not found the DEFAULT profile is used.
+
+By default Method5 will run commands as the privileged Method5 user.  That works well for DBAs who are allowed full access.  To create a less-privileged user, set RUN_AS_M5_OR_SANDBOX to "SANDBOX" and add relevant rows to the table M5_ROLE_PRIV.
+
+For example, let's say you have a Junior DBA that has full access to development but is read-only on production.  First, create a role for full access to development.  It can run as SYS, shell scripts, has links, and normally uses the M5 account.
+
+	insert into method5.m5_role(ROLE_NAME, TARGET_STRING, CAN_RUN_AS_SYS, CAN_RUN_SHELL_SCRIPT, INSTALL_LINKS_IN_SCHEMA, RUN_AS_M5_OR_SANDBOX)
+	values ('Dev Full Access', 'development', 'Yes', 'Yes', 'Yes', 'M5');
+
+Then create create a role for read-only access in production.  Set most flags to No, and set the user to SANDBOX.
+
+	insert into method5.m5_role(ROLE_NAME, TARGET_STRING, CAN_RUN_AS_SYS, CAN_RUN_SHELL_SCRIPT, INSTALL_LINKS_IN_SCHEMA, RUN_AS_M5_OR_SANDBOX)
+	values ('Prod Read Only', 'production', 'No', 'No', 'No', 'SANDBOX');
+
+The new sandbox role initially has no privileges and can't do anything.  Grant it "SELECT ANY TABLE":
+
+	insert into method5.m5_role_priv(ROLE_NAME, PRIVILEGE)
+	values ('Prod Read Only', 'SELECT ANY TABLE');
+
+Now associate both the development and the production role with any relevant users:
+
+	insert into method5.m5_user_role(ORACLE_USERNAME, ROLE_NAME)
+	values ('NEW_DBA1', 'Dev Full Access');
+
+	insert into method5.m5_user_role(ORACLE_USERNAME, ROLE_NAME)
+	values ('NEW_DBA1', 'Prod Read Only');
+
+
+**2. Limit installed features and privileges granted to Method5 on remote databases.**
+
+--TODO
 
 Remote database default Method5 schema privileges and why they are granted:
 

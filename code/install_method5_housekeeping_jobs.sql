@@ -206,9 +206,9 @@ begin
 								)
 								union all
 								--Drop old, temporary Method5 users.
-								select 'drop user m5_temp_user_'||replace(username, 'M5_TEMP_USER_')||' cascade' v_sql
+								select 'drop user m5_temp_sandbox_'||replace(username, 'M5_TEMP_SANDBOX_')||' cascade' v_sql
 								from dba_users
-								where username like 'M5_TEMP_USER%'
+								where username like 'M5_TEMP_SANDBOX%'
 									and created < sysdate - 7
 								order by v_sql
 							) loop

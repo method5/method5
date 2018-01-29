@@ -104,54 +104,67 @@ create table method5.m5_user
 	constraint m5_user_pk primary key(oracle_username),
 	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No'))
 );
-comment on table method5.m5_user is 'Method5 users.';
+comment on table method5.m5_user                  is 'Method5 users.';
 comment on column method5.m5_user.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
-comment on column method5.m5_user.os_username is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
-comment on column method5.m5_user.email_address is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
-comment on column method5.m5_user.is_m5_admin is 'Can this user change Method5 configuration tables.  Either Yes or No.';
+comment on column method5.m5_user.os_username     is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
+comment on column method5.m5_user.email_address   is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
+comment on column method5.m5_user.is_m5_admin     is 'Can this user change Method5 configuration tables.  Either Yes or No.';
 comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
-comment on column method5.m5_user.changed_by is 'User who last changed this row.';
-comment on column method5.m5_user.changed_date is 'Date this row was last changed.';
+comment on column method5.m5_user.changed_by      is 'User who last changed this row.';
+comment on column method5.m5_user.changed_date    is 'Date this row was last changed.';
 
 create table method5.m5_role
 (
-	role_name                  varchar2(128)  not null,
-	target_string              varchar2(4000) not null,
-	can_run_as_sys             varchar2(3)    not null,
-	can_run_shell_script       varchar2(3)    not null,
-	install_links_in_schema    varchar2(3)    not null,
-	run_as_m5_or_temp_user     varchar2(9)    not null,
-	temp_user_default_ts       varchar2(30),
-	temp_user_temporary_ts     varchar2(30),
-	temp_user_quota            varchar2(100),
-	temp_user_profile          varchar2(128),
-	description                varchar2(4000),
-	changed_by                 varchar2(128)  default user not null,
-	changed_date               date           default sysdate not null,
+	role_name               varchar2(128)  not null,
+	target_string           varchar2(4000) not null,
+	can_run_as_sys          varchar2(3)    not null,
+	can_run_shell_script    varchar2(3)    not null,
+	install_links_in_schema varchar2(3)    not null,
+	run_as_m5_or_sandbox    varchar2(7)    not null,
+	sandbox_default_ts      varchar2(30),
+	sandbox_temporary_ts    varchar2(30),
+	sandbox_quota           varchar2(100),
+	sandbox_profile         varchar2(128),
+	description             varchar2(4000),
+	changed_by              varchar2(128)  default user not null,
+	changed_date            date           default sysdate not null,
 	constraint m5_role_pk primary key(role_name),
 	constraint can_run_as_sys_ck check (can_run_as_sys in ('Yes', 'No')),
 	constraint can_run_shell_script_ck check (can_run_shell_script in ('Yes', 'No')),
 	constraint install_links_in_schema_ck check (install_links_in_schema in ('Yes', 'No')),
-	constraint run_as_m5_or_temp_user_ck check (run_as_m5_or_temp_user in ('M5', 'TEMP_USER')),
-	constraint temp_properties_not_set_for_m5 check
-		(not (run_as_m5_or_temp_user = 'M5' and
+	constraint run_as_m5_or_sandbox_ck check (run_as_m5_or_sandbox in ('M5', 'SANDBOX')),
+	constraint sandbox_props_not_set_for_m5 check
+		(not (run_as_m5_or_sandbox = 'M5' and
 			(
-				temp_user_default_ts   is not null or
-				temp_user_temporary_ts is not null or
-				temp_user_quota        is not null or
-				temp_user_profile      is not null)
+				sandbox_default_ts   is not null or
+				sandbox_temporary_ts is not null or
+				sandbox_quota        is not null or
+				sandbox_profile      is not null)
 			)),
 	constraint ts_quota_size_clause check(
-		upper(temp_user_quota) = 'UNLIMITED'
+		upper(sandbox_quota) = 'UNLIMITED'
 		or
-		regexp_like(upper(temp_user_quota), '^[0-9]+[KMGTPE]?$')
+		regexp_like(upper(sandbox_quota), '^[0-9]+[KMGTPE]?$')
 	)
 );
---TODO: Comments
+comment on table method5.m5_role is 'Method5 roles control the targets, features, and privileges available to Method5 users.';
+comment on column method5.m5_role.role_name                  is 'Name of the role.';
+comment on column method5.m5_role.target_string              is 'String that describes available targets.  Works the same way as the parameter P_TARGETS.  Use % to mean everything.';
+comment on column method5.m5_role.can_run_as_sys             is 'Can run commands as SYS.  Either Yes or No.';
+comment on column method5.m5_role.can_run_shell_script       is 'Can run shell scripts on the host.  Either Yes or No.';
+comment on column method5.m5_role.install_links_in_schema    is 'Are private links installed in the user schemas.  Either Yes or NO.';
+comment on column method5.m5_role.run_as_m5_or_sandbox       is 'Run as the user Method5 (with all privileges) or as a temporary sandbox users with precisely controlled privileges.  Either M5 or SANDBOX.';
+comment on column method5.m5_role.sandbox_default_ts         is 'The permanent tablespace for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the tablespace is not found the default permanent tablespace is used.';
+comment on column method5.m5_role.sandbox_temporary_ts       is 'The temporary tablespace for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the tablespace is not found the default temporary tablespace is used.';
+comment on column method5.m5_role.sandbox_quota              is 'The quota on the permanent tablespace for the sanbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  This string can be a SIZE_CLAUSE.  For example, the values can be 10G, 9999999, 5M, etc.  If NULL then UNLIMITED will be used.';
+comment on column method5.m5_role.sandbox_profile            is 'The profile used for the sandbox user.  Only used if RUN_AS_M5_OR_SANDBOX is set to SANDBOX.  If NULL or the profile is not found the DEFAULT profile is used.';
+comment on column method5.m5_role.description                is 'Description of the role.';
+comment on column method5.m5_role.changed_by                 is 'User who last changed this row.';
+comment on column method5.m5_role.changed_date               is 'Date this row was last changed.';
 
 --Default "all" role.  This role does not need to exist and can be dropped if necessary.
-insert into method5.m5_role(role_name, target_string, run_as_m5_or_temp_user, can_run_as_sys, can_run_shell_script, install_links_in_schema, description)
-values ('ALL', '%', 'M5', 'Yes', 'Yes', 'Yes', 'This role grants everything.  It is created by default but you do not need to assign it to anyone and you may delete this role.');
+insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox, description)
+values ('ALL', '%', 'Yes', 'Yes', 'Yes', 'M5', 'This role grants everything.  It is created by default but you do not need to assign it to anyone and you may delete this role.');
 commit;
 
 create table method5.m5_role_priv
@@ -163,7 +176,11 @@ create table method5.m5_role_priv
 	constraint m5_role_priv_pk primary key(role_name, privilege),
 	constraint m5_role_user_fk1 foreign key(role_name) references method5.m5_role(role_name)
 );
---TODO: Comments
+comment on table method5.m5_role_priv is 'Privileges granted to a role.';
+comment on column method5.m5_role_priv.role_name     is 'Role name from METHOD5.ROLE.ROLE_NAME.';
+comment on column method5.m5_role_priv.privilege     is 'An Oracle system privilege, object privilege, or role.  This string will be placed in the middle of:  grant <privilege> to m5_temp_sandbox_XYZ;  For example: select_catalog_role, select any table, delete any table.';
+comment on column method5.m5_role_priv.changed_by    is 'User who last changed this row.';
+comment on column method5.m5_role_priv.changed_date  is 'Date this row was last changed.';
 
 create table method5.m5_user_role
 (
@@ -175,7 +192,11 @@ create table method5.m5_user_role
 	constraint m5_user_role_fk1 foreign key(oracle_username) references method5.m5_user(oracle_username),
 	constraint m5_user_role_fk2 foreign key(role_name) references method5.m5_role(role_name)
 );
---TODO: Comments
+comment on table method5.m5_user_role is 'Grants a Method5 role to a Method5 user.';
+comment on column method5.m5_user_role.oracle_username is 'Oracle username from METHOD5.M5_USER.ORACLE_USERNAME.';
+comment on column method5.m5_user_role.role_name       is 'Role name from METHOD5.ROLE.ROLE_NAME.';
+comment on column method5.m5_user_role.changed_by      is 'User who last changed this row.';
+comment on column method5.m5_user_role.changed_date    is 'Date this row was last changed.';
 
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;
@@ -430,11 +451,11 @@ select
 	max(can_run_as_sys) can_run_as_sys,
 	max(can_run_shell_script) can_run_shell_script,
 	max(install_links_in_schema) install_links_in_schema,
-	min(run_as_m5_or_temp_user) run_as_m5_or_temp_user,
-	max(temp_user_default_ts) temp_user_default_ts,
-	max(temp_user_temporary_ts) temp_user_temporary_ts,
-	max(temp_user_quota) temp_user_quota,
-	max(temp_user_profile) temp_user_profile,
+	min(run_as_m5_or_sandbox) run_as_m5_or_sandbox,
+	max(sandbox_default_ts) sandbox_default_ts,
+	max(sandbox_temporary_ts) sandbox_temporary_ts,
+	max(sandbox_quota) sandbox_quota,
+	max(sandbox_profile) sandbox_profile,
 	set(cast(collect(privilege) as method5.string_table)) privileges
 from
 (
@@ -448,21 +469,21 @@ from
 		target_role.can_run_as_sys,
 		target_role.can_run_shell_script,
 		target_role.install_links_in_schema,
-		target_role.run_as_m5_or_temp_user,
-		target_role.temp_user_default_ts,
-		target_role.temp_user_temporary_ts,
+		target_role.run_as_m5_or_sandbox,
+		target_role.sandbox_default_ts,
+		target_role.sandbox_temporary_ts,
 		--Convert a "size clause" into a number.
 		--(The column has a constraint so this conversion should be safe.)
 		case
-			when lower(target_role.temp_user_quota) like '%k' then to_number(replace(lower(temp_user_quota), 'k')) * 1024
-			when lower(target_role.temp_user_quota) like '%m' then to_number(replace(lower(temp_user_quota), 'm')) * 1024*1024
-			when lower(target_role.temp_user_quota) like '%g' then to_number(replace(lower(temp_user_quota), 'g')) * 1024*1024*1024
-			when lower(target_role.temp_user_quota) like '%t' then to_number(replace(lower(temp_user_quota), 't')) * 1024*1024*1024*1024
-			when lower(target_role.temp_user_quota) like '%p' then to_number(replace(lower(temp_user_quota), 'p')) * 1024*1024*1024*1024*1024
-			when lower(target_role.temp_user_quota) like '%e' then to_number(replace(lower(temp_user_quota), 'e')) * 1024*1024*1024*1024*1024*1024
-			else to_number(temp_user_quota)
-		end temp_user_quota,
-		target_role.temp_user_profile,
+			when lower(target_role.sandbox_quota) like '%k' then to_number(replace(lower(sandbox_quota), 'k')) * 1024
+			when lower(target_role.sandbox_quota) like '%m' then to_number(replace(lower(sandbox_quota), 'm')) * 1024*1024
+			when lower(target_role.sandbox_quota) like '%g' then to_number(replace(lower(sandbox_quota), 'g')) * 1024*1024*1024
+			when lower(target_role.sandbox_quota) like '%t' then to_number(replace(lower(sandbox_quota), 't')) * 1024*1024*1024*1024
+			when lower(target_role.sandbox_quota) like '%p' then to_number(replace(lower(sandbox_quota), 'p')) * 1024*1024*1024*1024*1024
+			when lower(target_role.sandbox_quota) like '%e' then to_number(replace(lower(sandbox_quota), 'e')) * 1024*1024*1024*1024*1024*1024
+			else to_number(sandbox_quota)
+		end sandbox_quota,
+		target_role.sandbox_profile,
 		target_role.target,
 		m5_role_priv.privilege
 	from method5.m5_user
@@ -473,14 +494,14 @@ from
 		--Expand the M5_ROLE target_string to a table of targets.
 		select
 			role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
-			run_as_m5_or_temp_user, temp_user_default_ts, temp_user_temporary_ts, temp_user_quota, temp_user_profile,
+			run_as_m5_or_sandbox, sandbox_default_ts, sandbox_temporary_ts, sandbox_quota, sandbox_profile,
 			column_value target
 		from method5.m5_role
 		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'database')
 		union all
 		select
 			role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
-			run_as_m5_or_temp_user, temp_user_default_ts, temp_user_temporary_ts, temp_user_quota, temp_user_profile,
+			run_as_m5_or_sandbox, sandbox_default_ts, sandbox_temporary_ts, sandbox_quota, sandbox_profile,
 			column_value target
 		from method5.m5_role
 		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'host')

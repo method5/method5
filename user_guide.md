@@ -32,7 +32,7 @@ Method5 User Guide
 
 ## Introduction to Method5
 
-Method5 extends Oracle SQL to allow parallel remote execution.  It lets administrators easily run SQL statements, PL/SQL blocks, and Unix shell commands quickly and securely on hundreds of databases.
+Method5 extends Oracle SQL to allow parallel remote execution.  It lets users easily run SQL statements, PL/SQL blocks, and Unix shell commands quickly and securely on hundreds of databases.
 
 Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
 

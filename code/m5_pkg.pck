@@ -584,12 +584,12 @@ procedure run(
 		db_link_name             varchar2(4000),
 		default_targets          varchar2(4000),
 		install_links_in_schema  varchar2(3),
-		run_as_m5_or_temp_user   varchar2(9),
+		run_as_m5_or_sandbox     varchar2(7),
 		job_owner                varchar2(128),
-		temp_user_default_ts     varchar2(30),
-		temp_user_temporary_ts   varchar2(30),
-		temp_user_quota          number,
-		temp_user_profile        varchar2(128),
+		sandbox_default_ts       varchar2(30),
+		sandbox_temporary_ts     varchar2(30),
+		sandbox_quota            number,
+		sandbox_profile          varchar2(128),
 		privileges               method5.string_table,
 		has_any_install_links    varchar2(3)
 	);
@@ -713,7 +713,7 @@ begin
 
 			--Create temporary user to run function.
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
-				create user m5_temp_user_##SEQUENCE##
+				create user m5_temp_sandbox_##SEQUENCE##
 				identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
 				account lock password expire
 				default tablespace '||v_default_permanent_tablespace||'
@@ -729,7 +729,7 @@ begin
 				for i in 1 .. v_privs.count loop
 					begin
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(
-							'grant '||v_privs(i)||' to m5_temp_user_##SEQUENCE##'
+							'grant '||v_privs(i)||' to m5_temp_sandbox_##SEQUENCE##'
 						);
 					exception when others then null;
 					end;
@@ -741,29 +741,29 @@ begin
 
 			--Create remote scheduler job to run the procedure as the sandbox user.
 			dbms_scheduler.create_job@##DB_LINK_NAME##(
-				job_name => 'm5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
+				job_name => 'm5_temp_sandbox_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
 				job_type => 'stored_procedure',
-				job_action => 'm5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE##',
+				job_action => 'm5_temp_sandbox_##SEQUENCE##.m5_temp_proc_##SEQUENCE##',
 				comments => 'Temporary Method5 job for a temporary Method5 user.  Both will be dropped after the job finishes.'
 			);
 
 			--Workaround to PLS-00960: RPCs cannot use parameters with schema-level object types in this release.
 			dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
-				create procedure m5_temp_user_##SEQUENCE##.run_job is
+				create procedure m5_temp_sandbox_##SEQUENCE##.run_job is
 				begin
-					dbms_scheduler.run_job(''m5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
+					dbms_scheduler.run_job(''m5_temp_sandbox_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
 				end;
 			');
 
 			--Run the procedure, that runs the job, that runs the proc, that runs the code.
-			execute immediate 'begin m5_temp_user_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
+			execute immediate 'begin m5_temp_sandbox_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
 
 			--Insert data into local tble using database link.
 			--Use dynamic SQL - PL/SQL must compile in order to catch exceptions.
 			execute immediate q'##QUOTE_DELIMITER2##
 				insert into ##TABLE_OWNER##.##TABLE_NAME##
 				select '##DATABASE_NAME##', m5_temp_table_##SEQUENCE##.*
-				from m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##
+				from m5_temp_sandbox_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##
 			##QUOTE_DELIMITER2##';
 
 			v_rowcount := sql%rowcount;
@@ -777,7 +777,7 @@ begin
 			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
 
 			--Drop temporary user.
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER3##';
 
@@ -800,7 +800,7 @@ exception when others then
 	--Cleanup by dropping the temporary user.
 	execute immediate q'##QUOTE_DELIMITER3##
 		begin
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER3##';
 
@@ -1085,7 +1085,7 @@ begin
 					pragma exception_init(v_does_not_exist, -1918);
 				begin
 					--Drop temporary user.
-					sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+					sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_##SEQUENCE## cascade');
 				exception when v_does_not_exist then null;
 				end;
 			end handle_exception;
@@ -1147,7 +1147,7 @@ begin
 
 						--Create temporary user to run function.
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
-							create user m5_temp_user_##SEQUENCE##
+							create user m5_temp_sandbox_##SEQUENCE##
 							identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
 							account lock password expire
 							default tablespace '||v_default_permanent_tablespace||'
@@ -1163,7 +1163,7 @@ begin
 							for i in 1 .. v_privs.count loop
 								begin
 									sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(
-										'grant '||v_privs(i)||' to m5_temp_user_##SEQUENCE##'
+										'grant '||v_privs(i)||' to m5_temp_sandbox_##SEQUENCE##'
 									);
 								exception when others then null;
 								end;
@@ -1172,7 +1172,7 @@ begin
 
 						--Create function to run code.
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
-							create function m5_temp_user_##SEQUENCE##.m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
+							create function m5_temp_sandbox_##SEQUENCE##.m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
 								--Required for DDL over database link.
 								pragma autonomous_transaction;
 
@@ -1200,13 +1200,13 @@ begin
 
 						--Create remote scheduler job to create remote temporary table with results, as the sandbox user.
 						dbms_scheduler.create_job@##DB_LINK_NAME##(
-							job_name => 'm5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
+							job_name => 'm5_temp_sandbox_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
 							job_type => 'plsql_block',
 							job_action => '
 								begin
 									execute immediate ''
-										create table m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE## nologging pctfree 0 as
-										select m5_temp_user_##SEQUENCE##.m5_temp_function_##SEQUENCE## result from dual
+										create table m5_temp_sandbox_##SEQUENCE##.m5_temp_table_##SEQUENCE## nologging pctfree 0 as
+										select m5_temp_sandbox_##SEQUENCE##.m5_temp_function_##SEQUENCE## result from dual
 									'';
 								end;
 							',
@@ -1215,14 +1215,14 @@ begin
 
 						--Workaround to PLS-00960: RPCs cannot use parameters with schema-level object types in this release.
 						dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
-							create procedure m5_temp_user_##SEQUENCE##.run_job is
+							create procedure m5_temp_sandbox_##SEQUENCE##.run_job is
 							begin
-								dbms_scheduler.run_job(''m5_temp_user_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
+								dbms_scheduler.run_job(''m5_temp_sandbox_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
 							end;
 						');
 
 						--Run the procedure, that runs the job, that runs the proc, that runs the code.
-						execute immediate 'begin m5_temp_user_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
+						execute immediate 'begin m5_temp_sandbox_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
 					end;
 				##QUOTE_DELIMITER3##';
 
@@ -1239,7 +1239,7 @@ begin
 				--Update local value.
 				execute immediate q'##QUOTE_DELIMITER3##
 					update ##TABLE_OWNER##.##TABLE_NAME##
-					set result = (select result from m5_temp_user_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##)
+					set result = (select result from m5_temp_sandbox_##SEQUENCE##.m5_temp_table_##SEQUENCE##@##DB_LINK_NAME##)
 					where rowid = :v_rowid
 				##QUOTE_DELIMITER3##'
 				using v_rowid;
@@ -1294,7 +1294,7 @@ begin
 			where date_started = (select max(date_started) from ##TABLE_OWNER##.##TABLE_NAME##_meta);
 
 			--Drop temporary user.
-			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_user_##SEQUENCE## cascade');
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER4##';
 end;
@@ -1394,17 +1394,17 @@ end;
 			'M5_'||upper(requested_privileges.target) db_link_name,
 			allowed_privileges.default_targets,
 			allowed_privileges.install_links_in_schema,
-			allowed_privileges.run_as_m5_or_temp_user,
+			allowed_privileges.run_as_m5_or_sandbox,
 			case
 				when install_links_in_schema = 'Yes' then
 					sys_context('userenv', 'session_user')
 				else
 					'METHOD5'
 			end job_owner,
-			temp_user_default_ts,
-			temp_user_temporary_ts,
-			temp_user_quota,
-			temp_user_profile,
+			sandbox_default_ts,
+			sandbox_temporary_ts,
+			sandbox_quota,
+			sandbox_profile,
 			allowed_privileges.privileges,
 			max(case when install_links_in_schema = 'Yes' then 'Yes' else 'No' end) over () has_any_install_links
 		bulk collect into v_allowed_privs
@@ -3061,7 +3061,7 @@ end;
 				--SELECT CTAS.
 				if p_select_plsql_script = 'SELECT' then
 					--Regular SELECT statement if it runs as Method5.
-					if p_allowed_privs(i).run_as_m5_or_temp_user = 'M5' then
+					if p_allowed_privs(i).run_as_m5_or_sandbox = 'M5' then
 						--Build the CTAS.
 						v_ctas_ddl := get_ctas_sql(
 							p_code                     => p_code,
@@ -3119,7 +3119,7 @@ end;
 							--Build the CTAS.
 							v_ctas_ddl := get_ctas_sql(
 								p_code                     => p_code,
-								p_owner                    => 'm5_temp_user_'||to_char(v_sequence),
+								p_owner                    => 'm5_temp_sandbox_'||to_char(v_sequence),
 								p_table_name               => 'm5_temp_table_'||to_char(v_sequence),
 								p_has_version_star         => p_has_version_star,
 								p_has_column_gt_30         => p_has_column_gt_30,
@@ -3135,7 +3135,7 @@ end;
 								sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##
 								(
 									q'##QUOTE_DELIMITER2##
-										create procedure m5_temp_user_##SEQUENCE##.m5_temp_proc_##SEQUENCE## authid current_user is
+										create procedure m5_temp_sandbox_##SEQUENCE##.m5_temp_proc_##SEQUENCE## authid current_user is
 										begin
 											execute immediate q'##QUOTE_DELIMITER1##
 												##CTAS_DDL##
@@ -3151,10 +3151,10 @@ end;
 							end loop;
 
 							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
-								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).temp_user_default_ts)
-								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).temp_user_temporary_ts)
-								,'##QUOTA##', p_allowed_privs(i).temp_user_quota)
-								,'##PROFILE##', p_allowed_privs(i).temp_user_profile)
+								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).sandbox_default_ts)
+								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).sandbox_temporary_ts)
+								,'##QUOTA##', p_allowed_privs(i).sandbox_quota)
+								,'##PROFILE##', p_allowed_privs(i).sandbox_profile)
 								,'##ALLOWED_PRIVS##', v_privs_string)
 								,'##CREATE_CTAS_PROC##', v_ctas_call)
 								,'##SEQUENCE##', to_char(v_sequence))
@@ -3173,7 +3173,7 @@ end;
 				--PL/SQL CTAS.
 				elsif p_select_plsql_script = 'PLSQL' then
 					--Regular PL/SQL template if it runs as Method5.
-					if p_allowed_privs(i).run_as_m5_or_temp_user = 'M5' then
+					if p_allowed_privs(i).run_as_m5_or_sandbox = 'M5' then
 						v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
 							,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
 							,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
@@ -3194,10 +3194,10 @@ end;
 							end loop;
 
 							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_limit_privs_template
-								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).temp_user_default_ts)
-								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).temp_user_temporary_ts)
-								,'##QUOTA##', p_allowed_privs(i).temp_user_quota)
-								,'##PROFILE##', p_allowed_privs(i).temp_user_profile)
+								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).sandbox_default_ts)
+								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).sandbox_temporary_ts)
+								,'##QUOTA##', p_allowed_privs(i).sandbox_quota)
+								,'##PROFILE##', p_allowed_privs(i).sandbox_profile)
 								,'##ALLOWED_PRIVS##', v_privs_string)
 								,'##SEQUENCE##', to_char(v_sequence))
 								,'##TABLE_OWNER##', p_table_owner)

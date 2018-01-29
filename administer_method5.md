@@ -101,29 +101,27 @@ Grant new users a role, the ability to create database links, and the ability to
 Create a Method5 role, if a relevant role does not already exist:
 
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
-		run_as_m5_or_temp_user, temp_user_default_ts, temp_user_temporary_ts, temp_user_quota, temp_user_profile))
+		run_as_m5_or_sandbox, sandbox_default_ts, sandbox_temporary_ts, sandbox_quota, sandbox_profile))
 	values(
 		'&role_name',
 		'&target_string',
 		'&can_run_as_sys',
 		'&can_run_shell_script',
 		'&install_links_in_schema',
-		'&run_as_m5_or_temp_user',
-		'&temp_user_default_ts',
-		'&temp_user_temporary_ts',
-		'&temp_user_quota',
-		'&temp_user_profile'
+		'&run_as_m5_or_sandbox',
+		'&sandbox_default_ts',
+		'&sandbox_temporary_ts',
+		'&sandbox_quota',
+		'&sandbox_profile'
 	);
 
-If the role will have limited privileges, instead of using the same privileges as Method5, add privileges to it:
+Roles can run as either the Method5 user with all privileges, or as a temporary sandbox user with precisely defined privileges.  For sandbox roles, add the Oracle system, object, or role privileges and then associate the role with the user:
 
 	insert into method5.m5_role_priv(role_name, privilege)
 	values(
 		'&role_name',
 		'&privilege'
 	);
-
-Assign the role to the user:
 
 	insert into method5.m5_user_role(oracle_username, role_name)
 	values(
