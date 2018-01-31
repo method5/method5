@@ -1050,7 +1050,7 @@ begin
 		where owner = 'METHOD5'
 			and dba_db_links.db_link like 'M5%'
 			and lower(replace(dba_db_links.db_link, 'M5_')) in
-				(select lower(database_name) from m5_database)
+				(select lower(database_name) from m5_database where is_active = 'Yes')
 			and dba_db_links.db_link <> 'M5_INSTALL_DB_LINK'
 		order by dba_db_links.db_link
 	) loop
@@ -1642,6 +1642,7 @@ procedure send_daily_summary_email is
 						cluster_name,
 						to_char(row_number() over (partition by database_name order by instance_name)) instance_number
 					from method5.m5_database
+					where is_active = 'Yes'
 				)
 				where instance_number = 1
 			)
@@ -1664,6 +1665,7 @@ procedure send_daily_summary_email is
 					select trim(upper(database_name)) database_name
 					from m5_database
 					where cluster_name is null
+						and is_active = 'Yes'
 					group by trim(upper(database_name))
 					having count(*) >= 2
 					--Test data to create an artificial duplicate.
@@ -1694,11 +1696,12 @@ procedure send_daily_summary_email is
 	begin
 		--Scheduled job status with HTML.
 		select
-			'		CLEANUP_M5_TEMP_TABLES_JOB: '   ||case when temp_tables    = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_tables   ||'</span>' end||'<br>'||chr(10)||
-			'		CLEANUP_M5_TEMP_TRIGGERS_JOB: ' ||case when temp_triggers  = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_triggers ||'</span>' end||'<br>'||chr(10)||
-			'		CLEANUP_REMOTE_M5_OBJECTS_JOB: '||case when remote_objects = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||remote_objects||'</span>' end||'<br>'||chr(10)||
-			'		DIRECT_M5_GRANTS_JOB: '         ||case when direct_grants  = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||direct_grants ||'</span>' end||'<br>'||chr(10)||
-			'		STOP_TIMED_OUT_JOBS_JOB: '      ||case when timed_out_jobs = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||timed_out_jobs||'</span>' end||'<br>'||chr(10)
+			'		CLEANUP_M5_TEMP_TABLES_JOB: '   ||case when temp_tables        = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_tables   ||'</span>' end||'<br>'||chr(10)||
+			'		CLEANUP_M5_TEMP_TRIGGERS_JOB: ' ||case when temp_triggers      = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_triggers ||'</span>' end||'<br>'||chr(10)||
+			'		CLEANUP_REMOTE_M5_OBJECTS_JOB: '||case when remote_objects     = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||remote_objects||'</span>' end||'<br>'||chr(10)||
+			'		DIRECT_M5_GRANTS_JOB: '         ||case when direct_grants      = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||direct_grants ||'</span>' end||'<br>'||chr(10)||
+			'		STOP_TIMED_OUT_JOBS_JOB: '      ||case when timed_out_jobs     = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||timed_out_jobs||'</span>' end||'<br>'||chr(10)||
+			'		BACKUP_M5_DATABASE_JOB: '       ||case when backup_m5_database = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||timed_out_jobs||'</span>' end||'<br>'||chr(10)
 			job_status
 		into v_job_status
 		from
@@ -1709,7 +1712,8 @@ procedure send_daily_summary_email is
 				nvl(max(case when job_name = 'CLEANUP_M5_TEMP_TRIGGERS_JOB'  then status else null end), 'Job did not run') temp_triggers,
 				nvl(max(case when job_name = 'CLEANUP_REMOTE_M5_OBJECTS_JOB' then status else null end), 'Job did not run') remote_objects,
 				nvl(max(case when job_name = 'DIRECT_M5_GRANTS_JOB'          then status else null end), 'Job did not run') direct_grants,
-				nvl(max(case when job_name = 'STOP_TIMED_OUT_JOBS_JOB'       then status else null end), 'Job did not run') timed_out_jobs
+				nvl(max(case when job_name = 'STOP_TIMED_OUT_JOBS_JOB'       then status else null end), 'Job did not run') timed_out_jobs,
+				nvl(max(case when job_name = 'BACKUP_M5_DATABASE_JOB'        then status else null end), 'Job did not run') backup_m5_database
 			from
 			(
 				--Job status.
@@ -1723,7 +1727,8 @@ procedure send_daily_summary_email is
 						'CLEANUP_M5_TEMP_TRIGGERS_JOB',
 						'CLEANUP_REMOTE_M5_OBJECTS_JOB',
 						'DIRECT_M5_GRANTS_JOB',
-						'STOP_TIMED_OUT_JOBS_JOB'
+						'STOP_TIMED_OUT_JOBS_JOB',
+						'BACKUP_M5_DATABASE_JOB'
 					)
 			)
 			where last_when_1 = 1

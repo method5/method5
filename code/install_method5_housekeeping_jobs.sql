@@ -312,7 +312,30 @@ end;
 
 
 ---------------------------------------
---#7: Run jobs immediately to test them.
+--#7: Create JOB to backup M5_DATABASE.
+begin
+	dbms_scheduler.create_job
+	(
+		job_name        => 'method5.backup_m5_database_job',
+		job_type        => 'PLSQL_BLOCK',
+		start_date      => systimestamp at time zone 'US/Eastern',
+		repeat_interval => 'freq=daily; byhour=1; byminute=0; bysecond=0',
+		enabled         => true,
+		comments        => 'Backup M5_DATABASE table into M5_DATABASE_HIST.',
+		job_action      => q'<
+			begin
+				insert into method5.m5_database_hist
+				select sysdate, m5_database.* from method5.m5_database;
+				commit;
+			end;
+		>'
+	);
+end;
+/
+
+
+---------------------------------------
+--#8: Run jobs immediately to test them.
 --Run job immediately to test the job.
 prompt Running jobs...
 
@@ -338,6 +361,10 @@ end;
 /
 begin
 	dbms_scheduler.run_job('method5.stop_timed_out_jobs_job');
+end;
+/
+begin
+	dbms_scheduler.run_job('method5.backup_m5_database_job');
 end;
 /
 
@@ -372,6 +399,11 @@ order by log_date desc;
 select log_date, status, additional_info
 from dba_scheduler_job_run_details
 where job_name = 'STOP_TIMED_OUT_JOBS_JOB' and log_date > systimestamp - interval '20' minute
+order by log_date desc;
+
+select log_date, status, additional_info
+from dba_scheduler_job_run_details
+where job_name = 'BACKUP_M5_DATABASE_JOB' and log_date > systimestamp - interval '20' minute
 order by log_date desc;
 
 

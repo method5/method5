@@ -1,14 +1,29 @@
 --Purpose: Contains multiple account maintenance scripts.
 --How to use:
---  #1 is a pre-built procedure that should satisfy 90% of your account maintenance requirements.
---  #2, #3, and #4 demonstrate that you can still use regular Method5 functionality for custom account maintenance.
+--  #1 helps you find information about existing accounts.
+--  #2 is a pre-built procedure that should satisfy 90% of your account maintenance requirements.
+--  #3, #4, and #5 demonstrate that you can still use regular Method5 functionality for custom account maintenance.
 --  Remember to replace all &VARIABLES before running.
---Version: 4.0.0
+--Version: 5.0.0
 
 
 
 --------------------------------------------------------------------------------
---#1: Synchronize accounts.  90% of account maintenance can be handled by this program.
+--#1: Find existing account information.
+--------------------------------------------------------------------------------
+
+select *
+from m5_dba_users
+where username like '%%';
+
+select * from m5_dba_role_privs where grantee like '%%';
+select * from m5_dba_sys_privs  where grantee like '%%';
+select * from m5_dba_tab_privs  where grantee like '%%';
+
+
+
+--------------------------------------------------------------------------------
+--#2: Synchronize accounts.  90% of account maintenance can be handled by this program.
 --------------------------------------------------------------------------------
 
 -- Synchronize user across any number of databases.
@@ -46,7 +61,7 @@ select * from sys.dba_scheduler_running_jobs where owner = user;
 
 
 --------------------------------------------------------------------------------
---#2: Check account existance and status with global data dictionary.
+--#3: Check account existance and status with global data dictionary.
 --------------------------------------------------------------------------------
 select *
 from m5_dba_users
@@ -55,12 +70,12 @@ where username like '%&USERNAME%';
 
 
 --------------------------------------------------------------------------------
---#3: Use M5_PROC to set a temporary password.
+--#4: Use M5_PROC to set a temporary password.
 --  DANGER!  AVOID THIS AND USE M5_SYNCH_USER INSTEAD WHENEVER POSSIBLE.
 --  Sending passwords over cleartext is a horrible security practice.
 --------------------------------------------------------------------------------
 
---#3a: Modify variables and then run this step to unlock, change password, and expire password. 
+--#4a: Modify variables and then run this step to unlock, change password, and expire password. 
 begin
 	m5_proc(
 		p_code => q'<
@@ -89,7 +104,7 @@ begin
 end;
 /
 
---#3b: Check the results.  If there are errors you may need to manually fix something.
+--#4b: Check the results.  If there are errors you may need to manually fix something.
 select database_name, to_char(result) result from pw_change order by database_name;
 select * from pw_change_meta order by date_started;
 select * from pw_change_err order by database_name;
@@ -106,14 +121,14 @@ select * from sys.dba_scheduler_running_jobs where owner = user;
 
 
 --------------------------------------------------------------------------------
---#4: Use M5 function to lock account everywhere.
+--#5: Use M5 function to lock account everywhere.
 --------------------------------------------------------------------------------
 
---#4A: Lock the accounts.
+--#5A: Lock the accounts.
 select * from table(m5('alter user &USERNAME account lock'));
 
 
---#4B: Check results, metadata, and errors after the run is complete.
+--#5B: Check results, metadata, and errors after the run is complete.
 select * from m5_results;
 select * from m5_metadata;
 select * from m5_errors;

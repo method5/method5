@@ -3,7 +3,7 @@
 -- How to use:
 --    Run steps #1 through #5 to generate and query results.
 --    Run step #6 to install objects (one-time step).
--- Version: 2.1.3
+-- Version: 2.1.4
 --------------------------------------------------------------------------------
 
 
@@ -579,7 +579,7 @@ begin
 				(
 					--Distinct hashes for objects.
 					--Cannot really use 4,000 characters because a few of them will be multi-byte and go over 4K byte limit.
-					select owner, object_type, object_name, hash, dbms_lob.substr(ddl, offset => 1, amount => 3900) ddl_4k, min(database_name) first_database
+					select owner, object_type, object_name, hash, ltrim(regexp_replace(dbms_lob.substr(ddl, offset => 1, amount => 3900), '^'||chr(10))) ddl_4k, min(database_name) first_database
 					from compare_ddl_$RUN_ID$
 					group by owner, object_type, object_name, hash, dbms_lob.substr(ddl, offset => 1, amount => 3900)
 					order by owner, object_type, object_name, first_database, hash

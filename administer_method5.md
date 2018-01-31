@@ -44,8 +44,14 @@ Run these commands on the management server as a DBA and view the results.
 		m5_proc(p_code => 'select * from dual', p_asynchronous => false);
 	end;
 	/
-	--This will create a SYS key for the new database links.
+	--This will create a SYS key for all database links missing keys.
 	select method5.method5_admin.set_all_missing_sys_keys() from dual;
+	
+	--Or run this to create a SYS key for just one new database.
+	begin
+		method5.method5_admin.set_local_and_remote_sys_key(p_db_link => '&db_link');
+	end;
+	/
 
 
 <a name="reset_method5_password"/>

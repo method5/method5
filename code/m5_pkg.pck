@@ -9,19 +9,18 @@ g_debug boolean := false;
 RUN
 
 Purpose:
-	Run SQL or PL/SQL on all databases.  The results, metadata, and errors are
-	stored in tables on the user's schema.  These three views always refer to
-	the latest tables: M5_RESULTS, M5_METADATA, and M5_ERRORS.
+	Run SQL, PL/SQL, or shell scripts on multiple databases or hosts.
+	The results, metadata, and errors are  stored in tables on the user's schema
+	and in these three views: M5_RESULTS, M5_METADATA, and M5_ERRORS.
 
 Inputs:
-	p_code - The SQL or PL/SQL statement to run on all databases.  Use DBMS_OUTPUT
-		to return data from PL/SQL.
+	p_code - The SQL, PL/SQL, or Unix shell script to run.
 	p_targets (OPTIONAL) - Either a query or a comma-separated list of values.
 		The query must return one column with the database name, you may want to use
 		the table M5_DATABASE for that query.
 		The comma-separted list of values can match any of the database names, host
 		names, lifecycle statuses, or lines of business configured in M5_DATABASE.
-		Leave empty to use all databases.  (The definition of "all" is configurable.)
+		Leave empty to use the (configurable) default targets.
 	p_table_name - (OPTIONAL) A table name, without quotation marks.  If null,
 		a sequence is used to generate the table name.
 	p_table_exists_action (OPTIONAL) - One of these values:
@@ -34,17 +33,18 @@ Inputs:
 	p_run_as_sys (OPTIONAL) - Does the code run as SYS (TRUE) or as METHOD5 (FALSE, the default).
 
 Outputs:
-	DBMS_OUTPUT will display some statements for querying and cleaning up output.
+	SELECT returns the query output, other SQL return the relevant SQL*Plus
+	feedback message, PL/SQL returns DBMS_OUTPUT, and shell scripts return stdout and stderr.
 
 Side-Effects:
 	This procedure commits and creates tables, views, and jobs.
 
 Example: SQL query to find invalid components on all DEV and QA databases.
 	begin
-	    method5.m5_pkg.run(
-	        p_code    => q'< select * from dba_registry where status not in ('VALID', 'REMOVED') >',
-	        p_targets => 'dev,qa'
-	    );
+		method5.m5_pkg.run(
+			p_code    => q'< select * from dba_registry where status not in ('VALID', 'REMOVED') >',
+			p_targets => 'dev,qa'
+		);
 	end;
 
 	select * from m5_results order by 1,2;
@@ -52,8 +52,7 @@ Example: SQL query to find invalid components on all DEV and QA databases.
 	select * from m5_errors order by 1;
 
 Notes:
-	- It's not unusual for at least one database to fail.  Always check M5_METADATA and M5_ERRORS.
-	- Database names are from OEM, excluding those with an N/A lifecycle, or those in m5_database_not_queried.
+	- See https://github.com/method5/method5/blob/master/user_guide.md for details.
 
 *******************************************************************************/
 procedure run(
@@ -442,8 +441,9 @@ begin
 		q'[
 			with config as
 			(
-				select database_name, instance_name, connect_string, host_name, lifecycle_status, line_of_business, cluster_name
+				select database_name, instance_name, m5_default_connect_string connect_string, host_name, lifecycle_status, line_of_business, cluster_name
 				from method5.m5_database
+				where is_active='Yes'
 			)
 			select 'database_name' row_type, lower(database_name) row_value, cast(collect(distinct lower(database_name)) as method5.string_table)
 			from config
@@ -1678,18 +1678,20 @@ end;
 					'M5_'||upper(database_name) link_name,
 					lower(database_name) database_name,
 					null host_name,
-					connect_string,
+					m5_default_connect_string connect_string,
 					to_char(row_number() over (partition by database_name order by instance_name)) instance_number
 				from method5.m5_database
+				where is_active = 'Yes'
 				union all
 				--Links for hosts.
 				select
 					'M5_'||upper(host_name) link_name,
 					null database_name,
 					lower(host_name) host_name,
-					min(connect_string) connect_string,
+					min(m5_default_connect_string) connect_string,
 					'1' instance_number
 				from method5.m5_database
+				where is_active = 'Yes'
 				group by host_name
 			) database_names
 			left join
@@ -2327,7 +2329,8 @@ end;
 							to_number(regexp_substr(target_version, '[0-9]+', 1, 5)) version_5,
 							count(distinct target_version) over () distinct_version_count
 						from m5_database
-						where target_version is not null
+						where is_active = 'Yes'
+							and target_version is not null
 							and lower(database_name) in
 							(
 								select lower(column_value) database_name

@@ -216,11 +216,13 @@ There are some limitations when running shell commands.  Method5 is great at run
 
 ## Parameter 2: P_TARGETS (optional)
 
-`P_TARGETS` identifies which databases to run the code on.  If it is not set it will default to run against all configured databases.  This parameter can either be a SELECT statement or a comma-separated list.
+`P_TARGETS` identifies which databases to run the code on.  If it is not set it will use the default targets set for your user or the global default.  This parameter can either be a SELECT statement or a comma-separated list.
 
-The values in a comma-separated list will match any database that shares the same name, host name, line of business, lifecycle status, or cluster name.  Those columns are all configured in the table M5_DATABASE, and may be derived from Oracle Enterprise Manager.
+The values in a comma-separated list will match any database that shares the same name, host name, line of business, lifecycle status, or cluster name.
 
 The value may also use the Oracle pattern matching syntax, `%` and `_`.
+
+All target values must exist in the M5_DATABASE.  And the row in M5_DATABASE must have IS_ACTIVE set to "Yes" (the default value).
 
 For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
 
