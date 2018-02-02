@@ -61,6 +61,8 @@ g_failed_count number := 0;
 g_4_byte_utf8 varchar2(1 char) := unistr('\d841\df79');  --The "cut" character in Cantonese.  Looks like a guy with a sword.
 g_2_byte_utf8 varchar2(1 char) := unistr('\00d0');       --The "eth" character, an upper case D with a line.
 
+--TODO: Use 128 bytes instead of 30 bytes for some tests for Oracle 12.2 extended identifier names.
+
 --Helper procedures.
 
 
@@ -157,11 +159,18 @@ begin
 	--Simple strings.
 	assert_equals('text: simple string 1a', 'whitespace text whitespace EOF', lex(q'! ' ' !'));
 	assert_equals('text: simple string 1b', q'!' '!', get_value_n(q'! ' ' !', 2));
+
 	--Simple N strings.
 	assert_equals('text: n string 1a', 'whitespace text whitespace EOF', lex(q'! n' ' !'));
 	assert_equals('text: n string 1b', q'!n' '!', get_value_n(q'! n' ' !', 2));
 	assert_equals('text: n string 2a', 'whitespace text whitespace EOF', lex(q'! N' ' !'));
 	assert_equals('text: n string 2b', q'!N' '!', get_value_n(q'! N' ' !', 2));
+
+	--Simple U strings.  (Yes, U' works just like N', even though it's not in the manual.)
+	assert_equals('text: u string 1a', 'whitespace text whitespace EOF', lex(q'! u' ' !'));
+	assert_equals('text: u string 1b', q'!u' '!', get_value_n(q'! u' ' !', 2));
+	assert_equals('text: u string 2a', 'whitespace text whitespace EOF', lex(q'! U' ' !'));
+	assert_equals('text: u string 2b', q'!U' '!', get_value_n(q'! U' ' !', 2));
 
 	--Escaped strings.
 	assert_equals('text: escaped string 1', 'text whitespace EOF', lex(q'!'''' !'));
@@ -173,6 +182,11 @@ begin
 	assert_equals('text: escaped N string 2', 'text whitespace EOF', lex(q'!n'a ''' !'));
 	assert_equals('text: escaped N string 3', 'text whitespace EOF', lex(q'!n''' ' !'));
 
+	--Escaped U strings.
+	assert_equals('text: escaped U string 1', 'text whitespace EOF', lex(q'!u'''' !'));
+	assert_equals('text: escaped U string 2', 'text whitespace EOF', lex(q'!u'a ''' !'));
+	assert_equals('text: escaped U string 3', 'text whitespace EOF', lex(q'!u''' ' !'));
+
 	--Escaped alternative quote strings (not really escaped, but looks that way).
 	assert_equals('text: escaped aq string 1', 'text whitespace EOF', lex(q'[q'!'!' ]'));
 	assert_equals('text: escaped aq string 2', 'text whitespace EOF', lex(q'[q'!''!' ]'));
@@ -180,6 +194,10 @@ begin
 	--Escaped alternative quote N strings (not really escaped, but looks that way).
 	assert_equals('text: escaped aq N string 1', 'text whitespace EOF', lex(q'[nq'!'!' ]'));
 	assert_equals('text: escaped aq N string 2', 'text whitespace EOF', lex(q'[nq'!''!' ]'));
+
+	--Escaped alternative quote U strings (not really escaped, but looks that way).
+	assert_equals('text: escaped aq U string 1', 'text whitespace EOF', lex(q'[uq'!'!' ]'));
+	assert_equals('text: escaped aq U string 2', 'text whitespace EOF', lex(q'[uq'!''!' ]'));
 
 	--Alternative quoting mechanism closing delimiters: [, {, <, (
 	assert_equals('text: alternative quote 1a', 'text EOF', lex(q'!q'[a]'!'));
@@ -206,16 +224,32 @@ begin
 	assert_equals('text: alternative n quote ', 'text EOF', lex(q'!Nq'# ''' #'!')); --'--Fix highlighting on some IDEs.
 	assert_equals('text: alternative n quote 5b', q'!Nq'# ''' #'!', get_value_n(q'!Nq'# ''' #'!', 1)); --'--Fix highlighting on some IDEs.
 
+	--Same as above, but for u and U alternative quoting mechanisms.
+	assert_equals('text: alternative u quote 1a', 'text EOF', lex(q'!uq'[a]'!'));
+	assert_equals('text: alternative u quote 1b', q'!uq'[a]'!', get_value_n(q'!uq'[a]'!', 1));
+	assert_equals('text: alternative u quote 2a', 'text EOF', lex(q'!uq'{a}'!'));
+	assert_equals('text: alternative u quote 2b', q'!uq'{a}'!', get_value_n(q'!uq'{a}'!', 1));
+	assert_equals('text: alternative u quote 3a', 'text EOF', lex(q'!Uq'<a>'!'));
+	assert_equals('text: alternative u quote 3b', q'!Uq'<a>'!', get_value_n(q'!Uq'<a>'!', 1));
+	assert_equals('text: alternative u quote 4a', 'text EOF', lex(q'!Uq'(a)'!'));
+	assert_equals('text: alternative u quote 4b', q'!Uq'(a)'!', get_value_n(q'!Uq'(a)'!', 1));
+	assert_equals('text: alternative u quote ', 'text EOF', lex(q'!Uq'# ''' #'!')); --'--Fix highlighting on some IDEs.
+	assert_equals('text: alternative u quote 5b', q'!Uq'# ''' #'!', get_value_n(q'!Uq'# ''' #'!', 1)); --'--Fix highlighting on some IDEs.
+
 	--Test string not terminated.
 	assert_equals('text: string not terminated 1', 'word whitespace word whitespace text EOF', lex(q'!asdf qwer '!')); --'--Fix highlighting on some IDEs.
 	assert_equals('text: string not terminated 2', q'!'!', get_value_n(q'!asdf qwer '!', 5)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer '!', 5))); --'--Fix highlighting on some IDEs.
 	assert_equals('text: string not terminated 4', 'quoted string not properly terminated', get_sqlerrm_n(q'!asdf qwer '!', 5)); --'--Fix highlighting on some IDEs.
-	--Same as above, but for N, alternative quote, and N alternative quote.
+	--Same as above, but for N, U, alternative quote, N alternative quote, and U alternative quote.
 	assert_equals('text: n string not terminated 1', 'word whitespace word whitespace text EOF', lex(q'!asdf qwer n'!')); --'--Fix highlighting on some IDEs.
 	assert_equals('text: n string not terminated 2', q'!n'!', get_value_n(q'!asdf qwer n'!', 5)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: n string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer n'!', 5))); --'--Fix highlighting on some IDEs.
 	assert_equals('text: n string not terminated 4', 'quoted string not properly terminated', get_sqlerrm_n(q'!asdf qwer n'!', 5)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: u string not terminated 1', 'word whitespace word whitespace text EOF', lex(q'!asdf qwer u'!')); --'--Fix highlighting on some IDEs.
+	assert_equals('text: u string not terminated 2', q'!u'!', get_value_n(q'!asdf qwer u'!', 5)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: u string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer u'!', 5))); --'--Fix highlighting on some IDEs.
+	assert_equals('text: u string not terminated 4', 'quoted string not properly terminated', get_sqlerrm_n(q'!asdf qwer u'!', 5)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: AQ string not terminated 1', 'word whitespace word whitespace text EOF', lex(q'!asdf qwer Q'<asdf)'''!')); --'--Fix highlighting on some IDEs.
 	assert_equals('text: AQ string not terminated 2', q'!Q'<asdf)'''!', get_value_n(q'!asdf qwer Q'<asdf)'''!', 5)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: AQ string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer q'<asdf)'''!', 5))); --'--Fix highlighting on some IDEs.
@@ -224,6 +258,10 @@ begin
 	assert_equals('text: NAQ string not terminated 2', q'!NQ'<asdf)'''!', get_value_n(q'!asdf qwer NQ'<asdf)'''!', 5)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: NAQ string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer nq'<asdf)'''!', 5))); --'--Fix highlighting on some IDEs.
 	assert_equals('text: NAQ string not terminated 4', 'quoted string not properly terminated', get_sqlerrm_n(q'!asdf qwer NQ'<asdf)'''!', 5)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ string not terminated 1', 'word whitespace word whitespace text EOF', lex(q'!asdf qwer uQ'<asdf)'''!')); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ string not terminated 2', q'!UQ'<asdf)'''!', get_value_n(q'!asdf qwer UQ'<asdf)'''!', 5)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ string not terminated 3', '-1756', to_char(get_sqlcode_n(q'!asdf qwer uq'<asdf)'''!', 5))); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ string not terminated 4', 'quoted string not properly terminated', get_sqlerrm_n(q'!asdf qwer UQ'<asdf)'''!', 5)); --'--Fix highlighting on some IDEs.
 
 	--Alternative quoting invalid delimiters - they may parse but throw errors.
 	--Per my testing, only characters 9, 10, and 32 are problems.  I'm not testing 10 - the quotes are too ugly.
@@ -239,6 +277,10 @@ begin
 	assert_equals('text: NAQ bad delimiter space 2', q'!Nq'  '!', get_value_n(q'! Nq'  ' !', 2)); --'--Fix highlighting on some IDEs.
 	assert_equals('text: NAQ bad delimiter space 3', '-911', to_char(get_sqlcode_n(q'! nq'  ' !', 2))); --'--Fix highlighting on some IDEs.
 	assert_equals('text: NAQ bad delimiter space 4', 'invalid character', get_sqlerrm_n(q'! nq'  ' !', 2)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ bad delimiter space 1', 'whitespace text whitespace EOF', lex(q'! Uq'  ' !'));
+	assert_equals('text: UAQ bad delimiter space 2', q'!Uq'  '!', get_value_n(q'! Uq'  ' !', 2)); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ bad delimiter space 3', '-911', to_char(get_sqlcode_n(q'! uq'  ' !', 2))); --'--Fix highlighting on some IDEs.
+	assert_equals('text: UAQ bad delimiter space 4', 'invalid character', get_sqlerrm_n(q'! uq'  ' !', 2)); --'--Fix highlighting on some IDEs.
 end test_text;
 
 

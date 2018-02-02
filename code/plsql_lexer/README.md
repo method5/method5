@@ -1,4 +1,4 @@
-`PLSQL_LEXER` 1.3.0
+`PLSQL_LEXER` 1.4.1
 ============
 
 PL/SQL Lexer solves PL/SQL language problems such as tokenizing, splitting, classifying, feedback messages, and removing terminators.
@@ -57,7 +57,22 @@ Click the "Download ZIP" button, extract the files, CD to the directory with tho
         alter session set current_schema=&schema_name;
         @uninstall
 
-## Example
+## Simple Example
+
+Statement classifier can determine the command name for even the weirdest SQL
+statement.  Most people code this with a regular expression.  But a regular
+expression cannot accurately classify non-trivial SQL statements.
+
+	SQL> select statement_classifier.get_command_name('/**/((select * from dual))') command_name
+	  2  from dual;
+
+	COMMAND_NAME
+	------------------------------
+	SELECT
+
+	1 row selected.
+
+## Complex Example
 
 PLSQL_LEXER provides functionality for handling groups of statements.  This can
 be useful for a patch system, a logging utility, or a private SQL Fiddle.

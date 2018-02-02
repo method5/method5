@@ -1,6 +1,6 @@
 create or replace package plsql_lexer is
---Copyright (C) 2015 Jon Heller.  This program is licensed under the LGPLv3.
-C_VERSION constant varchar2(10) := '1.0.2';
+--Copyright (C) 2017 Jon Heller.  This program is licensed under the LGPLv3.
+C_VERSION constant varchar2(10) := '1.4.1';
 
 --Main functions:
 function lex(p_source in clob) return token_table;
@@ -23,7 +23,7 @@ Tokens may be one of these types:
     comment
         Single and multiline.  Does not include newline at end of the single line comment
     text
-        Includes quotation marks, alternative quote delimiters, "Q", and "N"
+        Includes quotation marks, alternative quote delimiters, "Q", "N", and "U".
     numeric
         Everything but initial + or -: ^([0-9]+\.[0-9]+|\.[0-9]+|[0-9]+)((e|E)(\+|-)?[0-9]+)?(f|F|d|D)?
     word
@@ -387,8 +387,8 @@ begin
 		return token(c_text, v_token_text, v_line_number, v_column_number, v_first_char_position, g_last_char_position-1, null, null);
 	end if;
 
-	--Nvarchar text.
-	if lower(g_last_char) = 'n' and look_ahead(1) = '''' then
+	--Nvarchar or Unicode text.
+	if lower(g_last_char) in ('n', 'u') and look_ahead(1) = '''' then
 		--Consume 2 characters: n and the quote.
 		v_token_text := g_last_char;
 		g_last_char := get_char;
@@ -459,8 +459,8 @@ begin
 		return token(c_text, v_token_text, v_line_number, v_column_number, v_first_char_position, g_last_char_position-1, null, null);
 	end if;
 
-	--Nvarchar alternative quoting mechanism.
-	if lower(g_last_char) = 'n' and lower(look_ahead(1)) = 'q' and look_ahead(2) = '''' then
+	--Nvarchar or Unicode alternative quoting mechanism.
+	if lower(g_last_char) in ('n', 'u') and lower(look_ahead(1)) = 'q' and look_ahead(2) = '''' then
 		--Consume 4 characters: n, q, quote, and the quote delimiter.
 		v_token_text := g_last_char;
 		g_last_char := get_char;

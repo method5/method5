@@ -12,6 +12,12 @@ procedure classify(
 	p_start_index      in number default 1
 );
 
+--Variations on classify that may be more convenient if you don't need all the details.
+function get_category(p_source in clob) return varchar2;
+function get_statement_type(p_source in clob) return varchar2;
+function get_command_name(p_source in clob) return varchar2;
+function get_command_type(p_source in clob) return varchar2;
+
 --Helper functions useful for further classifying statements.
 function has_plsql_declaration(
 	p_tokens token_table,
@@ -809,6 +815,47 @@ begin
 		p_category := C_Invalid; p_statement_type := C_Invalid; p_command_name := C_Invalid; p_command_type := -1;
 	end if;
 end classify;
+
+
+--------------------------------------------------------------------------------
+/*
+Purpose: Convenient variations of classify that only return one variable.
+*/
+function get_only_one_variable(p_source in clob, p_return_type in varchar2) return varchar2 is
+	v_category       varchar2(32767);
+	v_statement_type varchar2(32767);
+	v_command_name   varchar2(32767);
+	v_command_type   varchar2(32767);
+	v_lex_sqlcode    number;
+	v_lex_sqlerrm    varchar2(32767);
+begin
+	classify(
+		p_tokens => plsql_lexer.lex(p_source),
+		p_category => v_category,
+		p_statement_type => v_statement_type,
+		p_command_name => v_command_name,
+		p_command_type => v_command_type,
+		p_lex_sqlcode => v_lex_sqlcode,
+		p_lex_sqlerrm => v_lex_sqlerrm
+	);
+
+	if p_return_type = 'CATEGORY' then
+		return v_category;
+	elsif p_return_type = 'STATEMENT_TYPE' then
+		return v_statement_type;
+	elsif p_return_type = 'COMMAND_NAME' then
+		return v_command_name;
+	elsif p_return_type = 'COMMAND_TYPE' then
+		return to_char(v_command_type);
+	else
+		raise_application_error(-20000, 'Unexpected return type.');
+	end if;
+end;
+
+function get_category      (p_source in clob) return varchar2 is begin return         get_only_one_variable(p_source, 'CATEGORY'       ); end;
+function get_statement_type(p_source in clob) return varchar2 is begin return         get_only_one_variable(p_source, 'STATEMENT_TYPE' ); end;
+function get_command_name  (p_source in clob) return varchar2 is begin return         get_only_one_variable(p_source, 'COMMAND_NAME'   ); end;
+function get_command_type  (p_source in clob) return varchar2 is begin return to_char(get_only_one_variable(p_source, 'COMMAND_TYPE'  )); end;
 
 
 --------------------------------------------------------------------------------

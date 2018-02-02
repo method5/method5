@@ -21,8 +21,9 @@ c_commands                constant number := power(2, 2);
 c_start_index             constant number := power(2, 3);
 c_has_plsql_declaration   constant number := power(2, 4);
 c_trigger_type_body_index constant number := power(2, 5);
+c_simplified_functions    constant number := power(2, 6);
 
-c_static_tests  constant number := c_errors+c_commands+c_start_index+c_has_plsql_declaration+c_trigger_type_body_index;
+c_static_tests  constant number := c_errors+c_commands+c_start_index+c_has_plsql_declaration+c_trigger_type_body_index+c_simplified_functions;
 
 c_dynamic_tests constant number := power(2, 30);
 
@@ -901,6 +902,16 @@ end test_trigger_type_body_index;
 
 
 --------------------------------------------------------------------------------
+procedure test_simplified_functions is
+begin
+	assert_equals('Simplified Functions 1', 'DDL',         statement_classifier.get_category('alter table asdf move'));
+	assert_equals('Simplified Functions 2', 'ALTER',       statement_classifier.get_statement_type('alter table asdf move'));
+	assert_equals('Simplified Functions 3', 'ALTER TABLE', statement_classifier.get_command_name('alter table asdf move'));
+	assert_equals('Simplified Functions 4', '15',          statement_classifier.get_command_type('alter table asdf move'));
+end test_simplified_functions;
+
+
+--------------------------------------------------------------------------------
 procedure dynamic_tests is
 	type clob_table is table of clob;
 	type string_table is table of varchar2(100);
@@ -988,6 +999,7 @@ begin
 	if bitand(p_tests, c_start_index)             > 0 then test_start_index; end if;
 	if bitand(p_tests, c_has_plsql_declaration)   > 0 then test_has_plsql_declaration; end if;
 	if bitand(p_tests, c_trigger_type_body_index) > 0 then test_trigger_type_body_index; end if;
+	if bitand(p_tests, c_simplified_functions)    > 0 then test_simplified_functions; end if;
 
 	if bitand(p_tests, c_dynamic_tests)           > 0 then dynamic_tests; end if;
 
