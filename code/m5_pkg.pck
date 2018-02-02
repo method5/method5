@@ -558,15 +558,6 @@ procedure run(
 	C_MAX_DATABASE_ATTEMPTS constant number := 100;
 
 	--Collections to hold link data instead of re-fetching the cursor.
-	type link_rec is record(
-		db_link_name   varchar2(128),
-		database_name  varchar2(30),   --Only one of DATABASE_NAME or HOST_NAME can be non-null per row.
-		host_name      varchar2(256),
-		connect_string varchar2(4000),
-		link_exists    number
-	);
-	type links_nt is table of link_rec;
-
 	type config_data_rec is record(
 		admin_email_sender_address   varchar2(4000),
 		admin_email_recipients       varchar2(4000),
@@ -1655,22 +1646,20 @@ end;
 	end add_default_targets_if_null;
 
 	---------------------------------------------------------------------------
-	--Get database link configuration from M5_DATABASE configuration table.
-	function get_links(p_owner varchar2) return links_nt is
-		v_link_sql varchar2(32767);
-		v_link_query sys_refcursor;
-		v_link_results links_nt;
+	--Create database links for the Method5 user.
+	procedure create_db_links_in_m5_schema(p_sequence number) is
+		v_sql varchar2(32767);
+		pragma autonomous_transaction;
 	begin
-		--Add link and job data to database name query.
-		v_link_sql :=
-		q'[
-			--Method5 link query.
+		--Loop through all missing links.
+		for missing_links in
+		(
+			--Method5 links that do not exist.
 			select
 				link_name,
 				database_name,
 				host_name,
-				connect_string,
-				case when my_database_links.db_link is not null then 1 else 0 end link_exists
+				connect_string
 			from
 			(
 				--Links for databases.
@@ -1699,79 +1688,55 @@ end;
 				--Current user's database links.
 				select db_link
 				from sys.dba_db_links
-				where owner = :owner
+				where owner = 'METHOD5'
 			) my_database_links
 				on database_names.link_name = db_link
 			where instance_number = 1
+				--Only get rows where the link does not exist.
+				and my_database_links.db_link is null
 			order by lower(link_name)
-		]';
-
-		--Open, fetch, close, and return results.
-		open v_link_query for v_link_sql using p_owner;
-		fetch v_link_query bulk collect into v_link_results;
-		close v_link_query;
-		return v_link_results;
-
-	exception when others then
-		sys.dbms_output.put_line(':owner bind variable value: '||p_owner);
-		sys.dbms_output.put_line('Database Name Query: '||chr(10)||v_link_sql);
-		raise_application_error(-20001, 'Error querying M5_DATABASE.'||
-			'  Check that table for configuration errors.  Or check the DBMS_OUTPUT for the query.'||
-			chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
-	end get_links;
-
-	---------------------------------------------------------------------------
-	--Create database links for the Method5 user.
-	procedure create_db_links_in_m5_schema(p_links_owned_by_m5 links_nt, p_sequence number) is
-		v_sql varchar2(32767);
-
-		pragma autonomous_transaction;
-	begin
-		--Create any link that doesn't exist.
-		for v_link_index in 1 .. p_links_owned_by_m5.count loop
-			if p_links_owned_by_m5(v_link_index).link_exists = 0 then
-				--Build procedure to create a link.
-				v_sql := replace(replace(replace(q'<
-					create or replace procedure method5.m5_temp_procedure_##SEQUENCE## is
-					begin
-						execute immediate q'!
-							create database link ##DB_LINK_NAME##
-							connect to method5
-							identified by not_a_real_password_yet
-							using '##CONNECT_STRING##'
-						!';
-					end;
-				>'
-				,'##SEQUENCE##', to_char(p_sequence))
-				,'##DB_LINK_NAME##', p_links_owned_by_m5(v_link_index).db_link_name)
-				,'##CONNECT_STRING##', p_links_owned_by_m5(v_link_index).connect_string);
-
-				--Create procedure.
-				execute immediate v_sql;
-				commit;
-
-				--Execute procedure to create the link, then correct the password.
-				--No matter what happens, drop the temp procedure since it has a password hash in it.
+		) loop
+			--Build procedure to create a link.
+			v_sql := replace(replace(replace(q'<
+				create or replace procedure method5.m5_temp_procedure_##SEQUENCE## is
 				begin
-					execute immediate 'begin method5.m5_temp_procedure_'||p_sequence||'; end;';
-					commit;
-					sys.m5_change_db_link_pw(p_m5_username => 'METHOD5', p_dblink_username => 'METHOD5', p_dblink_name => p_links_owned_by_m5(v_link_index).db_link_name);
-					commit;
-					execute immediate 'drop procedure method5.m5_temp_procedure_'||p_sequence;
-					commit;
-				exception when others then
-					raise_application_error(-20003, 'Error executing or dropping '||
-						'method5.m5_temp_procedure_'||p_sequence||'.  Investigate that procedure and drop it when done.'||
-						chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+					execute immediate q'!
+						create database link ##DB_LINK_NAME##
+						connect to method5
+						identified by not_a_real_password_yet
+						using '##CONNECT_STRING##'
+					!';
 				end;
-			end if;
+			>'
+			,'##SEQUENCE##', to_char(p_sequence))
+			,'##DB_LINK_NAME##', missing_links.link_name)
+			,'##CONNECT_STRING##', missing_links.connect_string);
+
+			--Create procedure.
+			execute immediate v_sql;
+			commit;
+
+			--Execute procedure to create the link, then correct the password.
+			--No matter what happens, drop the temp procedure since it has a password hash in it.
+			begin
+				execute immediate 'begin method5.m5_temp_procedure_'||p_sequence||'; end;';
+				commit;
+				sys.m5_change_db_link_pw(p_m5_username => 'METHOD5', p_dblink_username => 'METHOD5', p_dblink_name => missing_links.link_name);
+				commit;
+				execute immediate 'drop procedure method5.m5_temp_procedure_'||p_sequence;
+				commit;
+			exception when others then
+				raise_application_error(-20003, 'Error executing or dropping '||
+					'method5.m5_temp_procedure_'||p_sequence||'.  Investigate that procedure and drop it when done.'||
+					chr(10)||sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+			end;
 		end loop;
 		commit;
 	end create_db_links_in_m5_schema;
 
 	---------------------------------------------------------------------------
 	--Copy links from package owner to the running user.
-	procedure synchronize_links(p_allowed_privs allowed_privs_nt) is
+	procedure synchronize_links_for_user(p_allowed_privs allowed_privs_nt) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
 
@@ -1881,7 +1846,7 @@ end;
 
 			commit;
 		end if;
-	end synchronize_links;
+	end synchronize_links_for_user;
 
 	---------------------------------------------------------------------------
 	--Purpose: Convert allowed_privs_nt into a string_table of targets.
@@ -3603,9 +3568,8 @@ begin
 		control_access(v_audit_rowid, v_config_data);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job(v_allowed_privs);
-		--TODO: Simplify
-		create_db_links_in_m5_schema(get_links('METHOD5'), v_sequence);
-		synchronize_links(v_allowed_privs);
+		create_db_links_in_m5_schema(v_sequence);
+		synchronize_links_for_user(v_allowed_privs);
 		v_target_tab := get_target_tab(v_allowed_privs);
 		raise_exception_if_no_targets(v_allowed_privs, v_original_targets, v_target_string_with_default, v_is_shell_script);
 		check_if_already_running(v_table_name);
