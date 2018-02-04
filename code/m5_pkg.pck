@@ -1,5 +1,5 @@
 create or replace package method5.m5_pkg authid definer is
---Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
 C_VERSION constant varchar2(10) := '9.0.0';

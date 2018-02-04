@@ -1,43 +1,130 @@
 create or replace package method5.method5_test authid current_user is
-/*
-== Purpose ==
 
-Integration tests for Method5.
+/*******************************************************************************
+GET_RUN_SCRIPT
+
+Purpose:
+	Get a SQL*Plus-like script to run the tests.  The script is necessary because
+	full testing requires creating and loggiong on as different users.  This is
+	probably the only public function you need to directly worry about for testing.
+
+Inputs:
+	p_database_name_1 - A database name.
+	p_database_name_2 - Another database name.
+	p_other_schema_name - A schema to test writing and reading from a different schema.
+	p_test_run_as_sys - Should RUN_AS_SYS be tested?  "Yes" or "No".
+	p_test_shell_script - Should shell scripts be tested?  "Yes" or "No".
+	p_tns_alias - TNS alias of your management database, to print as part of the script.
+
+Outputs:
+	Some commands to setup the test, and command-line SQL*Plus scripts to run tests.
+	If it works you'll see multiple "PASS" messages.  You should not see any "FAIL"s.
+
+Side-Effects:
+	Testing created and then drops Method5 users.  This may lead to emails going out
+	to administrators, warning them that configuration tables were changed.
+
+Example:
+
+	--Example for running with default M5_DATABASE databases, with a simple Windows
+	--install (where shell scripts should not be used since they don't run on Windows).
+	select method5.method5_admin.get_run_script(
+		p_database_name_1 => 'devdb1',
+		p_database_name_2 => 'devdb2',
+		p_other_schema_name => '????????',
+		p_test_run_as_sys => "Yes",
+		p_test_shell_script => "No",
+		p_tns_alias => 'orcl')
+	from dual;
+
+*******************************************************************************/
+function get_run_script(
+	p_database_name_1   varchar2,
+	p_database_name_2   varchar2,
+	p_other_schema_name varchar2,
+	p_test_run_as_sys   varchar2,
+	p_test_shell_script varchar2,
+	p_tns_alias         varchar2
+) return varchar2;
 
 
-== Example ==
 
---If the package was recompiled it may be necessary to clear the session state first.
-begin
-	dbms_session.reset_package;
-end;
 
-begin
-	method5.method5_test.run(
-		p_database_name_1 =>   'devdb1',
-		p_database_name_2 =>   'devdb2',
-		p_other_schema_name => 'SOMEONE_ELSE');
-end;
+--Although public, you probably don't need to worry about anything below.
 
-*/
 
---Run the unit tests and display the results in dbms output.
---	P_DATABASE_NAME_1 - The name of a database to use for testing.
---	P_DATABASE_NAME_2 - The name of a database to use for testing.
---		To test the version star feature, the two databases should be on different versions of Oracle
---	P_OTHER_SCHEMA_NAME - The name of a schema to put some temporary tables in to test
---		the feature where P_TABLE_NAME is set to another user's schema.
---	P_TEST_RUN_AS_SYS - Should the RUN_AS_SYS feature be tested.  Defaults to
---		TRUE, set it to FALSE if you did not install the RUN_AS_SYS feature.
---	P_TEST_SHELLS_CRIPT - Should shell scripts be tested.  Defaults to true, set
---		it to FALSE if you did not install the RUN_AS_SYS feature of if you are
---		not testing on Linux or Unix.
+
+
+
+
+
+
+--Procedures to help with GET_RUN_SCRIPT.
+procedure create_users(p_database_name_1 varchar2, p_database_name_2 varchar2);
+procedure drop_users_if_exist;
+
+--Globals to select which test suites to run.
+c_test_function                constant number := power(2, 1);
+c_test_procedure               constant number := power(2, 2);
+c_test_m5_views                constant number := power(2, 3);
+c_test_p_code                  constant number := power(2, 4);
+c_test_p_targets               constant number := power(2, 5);
+c_test_p_table_name            constant number := power(2, 6);
+c_test_p_asynchronous          constant number := power(2, 7);
+c_test_p_table_exists_action   constant number := power(2, 8);
+c_test_audit                   constant number := power(2, 9);
+c_test_long                    constant number := power(2, 10);
+c_test_version_star            constant number := power(2, 11);
+c_test_get_target_tab_from_tar constant number := power(2, 12);
+
+--These tests should always work.
+c_base_tests                   constant number :=
+	c_test_function+c_test_procedure+c_test_m5_views+c_test_p_code+c_test_p_targets+
+	c_test_p_table_name+c_test_p_asynchronous+c_test_p_table_exists_action+c_test_audit+
+	c_test_long+c_test_version_star+c_test_get_target_tab_from_tar;
+
+--These tests may not work in some environments if SYS or shell script feature is disable.
+c_test_run_as_sys              constant number := power(2, 13);
+c_test_shell_script            constant number := power(2, 14);
+
+c_all_tests                    constant number := c_base_tests+c_test_run_as_sys+c_test_shell_script;
+
+
+/*******************************************************************************
+Purpose:
+	Detailed integration tests for Method5.
+
+Parameters:
+	P_DATABASE_NAME_1 - The name of a database to use for testing.
+	P_DATABASE_NAME_2 - The name of a database to use for testing.
+		To test the version star feature, the two databases should be on different versions of Oracle
+	P_OTHER_SCHEMA_NAME - The name of a schema to put some temporary tables in to test
+		the feature where P_TABLE_NAME is set to another user's schema.
+	P_TEST_RUN_AS_SYS - Should the RUN_AS_SYS feature be tested.  Defaults to
+		TRUE, set it to FALSE if you did not install the RUN_AS_SYS feature.
+	P_TEST_SHELLS_CRIPT - Should shell scripts be tested.  Defaults to true, set
+		it to FALSE if you did not install the RUN_AS_SYS feature of if you are
+		not testing on Linux or Unix.
+
+Example:
+
+	--If the package was recompiled it may be necessary to clear the session state first.
+	begin
+		dbms_session.reset_package;
+	end;
+
+	begin
+		method5.method5_test.run(
+			p_database_name_1 =>   'devdb1',
+			p_database_name_2 =>   'devdb2',
+			p_other_schema_name => 'SOMEONE_ELSE');
+	end;
+*******************************************************************************/
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
 	p_other_schema_name in varchar2,
-	p_test_run_as_sys   in boolean default true,
-	p_test_shell_script in boolean default true);
+	p_tests             in number default c_all_tests);
 end;
 /
 create or replace package body method5.method5_test is
@@ -1134,8 +1221,7 @@ procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
 	p_other_schema_name in varchar2,
-	p_test_run_as_sys   in boolean default true,
-	p_test_shell_script in boolean default true
+	p_tests             in number default c_all_tests
 ) is
 	v_database_name_1 varchar2(100) := lower(trim(p_database_name_1));
 	v_database_name_2 varchar2(100) := lower(trim(p_database_name_2));
@@ -1153,6 +1239,11 @@ begin
 	g_report.extend; g_report(g_report.count) := 'Method5 Test Summary';
 	g_report.extend; g_report(g_report.count) := '----------------------------------------';
 
+	--Raise error if the same database is used for both parameters.
+	if lower(trim(p_database_name_1)) = lower(trim(p_database_name_2)) then
+		raise_application_error(-20000, 'You must use two different database names for testing.');
+	end if;
+
 	--Get warning message if the two databases use the same version.
 	v_version_warning := get_version_warning(p_database_name_1, p_database_name_2);
 	if v_version_warning is not null then
@@ -1160,27 +1251,24 @@ begin
 		g_report.extend; g_report(g_report.count) := v_version_warning;
 	end if;
 
-	--Run the tests.
 	dbms_output.disable;
-	test_function(v_database_name_1);
-	test_procedure(v_database_name_1);
-	test_m5_views(v_database_name_1);
-	test_p_code(v_database_name_1);
-	test_p_targets(v_database_name_1, v_database_name_2);
-	test_p_table_name(v_database_name_1, p_other_schema_name);
-	test_p_asynchronous(v_database_name_1);
-	test_p_table_exists_action(v_database_name_1);
-	test_audit(v_database_name_1, v_database_name_2);
-	test_long(v_database_name_1);
-	test_version_star(v_database_name_1, v_database_name_2);
-	test_get_target_tab_from_targe(v_database_name_1, v_database_name_2);
+
+	--Run the chosen tests.
+	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                     end if;
+	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                    end if;
+	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                     end if;
+	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                       end if;
+	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                 end if;
+	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);            end if;
+	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                               end if;
+	if bitand(p_tests, c_test_p_table_exists_action  ) > 0 then test_p_table_exists_action(v_database_name_1);                        end if;
+	if bitand(p_tests, c_test_audit                  ) > 0 then test_audit(v_database_name_1, v_database_name_2);                     end if;
+	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                         end if;
+	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);              end if;
+	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2); end if;
+	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                   end if;
+	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);              end if;
 	--TODO: Test dropping and recreating a database link.
-	if p_test_run_as_sys then
-		test_run_as_sys(v_database_name_1);
-	end if;
-	if p_test_shell_script then
-		test_shell_script(v_database_name_1, v_database_name_2);
-	end if;
 
 	--Re-enable DBMS_OUTPUT.
 	--It had to be suppressed because Method5 prints some information that
@@ -1216,6 +1304,140 @@ begin
  |_|/_/    \_\_____|______|');
 	end if;
 end run;
+
+
+
+--------------------------------------------------------------------------------
+procedure create_users(p_database_name_1 varchar2, p_database_name_2 varchar2) is
+begin
+	--Create user 1: Direct access - run as Method5 and use database links.
+	execute immediate 'create user M5_TEST_DIRECT identified by "justATempPassword#4321" quota unlimited on users';
+	execute immediate 'grant dba to M5_TEST_DIRECT';
+	execute immediate 'grant m5_user_role to M5_TEST_DIRECT';
+	execute immediate 'grant create database link to M5_TEST_DIRECT';
+
+	--Create user 2: Access through temporary user, no database links.
+	execute immediate 'create user M5_TEST_TEMP_FULL_NO_LINKS identified by "justATempPassword#4321" quota unlimited on users';
+	execute immediate 'grant create session to M5_TEST_TEMP_FULL_NO_LINKS';
+	execute immediate 'grant m5_user_role to M5_TEST_TEMP_FULL_NO_LINKS';
+	execute immediate 'grant create database link to M5_TEST_TEMP_FULL_NO_LINKS';
+	--Need some extra privileges to run the tests.
+	execute immediate 'grant execute on method5.method5_test to M5_TEST_TEMP_FULL_NO_LINKS';
+	execute immediate 'grant select on method5.m5_audit to M5_TEST_TEMP_FULL_NO_LINKS';
+
+	--Create M5 user, role, and user-role connection.
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
+		values('M5_TEST_DIRECT', sys_context('userenv', 'os_user'), null, 'No', null);
+	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
+		values('M5_TEST_DIRECT', p_database_name_1||','||p_database_name_2, 'Yes', 'Yes', 'Yes', 'M5');
+	insert into method5.m5_user_role(oracle_username, role_name)
+		values('M5_TEST_DIRECT', 'M5_TEST_DIRECT');
+
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
+		values('M5_TEST_TEMP_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null);
+	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
+		values('M5_TEST_TEMP_FULL_NO_LINKS', p_database_name_1||','||p_database_name_2, 'No', 'No', 'No', 'SANDBOX');
+	insert into method5.m5_user_role(oracle_username, role_name)
+		values('M5_TEST_TEMP_FULL_NO_LINKS', 'M5_TEST_TEMP_FULL_NO_LINKS');
+	insert into method5.m5_role_priv(role_name, privilege)
+		values('M5_TEST_TEMP_FULL_NO_LINKS', 'DBA');
+
+	commit;
+end create_users;
+
+--------------------------------------------------------------------------------
+procedure drop_users_if_exist is
+	v_count number;
+
+	procedure drop_user(p_username varchar2) is
+	begin
+		execute immediate 'select count(*) from dba_users where username = :p_username'
+		into v_count
+		using p_username;
+
+		if v_count = 1 then
+			execute immediate 'drop user '||p_username||' cascade';
+			delete from method5.m5_user_role where oracle_username = p_username;
+			delete from method5.m5_role_priv where role_name = p_username;
+			delete from method5.m5_role where role_name = p_username;
+			delete from method5.m5_user where oracle_username = p_username;
+			commit;
+		end if;
+	end;
+begin
+	drop_user('M5_TEST_DIRECT');
+	drop_user('M5_TEST_TEMP_FULL_NO_LINKS');
+end drop_users_if_exist;
+
+
+--------------------------------------------------------------------------------
+function get_run_script(
+	p_database_name_1   varchar2,
+	p_database_name_2   varchar2,
+	p_other_schema_name varchar2,
+	p_test_run_as_sys   varchar2,
+	p_test_shell_script varchar2,
+	p_tns_alias         varchar2
+) return varchar2 is
+begin
+	return(replace(replace(replace(replace(replace(replace(replace(replace(q'[
+			--#1: Run from a Method5 administrator account, to drop and recreate test users.
+			--These tests will create users, which may generate emails to administrators
+			--since it modifies important tables.
+			begin
+				method5.method5_test.drop_users_if_exist;
+				method5.method5_test.create_users('##DATABASE_NAME_1##', '##DATABASE_NAME_2##');
+			end;
+			##SLASH##
+
+			--#2: Create and test a user with all privileges.
+			sqlplus M5_TEST_DIRECT/"justATempPassword#4321"@##TNS_ALIAS##
+			set serveroutput on timing on;
+			begin
+				method5.method5_test.run(
+					p_database_name_1   => '##DATABASE_NAME_1##',
+					p_database_name_2   => '##DATABASE_NAME_2##',
+					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
+					p_tests => method5.method5_test.c_base_tests ##RUN_AS_SYS## ##SHELL_SCRIPT##);
+			end;
+			##SLASH##
+			quit;
+
+			--#3: Create and test a user with no links, and full DBA privs granted through a link.
+			sqlplus M5_TEST_TEMP_FULL_NO_LINKS/"justATempPassword#4321"@##TNS_ALIAS##
+			set serveroutput on timing on;
+			begin
+				method5.method5_test.run(
+					p_database_name_1   => '##DATABASE_NAME_1##',
+					p_database_name_2   => '##DATABASE_NAME_2##',
+					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
+					--Never test SYS and shell script for TEMP_USER config.
+					p_tests => method5.method5_test.c_base_tests);
+			end;
+			##SLASH##
+			quit;
+
+			--#4: Create and test a user with limited privileges.
+			--TODO
+
+			--#5: Run from a Method5 administrator account, to drop the test users.
+			begin
+				method5.method5_test.drop_users_if_exist;
+			end;
+			##SLASH##
+
+			]'
+		, '			')
+		,'##SLASH##', '/')
+		,'##TNS_ALIAS##', p_tns_alias)
+		,'##DATABASE_NAME_1##', p_database_name_1)
+		,'##DATABASE_NAME_2##', p_database_name_2)
+		,'##OTHER_SCHEMA_NAME##', p_other_schema_name)
+		,'##RUN_AS_SYS##', case when trim(upper(p_test_run_as_sys)) = 'YES' then '+ method5.method5_test.c_test_run_as_sys' else '' end)
+		,'##SHELL_SCRIPT##', case when trim(upper(p_test_shell_script)) = 'YES' then '+ method5.method5_test.c_test_shell_script' else '' end)
+	);
+end get_run_script;
+
 
 end;
 /
