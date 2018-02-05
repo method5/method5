@@ -337,32 +337,7 @@ end ODCITableDescribe;
 		(
 			job_name   => 'm4_purge_pool_'||sys_context('method4_context', 'temp_object_id'),
 			job_type   => 'PLSQL_BLOCK',
-			job_action => replace(q'<
-				declare
-	    		  type string_table is table of varchar2(32767);
-    			  v_sql_ids string_table;
-				begin
-					--Find SQL_IDs of the SQL statements used to call Method5.
-					--Use dynamic SQL to enable roles to select from GV$SQL.
-					execute immediate q'!
-						select 'begin sys.dbms_shared_pool.purge('''||address||' '||hash_value||''', ''C''); end;' v_sql
-						from sys.gv_$sql
-						where
-							parsing_schema_name = :parsing_schema_name
-							and command_type = 3
-							and lower(sql_text) like '%table%(%m5%(%'
-							and lower(sql_text) not like '%quine%'
-					!'
-					bulk collect into v_sql_ids
-					using '#OWNER#';
-
-					--Purge each SQL_ID to force hard-parsing each time.
-					--This cannot be done in the earlier Describe or Prepare phase or it will generate errors.
-					for i in 1 .. v_sql_ids.count loop
-						execute immediate v_sql_ids(i);
-					end loop;
-				end;
-			>', '#OWNER#', sys_context('method4_context', 'owner')),
+			job_action => 'begin method5.m5_purge_sql_from_shared_pool('''||sys_context('method4_context', 'owner')||'''); end;',
 			start_date => systimestamp,
 			enabled    => true
 		);

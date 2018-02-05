@@ -87,6 +87,9 @@ c_base_tests                   constant number :=
 c_test_run_as_sys              constant number := power(2, 13);
 c_test_shell_script            constant number := power(2, 14);
 
+--Test sandbox users with as few privs as possible, as well as default and allowed targets.
+c_sandbox_and_targets       constant number := power(2,15);
+
 c_all_tests                    constant number := c_base_tests+c_test_run_as_sys+c_test_shell_script;
 
 
@@ -1217,6 +1220,195 @@ end test_shell_script;
 
 
 --------------------------------------------------------------------------------
+procedure test_sandbox_and_targets(p_database_name_1 varchar2, p_database_name_2 varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+begin
+	begin
+		v_test_name := 'Defaults and allowed targets do not match and generate an error.';
+		v_expected_results :=
+			'Exception caught: ORA-20035: You do not have access to any of targets requested.'||chr(10)||
+			'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+			'Contact your Method5 administrator to change your access.';
+
+		execute immediate q'[
+			begin
+				m5_proc('select * from dual', p_asynchronous => false);
+			end;
+		]';
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
+	begin
+		v_test_name := 'User can select from the allowed target, if explicitly referenced.';
+		v_expected_results := '1';
+
+		execute immediate replace(q'[
+			select count(*)
+			from table(m5('select count(*) from dual', '#DATABASE_2#'))
+		]', '#DATABASE_2#', p_database_name_2)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'User cannot create a view.';
+		v_expected_results := '1';
+
+		execute immediate replace(q'[
+			select count(*)
+			from table(m5('create or replace view test_vw as select * from dual', '#DATABASE_2#'))
+		]', '#DATABASE_2#', p_database_name_2)
+		into v_actual_results;
+
+		execute immediate q'[
+			select count(*)
+			from m5_test_sandbox_and_targets.m5_errors
+			where error_stack_and_backtrace like '%ORA-01031: insufficient privileges%'
+		]'
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'User cannot select from a DBA table.';
+		v_expected_results := '1';
+
+		execute immediate replace(q'[
+			select count(*)
+			from table(m5('select count(*) from dba_users', '#DATABASE_2#'))
+		]', '#DATABASE_2#', p_database_name_2)
+		into v_actual_results;
+
+		execute immediate q'[
+			select count(*)
+			from m5_test_sandbox_and_targets.m5_errors
+			where error_stack_and_backtrace like '%ORA-00942: table or view does not exist%'
+		]'
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Users can select from METHOD5.M5_MY_ACCESS_VW.';
+		v_expected_results := '1';
+
+		execute immediate 'select count(*) from method5.m5_my_access_vw where rownum = 1'
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Simple PL/SQL works.';
+		v_expected_results := 'TEST OUTPUT';
+
+		execute immediate replace(q'[
+			select to_char(result)
+			from table(m5('begin dbms_output.put_line(''TEST OUTPUT''); end;', '#DATABASE_2#'))
+		]', '#DATABASE_2#', p_database_name_2)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'PL/SQL that requires privileges does not work.';
+		v_expected_results := '1';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc(
+					p_code => 'declare v_count number; begin select count(*) into v_count from dba_users; end;',
+					p_targets => '#DATABASE_2#',
+					p_table_name => 'test_no_privs',
+					p_table_exists_action => 'drop',
+					p_asynchronous => false,
+					p_run_as_sys => false
+				);
+			end;
+		]'
+		, '#DATABASE_2#', p_database_name_2);
+
+		execute immediate q'[
+			select count(*)
+			from m5_test_sandbox_and_targets.test_no_privs_err
+			where error_stack_and_backtrace like '%PL/SQL: ORA-00942: table or view does not exist%'
+		]'
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'No privileges to run as SYS.';
+		v_expected_results :=
+			'Exception caught: ORA-20035: You do not have access to any of targets requested.'||chr(10)||
+			'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+			'Contact your Method5 administrator to change your access.';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc('select * from dual', '#DATABASE_2#', p_run_as_sys => true);
+			end;
+		]'
+		, '#DATABASE_2#', p_database_name_2);
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
+	begin
+		v_test_name := 'No privileges to run as SYS.';
+		v_expected_results :=
+			'Exception caught: ORA-20035: You do not have access to any of targets requested.'||chr(10)||
+			'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+			'Contact your Method5 administrator to change your access.';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc('#!/bin/sh
+					echo test',
+					'#DATABASE_2#');
+			end;
+		]'
+		, '#DATABASE_2#', p_database_name_2);
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
+end test_sandbox_and_targets;
+
+
+--------------------------------------------------------------------------------
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
@@ -1268,6 +1460,9 @@ begin
 	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2); end if;
 	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                   end if;
 	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);              end if;
+	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_1, v_database_name_2);  end if;
+
+
 	--TODO: Test dropping and recreating a database link.
 
 	--Re-enable DBMS_OUTPUT.
@@ -1316,14 +1511,23 @@ begin
 	execute immediate 'grant m5_user_role to M5_TEST_DIRECT';
 	execute immediate 'grant create database link to M5_TEST_DIRECT';
 
-	--Create user 2: Access through temporary user, no database links.
-	execute immediate 'create user M5_TEST_TEMP_FULL_NO_LINKS identified by "justATempPassword#4321" quota unlimited on users';
-	execute immediate 'grant create session to M5_TEST_TEMP_FULL_NO_LINKS';
-	execute immediate 'grant m5_user_role to M5_TEST_TEMP_FULL_NO_LINKS';
-	execute immediate 'grant create database link to M5_TEST_TEMP_FULL_NO_LINKS';
+	--Create user 2: Access through sandbox user, no database links.
+	execute immediate 'create user M5_TEST_SANDBOX_FULL_NO_LINKS identified by "justATempPassword#4321" quota unlimited on users';
+	execute immediate 'grant create session to M5_TEST_SANDBOX_FULL_NO_LINKS';
+	execute immediate 'grant m5_user_role to M5_TEST_SANDBOX_FULL_NO_LINKS';
+	execute immediate 'grant create database link to M5_TEST_SANDBOX_FULL_NO_LINKS';
 	--Need some extra privileges to run the tests.
-	execute immediate 'grant execute on method5.method5_test to M5_TEST_TEMP_FULL_NO_LINKS';
-	execute immediate 'grant select on method5.m5_audit to M5_TEST_TEMP_FULL_NO_LINKS';
+	execute immediate 'grant execute on method5.method5_test to M5_TEST_SANDBOX_FULL_NO_LINKS';
+	execute immediate 'grant select on method5.m5_audit to M5_TEST_SANDBOX_FULL_NO_LINKS';
+
+	--Create user 3: Access through sandbox user, no database links, virtually no privileges, only defaults to ONE of the 2 databases.
+	execute immediate 'create user M5_TEST_SANDBOX_AND_TARGETS identified by "justATempPassword#4321" quota unlimited on users';
+	execute immediate 'grant create session to M5_TEST_SANDBOX_AND_TARGETS';
+	execute immediate 'grant m5_user_role to M5_TEST_SANDBOX_AND_TARGETS';
+	execute immediate 'grant create database link to M5_TEST_SANDBOX_AND_TARGETS';
+	--Need some extra privileges to run the tests.
+	execute immediate 'grant execute on method5.method5_test to M5_TEST_SANDBOX_AND_TARGETS';
+
 
 	--Create M5 user, role, and user-role connection.
 	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
@@ -1334,13 +1538,21 @@ begin
 		values('M5_TEST_DIRECT', 'M5_TEST_DIRECT');
 
 	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
-		values('M5_TEST_TEMP_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null);
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null);
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
-		values('M5_TEST_TEMP_FULL_NO_LINKS', p_database_name_1||','||p_database_name_2, 'No', 'No', 'No', 'SANDBOX');
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', p_database_name_1||','||p_database_name_2, 'No', 'No', 'No', 'SANDBOX');
 	insert into method5.m5_user_role(oracle_username, role_name)
-		values('M5_TEST_TEMP_FULL_NO_LINKS', 'M5_TEST_TEMP_FULL_NO_LINKS');
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', 'M5_TEST_SANDBOX_FULL_NO_LINKS');
 	insert into method5.m5_role_priv(role_name, privilege)
-		values('M5_TEST_TEMP_FULL_NO_LINKS', 'DBA');
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', 'DBA');
+
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
+		values('M5_TEST_SANDBOX_AND_TARGETS', sys_context('userenv', 'os_user'), null, 'No', p_database_name_1); --Note this user defaults only to only DB1.
+	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
+		values('M5_TEST_SANDBOX_AND_TARGETS', p_database_name_2, 'No', 'No', 'No', 'SANDBOX'); --But it can only access DB2.
+	insert into method5.m5_user_role(oracle_username, role_name)
+		values('M5_TEST_SANDBOX_AND_TARGETS', 'M5_TEST_SANDBOX_AND_TARGETS');
+	--Nothing inserted into M5_ROLE_PRIV
 
 	commit;
 end create_users;
@@ -1366,7 +1578,8 @@ procedure drop_users_if_exist is
 	end;
 begin
 	drop_user('M5_TEST_DIRECT');
-	drop_user('M5_TEST_TEMP_FULL_NO_LINKS');
+	drop_user('M5_TEST_SANDBOX_FULL_NO_LINKS');
+	drop_user('M5_TEST_SANDBOX_AND_TARGETS');
 end drop_users_if_exist;
 
 
@@ -1404,7 +1617,7 @@ begin
 			quit;
 
 			--#3: Create and test a user with no links, and full DBA privs granted through a link.
-			sqlplus M5_TEST_TEMP_FULL_NO_LINKS/"justATempPassword#4321"@##TNS_ALIAS##
+			sqlplus M5_TEST_SANDBOX_FULL_NO_LINKS/"justATempPassword#4321"@##TNS_ALIAS##
 			set serveroutput on timing on;
 			begin
 				method5.method5_test.run(
@@ -1418,7 +1631,18 @@ begin
 			quit;
 
 			--#4: Create and test a user with limited privileges.
-			--TODO
+			sqlplus M5_TEST_SANDBOX_AND_TARGETS/"justATempPassword#4321"@##TNS_ALIAS##
+			set serveroutput on timing on;
+			begin
+				method5.method5_test.run(
+					p_database_name_1   => '##DATABASE_NAME_1##',
+					p_database_name_2   => '##DATABASE_NAME_2##',
+					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
+					--Never test SYS and shell script for TEMP_USER config.
+					p_tests => method5.method5_test.c_sandbox_and_targets);
+			end;
+			##SLASH##
+			quit;
 
 			--#5: Run from a Method5 administrator account, to drop the test users.
 			begin

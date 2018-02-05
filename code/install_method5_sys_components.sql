@@ -50,7 +50,12 @@ begin
 		--Allows Method5 to create database links on the user's schemas.
 		execute immediate 'grant create any procedure to method5';
 		execute immediate 'grant execute any procedure to method5';
-		execute immediate 'grant drop any procedure to method5;';
+		execute immediate 'grant drop any procedure to method5';
+		--Required for method5.m5_purge_sql_from_shared_pool.
+		--(That procedure purges one specific type of SQL statement for force hard parsing.
+		-- it does NOT simply run "alter system flush shared_pool".)
+		execute immediate 'grant select on sys.gv_$sql to method5';
+		execute immediate 'grant execute on sys.dbms_shared_pool to method5';
 
 	--Optional, but useful and recommended master privileges:
 		execute immediate 'grant dba to method5';
@@ -72,7 +77,6 @@ begin
 	execute immediate 'grant select on dba_tab_columns to method5';
 	execute immediate 'grant select on dba_users to method5';
 	execute immediate 'grant select on sys.v_$parameter to method5';
-	execute immediate 'grant select on sys.v_$sql to method5';
 	execute immediate 'grant execute on sys.dbms_pipe to method5';
 	execute immediate 'grant execute on sys.utl_mail to method5';
 	execute immediate 'grant execute on sys.dbms_crypto to method5';

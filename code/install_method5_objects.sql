@@ -384,6 +384,36 @@ begin
 end;
 /
 
+create or replace procedure method5.m5_purge_sql_from_shared_pool(p_username varchar2) is
+--Purpose: Method4 must force statements to hard-parse.  When type information is generated
+-- dyanamically it's too hard to tell if "select * from some_table" has changed so it has to
+-- be hard-parsed each time.
+  type string_table is table of varchar2(32767);
+  v_sql_ids string_table;
+begin
+	--Find SQL_IDs of the SQL statements used to call Method5.
+	--Use dynamic SQL to enable roles to select from GV$SQL.
+	execute immediate q'!
+		select 'begin sys.dbms_shared_pool.purge('''||address||' '||hash_value||''', ''C''); end;' v_sql
+		from sys.gv_$sql
+		where
+			parsing_schema_name = :parsing_schema_name
+			and command_type = 3
+			and lower(sql_text) like '%table%(%m5%(%'
+			and lower(sql_text) not like '%quine%'
+	!'
+	bulk collect into v_sql_ids
+	using p_username;
+
+	--Purge each SQL_ID to force hard-parsing each time.
+	--This cannot be done in the earlier Describe or Prepare phase or it will generate errors.
+	for i in 1 .. v_sql_ids.count loop
+		execute immediate v_sql_ids(i);
+	end loop;
+end;
+/
+
+
 ---------------------------------------
 --#3: Install packages used by Method5.
 alter session set current_schema=method5;
@@ -603,8 +633,8 @@ grant execute on method5.m5_pkg              to m5_user_role;
 grant execute on method5.m5_synch_user       to m5_user_role;
 grant select  on method5.m5_generic_sequence to m5_user_role;
 grant execute on method5.m5_sleep            to m5_user_role;
+grant execute on method5.string_table        to m5_user_role;
 grant select on method5.m5_my_access_vw      to m5_user_role;
-
 --For Method4 dynamic SQL to return "anything" creating a type is necessary to describe the results.
 grant create type      to m5_user_role;
 --For Method4 dynamic SQL a function is needed to return the "anything".
@@ -613,7 +643,8 @@ grant create procedure to m5_user_role;
 --shared pool, forcing hard parsing on every statement.  This is useful with
 --Oracle Data Cartridge because the same query may be "described" differently
 --after each run.
-grant create job       to m5_user_role;
+grant execute on method5.m5_purge_sql_from_shared_pool to m5_user_role;
+grant create job                                       to m5_user_role;
 
 
 ---------------------------------------
