@@ -1673,15 +1673,30 @@ end;
 				where is_active = 'Yes'
 				union all
 				--Links for hosts.
+				--Host connect string is description list of database connections.
+				--(But must keep the total size under the limit of 2000 bytes.)
 				select
-					'M5_'||upper(host_name) link_name,
+					link_name,
 					null database_name,
-					lower(host_name) host_name,
-					min(m5_default_connect_string) connect_string,
+					host_name,
+					'(DESCRIPTION_LIST='||chr(10)||
+						listagg('	'||m5_default_connect_string, chr(10)) within group (order by m5_default_connect_string)||chr(10)||
+					')' connect_string,
 					'1' instance_number
-				from method5.m5_database
-				where is_active = 'Yes'
-				group by host_name
+				from
+				(
+					--Host strings with running-total string length.
+					select
+						'M5_'||upper(host_name) link_name,
+						lower(host_name) host_name,
+						m5_default_connect_string,
+						sum(length(m5_default_connect_string)) over (partition by upper(host_name) order by m5_default_connect_string) running_length,
+						'1' instance_number
+					from method5.m5_database
+					where is_active = 'Yes'
+				)
+				where running_length <= 1900
+				group by link_name, host_name
 			) database_names
 			left join
 			(
