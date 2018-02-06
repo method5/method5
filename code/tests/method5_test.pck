@@ -1405,6 +1405,23 @@ begin
 		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
 	end;
 
+	begin
+		v_test_name := 'No privileges to run SELECT in P_TARGETS.';
+		v_expected_results :=
+			'Exception caught: ORA-20036: You are not authorized to run SQL statements in P_TARGETS.'||chr(10)||
+			'Contact your Method5 administrator to change your access.';
+
+		execute immediate q'[
+			begin
+				m5_proc('select * from dual', 'select ''devdb2'' from dual');
+			end;
+		]';
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
 end test_sandbox_and_targets;
 
 
@@ -1530,15 +1547,15 @@ begin
 
 
 	--Create M5 user, role, and user-role connection.
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
-		values('M5_TEST_DIRECT', sys_context('userenv', 'os_user'), null, 'No', null);
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
+		values('M5_TEST_DIRECT', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes');
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_DIRECT', p_database_name_1||','||p_database_name_2, 'Yes', 'Yes', 'Yes', 'M5');
 	insert into method5.m5_user_role(oracle_username, role_name)
 		values('M5_TEST_DIRECT', 'M5_TEST_DIRECT');
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
-		values('M5_TEST_SANDBOX_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null);
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes');
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_SANDBOX_FULL_NO_LINKS', p_database_name_1||','||p_database_name_2, 'No', 'No', 'No', 'SANDBOX');
 	insert into method5.m5_user_role(oracle_username, role_name)
@@ -1546,8 +1563,8 @@ begin
 	insert into method5.m5_role_priv(role_name, privilege)
 		values('M5_TEST_SANDBOX_FULL_NO_LINKS', 'DBA');
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets)
-		values('M5_TEST_SANDBOX_AND_TARGETS', sys_context('userenv', 'os_user'), null, 'No', p_database_name_1); --Note this user defaults only to only DB1.
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
+		values('M5_TEST_SANDBOX_AND_TARGETS', sys_context('userenv', 'os_user'), null, 'No', p_database_name_1, 'No'); --Note this user defaults only to only DB1.
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_SANDBOX_AND_TARGETS', p_database_name_2, 'No', 'No', 'No', 'SANDBOX'); --But it can only access DB2.
 	insert into method5.m5_user_role(oracle_username, role_name)

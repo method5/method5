@@ -161,19 +161,22 @@ create table method5.m5_user
 	email_address           varchar2(4000),
 	is_m5_admin             varchar2(3)     not null,
 	default_targets         varchar2(4000),
+	can_use_sql_for_targets varchar2(3)     not null,
 	changed_by              varchar2(128)   default user not null,
 	changed_date            date            default sysdate not null,
 	constraint m5_user_pk primary key(oracle_username),
-	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No'))
+	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
+	constraint can_use_sql_for_targets_ck check (can_use_sql_for_targets in ('Yes', 'No'))
 );
-comment on table method5.m5_user                  is 'Method5 users.';
-comment on column method5.m5_user.oracle_username is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
-comment on column method5.m5_user.os_username     is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
-comment on column method5.m5_user.email_address   is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
-comment on column method5.m5_user.is_m5_admin     is 'Can this user change Method5 configuration tables.  Either Yes or No.';
-comment on column method5.m5_user.default_targets is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
-comment on column method5.m5_user.changed_by      is 'User who last changed this row.';
-comment on column method5.m5_user.changed_date    is 'Date this row was last changed.';
+comment on table method5.m5_user                          is 'Method5 users.';
+comment on column method5.m5_user.oracle_username         is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
+comment on column method5.m5_user.os_username             is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
+comment on column method5.m5_user.email_address           is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
+comment on column method5.m5_user.is_m5_admin             is 'Can this user change Method5 configuration tables.  This user will also receive emails about configuration problems and changes.  Either Yes or No.';
+comment on column method5.m5_user.default_targets         is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
+comment on column method5.m5_user.can_use_sql_for_targets is 'Can use a SELECT SQL statement for choosing targets.  Target SELECT statements are run as Method5 so only grant this to trusted users.  Either Yes or No.';
+comment on column method5.m5_user.changed_by              is 'User who last changed this row.';
+comment on column method5.m5_user.changed_date            is 'Date this row was last changed.';
 
 create table method5.m5_role
 (

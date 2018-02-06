@@ -188,6 +188,21 @@ create or replace package body method5.m5_pkg is
 
 
 /******************************************************************************/
+--Private type used by multiple procedures.
+type config_data_rec is record(
+	admin_email_sender_address   varchar2(4000),
+	admin_email_recipients       varchar2(4000),
+	access_control_locked        varchar2(4000),
+	access_control_os_username   varchar2(4000),
+	global_default_targets       varchar2(4000),
+	has_valid_db_username        varchar2(3),
+	has_valid_db_and_os_username varchar2(3),
+	user_default_targets         varchar2(4000),
+	can_use_sql_for_targets      varchar2(3)
+);
+
+
+/******************************************************************************/
 --(See specification for description.)
 procedure stop_jobs
 (
@@ -298,11 +313,80 @@ end get_and_remove_pipe_data;
 
 
 /******************************************************************************/
+--Get configuration data from M5_CONFIG and M5_USER.
+--(Private function that's called by both get_target_tab_from_target_str and run.
+function get_config_data return config_data_rec is
+	v_config_data config_data_rec;
+begin
+	--User configuration for admin email addresses.
+	select
+		listagg(email_address, ';') within group (order by lower(email_address)) admin_email_recipients,
+		min(email_address) admin_email_sender_address
+	into
+		v_config_data.admin_email_sender_address,
+		v_config_data.admin_email_recipients
+	from method5.m5_user
+	where is_m5_admin = 'Yes'
+		and email_address is not null;
+
+	--M5_CONFIG data.
+	select
+		max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
+		max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username,
+		max(case when config_name = 'Default Targets' then string_value else null end) gloal_default_targets
+	into
+		v_config_data.access_control_locked     ,
+		v_config_data.access_control_os_username,
+		v_config_data.global_default_targets
+	from method5.m5_config;
+
+	--User configuration data for the best match.
+	select
+		case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
+		case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
+		default_targets,
+		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_use_sql_for_targets end can_use_sql_for_targets
+	into
+		v_config_data.has_valid_db_username       ,
+		v_config_data.has_valid_db_and_os_username,
+		v_config_data.user_default_targets        ,
+		v_config_data.can_use_sql_for_targets
+	from
+	(
+		--Find the highest match.
+		select oracle_username, os_username, default_targets, can_use_sql_for_targets, nomatch_0_db_1_dbAndOS_2
+			,max(nomatch_0_db_1_dbAndOS_2) over () best_match
+		from
+		(
+			select m5_user.oracle_username, os_username, default_targets, can_use_sql_for_targets
+				,case
+					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
+						and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
+					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
+						and sys_context('userenv', 'module') = 'DBMS_SCHEDULER' then 2
+					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
+						and os_username is null then 1
+					else
+						0
+				end nomatch_0_db_1_dbAndOS_2
+			from method5.m5_user
+		)
+	)
+	where best_match = nomatch_0_db_1_dbAndOS_2
+		--Only need one.  If there are multiple 0 rows they'll all be the same anyway.
+		and rownum = 1;
+
+	return v_config_data;
+end get_config_data;
+
+
+/******************************************************************************/
 --(See specification for description.)
 function get_target_tab_from_target_str(
 	p_target_string    in varchar2,
 	p_database_or_host in varchar2 default 'database'
 ) return method5.string_table is
+	v_config_data config_data_rec := get_config_data();
 
 	--SQL statements:
 	v_clean_select_sql varchar2(32767);
@@ -402,6 +486,13 @@ begin
 
 	--Get SQL to run (without a semicolon), if it's a SELECT.
 	v_clean_select_sql := get_unterminated_select(p_target_string);
+
+	--Only allow authorized users to run a SQL statement.
+	--Since this is a definer's right procedure the SQL statement could potentially query any table.
+	if v_clean_select_sql is not null and v_config_data.can_use_sql_for_targets = 'No' then
+		raise_application_error(-20036, 'You are not authorized to run SQL statements in P_TARGETS.'||chr(10)||
+			'Contact your Method5 administrator to change your access.');
+	end if;
 
 	--Execute P_TARGET_STRING as a SELECT statement if it looks like one.
 	if v_clean_select_sql is not null then
@@ -557,18 +648,7 @@ procedure run(
 	--Constants.
 	C_MAX_DATABASE_ATTEMPTS constant number := 100;
 
-	--Collections to hold link data instead of re-fetching the cursor.
-	type config_data_rec is record(
-		admin_email_sender_address   varchar2(4000),
-		admin_email_recipients       varchar2(4000),
-		access_control_locked        varchar2(4000),
-		access_control_os_username   varchar2(4000),
-		global_default_targets       varchar2(4000),
-		has_valid_db_username        varchar2(3),
-		has_valid_db_and_os_username varchar2(3),
-		user_default_targets         varchar2(4000)
-	);
-
+	--Collections.
 	type allowed_privs_rec is record(
 		os_username              varchar2(128),
 		target                   varchar2(4000),
@@ -1298,71 +1378,6 @@ end;
 	begin
 		return method5.m5_generic_sequence.nextval;
 	end get_sequence_nextval;
-
-	---------------------------------------------------------------------------
-	--Get configuration data from M5_CONFIG and M5_USER.
-	function get_config_data return config_data_rec is
-		v_config_data config_data_rec;
-	begin
-		--User configuration for admin email addresses.
-		select
-			listagg(email_address, ';') within group (order by lower(email_address)) admin_email_recipients,
-			min(email_address) admin_email_sender_address
-		into
-			v_config_data.admin_email_sender_address,
-			v_config_data.admin_email_recipients
-		from method5.m5_user
-		where is_m5_admin = 'Yes'
-			and email_address is not null;
-
-		--M5_CONFIG data.
-		select
-			max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
-			max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username,
-			max(case when config_name = 'Default Targets' then string_value else null end) gloal_default_targets
-		into
-			v_config_data.access_control_locked     ,
-			v_config_data.access_control_os_username,
-			v_config_data.global_default_targets
-		from method5.m5_config;
-
-		--User configuration data for the best match.
-		select
-			case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
-			case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
-			default_targets
-		into
-			v_config_data.has_valid_db_username       ,
-			v_config_data.has_valid_db_and_os_username,
-			v_config_data.user_default_targets        
-		from
-		(
-			--Find the highest match.
-			select oracle_username, os_username, default_targets, nomatch_0_db_1_dbAndOS_2
-				,max(nomatch_0_db_1_dbAndOS_2) over () best_match
-			from
-			(
-				select m5_user.oracle_username, os_username, default_targets
-					,case
-						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
-						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and sys_context('userenv', 'module') = 'DBMS_SCHEDULER' then 2
-						when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-							and os_username is null then 1
-					end nomatch_0_db_1_dbAndOS_2
-				from method5.m5_user
-				group by m5_user.oracle_username, os_username, default_targets
-				union all
-				select null oracle_username, null os_username, null default_targets
-					,0 nomatch_0_db_1_dbAndOS_2
-				from dual
-			)
-		)
-		where best_match = nomatch_0_db_1_dbAndOS_2;
-
-		return v_config_data;
-	end get_config_data;
 
 	---------------------------------------------------------------------------
 	--Get the privileges allowed for this user.
