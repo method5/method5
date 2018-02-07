@@ -21,9 +21,9 @@ If you're installing Method5, run these steps in this order:
 
 * 4: Access control.
 * 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
-* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
 * 9: Configure Target Groups.
 * 7: Add and test database links.
+* 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
 
 
 <a name="install_method5_on_remote_database"/>

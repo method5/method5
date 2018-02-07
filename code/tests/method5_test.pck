@@ -1641,7 +1641,7 @@ begin
 					p_database_name_1   => '##DATABASE_NAME_1##',
 					p_database_name_2   => '##DATABASE_NAME_2##',
 					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
-					--Never test SYS and shell script for TEMP_USER config.
+					--Never test SYS and shell script for SANDBOX users.
 					p_tests => method5.method5_test.c_base_tests);
 			end;
 			##SLASH##
@@ -1655,7 +1655,7 @@ begin
 					p_database_name_1   => '##DATABASE_NAME_1##',
 					p_database_name_2   => '##DATABASE_NAME_2##',
 					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
-					--Never test SYS and shell script for TEMP_USER config.
+					--Never test SYS and shell script for SANDBOX users.
 					p_tests => method5.method5_test.c_sandbox_and_targets);
 			end;
 			##SLASH##

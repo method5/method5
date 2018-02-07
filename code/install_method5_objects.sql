@@ -48,7 +48,7 @@ create table method5.m5_database
 	changed_by                 varchar2(128),
 	changed_date               date,
 	constraint m5_database_pk primary key (host_name, database_name),
-	constraint m5_database_numbers_only_ck check (regexp_like(target_version, '^[0-9\.]*$'))
+	constraint m5_database_numbers_only_ck check (regexp_like(target_version, '^[0-9\.]*$')),
 	constraint m5_database_is_active_ck check (is_active in ('Yes', 'No'))
 );
 comment on table method5.m5_database is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.';
@@ -178,6 +178,10 @@ comment on column method5.m5_user.can_use_sql_for_targets is 'Can use a SELECT S
 comment on column method5.m5_user.changed_by              is 'User who last changed this row.';
 comment on column method5.m5_user.changed_date            is 'Date this row was last changed.';
 
+--Default admin is the user who installs Method5.  They are given full privileges.
+insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
+values (user, sys_context('userenv', 'os_user'), null, 'Yes', null, 'Yes');
+
 create table method5.m5_role
 (
 	role_name               varchar2(128)  not null,
@@ -263,6 +267,9 @@ comment on column method5.m5_user_role.role_name       is 'Role name from METHOD
 comment on column method5.m5_user_role.changed_by      is 'User who last changed this row.';
 comment on column method5.m5_user_role.changed_date    is 'Date this row was last changed.';
 
+--Give default user the default role.
+insert into method5.m5_user_role(oracle_username, role_name) values (user, 'ALL');
+
 --Used for Method5 configuration.
 create sequence method5.m5_config_seq;
 create table method5.m5_config
@@ -308,6 +315,7 @@ create table method5.m5_job_timeout
 comment on table method5.m5_job_timeout is 'Used for slow or broken jobs that timed out.  The column names and types are similar to those in DBA_SCHEDULER_*.';
 
 --Create triggers to alert admin whenever the configuration changes.
+--TODO: Move to a post-SYS script, add to more tables.
 create or replace trigger method5.detect_changes_to_m5_config
 after insert or update or delete on method5.m5_config
 --Purpose: Email the administrator if anyone changes the M5_CONFIG table.

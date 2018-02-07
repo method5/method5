@@ -86,7 +86,7 @@ Run this script on the management server as SYS.  It's a small script, you can e
 3: Install Method5 objects.
 ---------------------------
 
-Run this script on the management server as a user with the DBA role, in SQL*Plus.  It should not generate any errors.
+Run this script on the management server as a user with the DBA role, in SQL*Plus.  This user will be the default Method5 administrator so you should use a personal account.  Ths script should not generate any errors.
 
 	SQL> @code/install_method5_objects.sql
 	SQL> quit
@@ -120,7 +120,7 @@ By default, Method5 runs against all targets.  This default can be changed from 
 
 Run this optional code on the management server as a user with the DBA role.
 
-You probably want to use a meaningful profile for Method5.  Whatever you select here will be used in remote databases.
+You probably want to use a meaningful profile for Method5.  Whatever you select here will also be used in remote databases.
 
 	alter user method5 profile &PROFILE_NAME ;
 
@@ -140,19 +140,23 @@ Run these scripts on the management server as a user with the DBA role, in SQL*P
 	SQL> @code/install_method5_global_data_dictionary.sql
 
 
-9: Run integration tests to verify installation.
-------------------------------------------------
+9: Run integration tests to verify installation. (optional)
+-----------------------------------------------------------
 
-Run this code on the management server, as a user with the DBA role who is authorized to use Method5.
+Run this code on the management server, as a user who has the DBA role and is a Method5 administrator.
 
-Replace `&database1` and `&database2` with two configured databases.  (If possible, pick two databases that use a different version of Oracle - that will more thoroughly test all features.)  Replace '&other_user' with another valid user name.  The tests should output "PASS".
+Replace the "&" values with real values.  If possible, pick two databases that use a different version of Oracle - that will more thoroughly test all features.
 
-	--The tests will run for about a minute and print either "PASS" or "FAIL".
-	set serveroutput on;
-	begin
-		method5.method5_test.run(p_database_name_1 => '&database1', p_database_name_2 => '&database2', p_other_schema_name => '&other_user');
-	end;
-	/
+	select method5.method5_test.get_run_script(
+		p_database_name_1   => '&database1',
+		p_database_name_2   => '&database2',
+		p_other_schema_name => '&other_user',
+		p_test_run_as_sys   => '&sys_yes_or_no',
+		p_test_shell_script => '&shell_yes_or_no',
+		p_tns_alias         => '&tns_alias')
+	from dual;
+
+That command will output a SQL*Plus script to run to test several temporary users.  Run that script on a command line.  The output should display multiple "PASS" messages, but no "FAIL" messages.
 
 
 10: Populate M5_DATABASE with OEM data (optional).

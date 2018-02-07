@@ -7,7 +7,7 @@ First, let's make sure that nobody accidentally runs this as a script:
 	exit;
 	exit;
 
-Finally, when you're done uninstall, I'd like to know what went wrong and what we can do to improve things for others.  I'd appreciate it if you could create a GitHub issue or send me an email ad hjon@ventechsolutions.com.
+Finally, when you're done uninstalling, I'd like to know what went wrong and what we can do to improve things for others.  I'd appreciate it if you could create a GitHub issue or send me an email at jon@jonheller.org.
 
 
 Remove from Management Server
@@ -19,6 +19,44 @@ Stop current jobs:
 
 	begin
 		method5.m5_pkg.stop_jobs;
+	end;
+	/
+
+Drop house-keeping and global data dictionary jobs:
+
+	declare
+		procedure drop_job_not_exists(p_job_name varchar2) is
+			v_unknown_job exception;
+			pragma exception_init(v_unknown_job, -27475);
+		begin
+			dbms_scheduler.drop_job(p_job_name);
+		exception when v_unknown_job then null;
+		end;
+	begin
+		drop_job_not_exists('method5.cleanup_m5_temp_triggers_job');
+		drop_job_not_exists('method5.cleanup_m5_temp_tables_job');
+		drop_job_not_exists('method5.direct_m5_grants_job');
+		drop_job_not_exists('method5.email_m5_daily_summary_job');
+		drop_job_not_exists('method5.stop_timed_out_jobs_job');
+		drop_job_not_exists('method5.backup_m5_database_job');
+
+		for jobs in
+		(
+			select owner, job_name
+			from dba_scheduler_jobs
+			where job_name in (
+				--Housekeeping job that must be run by a user
+				'CLEANUP_REMOTE_M5_OBJECTS_JOB',
+				--Global data dictionary.
+				'M5_DBA_USERS_JOB', 'M5_V$PARAMETER_JOB', 'M5_PRIVILEGES_JOB', 'M5_USER$_JOB',
+				--Refreshes links in user schemas.
+				'M5_LINK_REFRESH_JOB'
+			)
+			order by 1,2
+		) loop
+			drop_job_not_exists(jobs.owner||'.'||jobs.job_name);
+		end loop;
+
 	end;
 	/
 
@@ -44,7 +82,7 @@ Remove all user links:
 			select distinct owner
 			from dba_db_links
 			where db_link like 'M5_%'
-				and owner <> 'METHOD5'
+				and owner not in ('METHOD5', 'SYS')
 			order by owner
 		) loop
 			method5.method5_admin.drop_m5_db_links_for_user(users.owner);
@@ -126,9 +164,5 @@ Login to each remote target as SYS and run the below command.  THERE'S NO TURNIN
 	drop database link m5_sys_key;
 	drop role m5_minimum_remote_privs;
 	drop role m5_optional_remote_privs;
-	drop role role_m5_user;
-	begin
-		dbms_network_acl_admin.drop_acl(acl => 'method5_email_access.xml');
-	end;
-	/
+	drop role m5_user_role;
 */
