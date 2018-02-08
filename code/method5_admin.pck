@@ -245,7 +245,13 @@ is
 				procedure check_module_for_link is
 				begin
 					--TODO: This is not tested!
-					if sys_context('userenv','module') not like 'oracle@%' then
+					if
+						sys_context('userenv','module') like 'oracle@%'
+						or
+						sys_context('userenv','BG_JOB_ID') is not null
+					 then
+						null;
+					else
 						raise internal_exception;
 					end if;
 				end;
@@ -256,7 +262,7 @@ is
 					raise internal_exception;
 				end if;
 
-				--Check that the connection comes over a database link.
+				--Check that the connection comes over a database link or through a scheduled job.
 				$if dbms_db_version.ver_le_9 $then
 					check_module_for_link;
 				$elsif dbms_db_version.ver_le_10 $then
@@ -264,14 +270,20 @@ is
 				$elsif dbms_db_version.ver_le_11_1 $then
 					check_module_for_link;
 				$else
-					if sys_context('userenv', 'dblink_info') is null then
+					if
+						sys_context('userenv', 'dblink_info') is not null
+						or
+						sys_context('userenv','BG_JOB_ID') is not null
+					then
+						null;
+					else
 						raise internal_exception;
 					end if;
 				$end
 			end;
 			/]'||chr(10)||chr(10)
 		,'#HOST#', lower(sys_context('userenv', 'server_host')))
-		,'			', null);
+		,chr(10)||'			', chr(10));
 	end;
 
 	function create_sys_m5_runner return clob is
