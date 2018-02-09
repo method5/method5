@@ -13,17 +13,16 @@ Finally, when you're done uninstalling, I'd like to know what went wrong and wha
 Remove from Management Server
 -----------------------------
 
-Run these steps as a DBA on the management server.
+Run these steps as a DBA on the management server.  To make sure you really want to do this, the step is commented out.  Remove the multiline comment and unindent before running.
 
-Stop current jobs:
-
+/*
+	--Stop current jobs:
 	begin
 		method5.m5_pkg.stop_jobs;
 	end;
 	/
 
-Drop house-keeping and global data dictionary jobs:
-
+	--Drop house-keeping and global data dictionary jobs:
 	declare
 		procedure drop_job_not_exists(p_job_name varchar2) is
 			v_unknown_job exception;
@@ -60,8 +59,7 @@ Drop house-keeping and global data dictionary jobs:
 	end;
 	/
 
-Kill any remaining Method5 user sessions:
-
+	--Kill any remaining Method5 user sessions:
 	begin
 		for sessions in
 		(
@@ -74,8 +72,7 @@ Kill any remaining Method5 user sessions:
 	end;
 	/
 
-Remove all user links:
-
+	--Remove all user links:
 	begin
 		for users in
 		(
@@ -90,24 +87,19 @@ Remove all user links:
 	end;
 	/
 
-Drop the ACL used for sending emails:
-
+	--Drop the ACL used for sending emails:
 	begin
 		dbms_network_acl_admin.drop_acl(acl => 'method5_email_access.xml');
 	end;
 	/
 
-Drop the user.  THERE'S NO TURNING BACK FROM THIS!  To make sure you really want to do this, the step is commented out.  Remove the comments before running.
+	--Drop the user.
+	drop user method5 cascade;
 
-	--drop user method5 cascade;
-
-
-Drop a global context used for Method4:
-
+	--Drop a global context used for Method4:
 	drop context method4_context;
 
-Drop public synonyms:
-
+	--Drop public synonyms:
 	begin
 		for synonyms in
 		(
@@ -121,8 +113,7 @@ Drop public synonyms:
 	end;
 	/
 
-Drop temporary tables that hold Method5 data retrieved from targets:
-
+	--Drop temporary tables that hold Method5 data retrieved from targets:
 	begin
 		for tables in
 		(
@@ -135,6 +126,7 @@ Drop temporary tables that hold Method5 data retrieved from targets:
 		end loop;
 	end;
 	/
+*/
 
 If you are only uninstalling to re-install, make sure you completely log out of all sessions before installing anything.
 

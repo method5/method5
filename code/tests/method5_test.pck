@@ -1220,7 +1220,11 @@ end test_shell_script;
 
 
 --------------------------------------------------------------------------------
-procedure test_sandbox_and_targets(p_database_name_1 varchar2, p_database_name_2 varchar2) is
+procedure test_sandbox_and_targets(
+	p_database_name_1 varchar2,
+	p_database_name_2 varchar2,
+	p_other_schema_name	varchar2
+) is
 	v_test_name varchar2(100);
 	v_expected_results varchar2(4000);
 	v_actual_results varchar2(4000);
@@ -1422,6 +1426,23 @@ begin
 		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
 	end;
 
+	begin
+		v_test_name := 'No privileges to create tables in other schemas.';
+		v_expected_results :=
+			'Exception caught: ORA-20037: You are not authorized to create tables in other schemas.'||chr(10)||
+			'Contact your Method5 administrator to change your access.';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc('select * from dual', p_table_name => '#OTHER_SCHEMA_NAME#.table_that_should_not_exist');
+			end;
+		]', '#OTHER_SCHEMA_NAME#', p_other_schema_name);
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
 end test_sandbox_and_targets;
 
 
@@ -1463,22 +1484,21 @@ begin
 	dbms_output.disable;
 
 	--Run the chosen tests.
-	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                     end if;
-	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                    end if;
-	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                     end if;
-	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                       end if;
-	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                 end if;
-	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);            end if;
-	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                               end if;
-	if bitand(p_tests, c_test_p_table_exists_action  ) > 0 then test_p_table_exists_action(v_database_name_1);                        end if;
-	if bitand(p_tests, c_test_audit                  ) > 0 then test_audit(v_database_name_1, v_database_name_2);                     end if;
-	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                         end if;
-	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);              end if;
-	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2); end if;
-	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                   end if;
-	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);              end if;
-	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_1, v_database_name_2);  end if;
-
+	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                                    end if;
+	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                                   end if;
+	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                                    end if;
+	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                                      end if;
+	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                                end if;
+	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);                           end if;
+	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                                              end if;
+	if bitand(p_tests, c_test_p_table_exists_action  ) > 0 then test_p_table_exists_action(v_database_name_1);                                       end if;
+	if bitand(p_tests, c_test_audit                  ) > 0 then test_audit(v_database_name_1, v_database_name_2);                                    end if;
+	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                                        end if;
+	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);                             end if;
+	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2);                end if;
+	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                                  end if;
+	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);                             end if;
+	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_1, v_database_name_2, p_other_schema_name); end if;
 
 	--TODO: Test dropping and recreating a database link.
 
@@ -1547,15 +1567,15 @@ begin
 
 
 	--Create M5 user, role, and user-role connection.
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
-		values('M5_TEST_DIRECT', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes');
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema)
+		values('M5_TEST_DIRECT', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes', 'Yes');
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_DIRECT', p_database_name_1||','||p_database_name_2, 'Yes', 'Yes', 'Yes', 'M5');
 	insert into method5.m5_user_role(oracle_username, role_name)
 		values('M5_TEST_DIRECT', 'M5_TEST_DIRECT');
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
-		values('M5_TEST_SANDBOX_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes');
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema)
+		values('M5_TEST_SANDBOX_FULL_NO_LINKS', sys_context('userenv', 'os_user'), null, 'No', null, 'Yes', 'Yes');
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_SANDBOX_FULL_NO_LINKS', p_database_name_1||','||p_database_name_2, 'No', 'No', 'No', 'SANDBOX');
 	insert into method5.m5_user_role(oracle_username, role_name)
@@ -1563,8 +1583,8 @@ begin
 	insert into method5.m5_role_priv(role_name, privilege)
 		values('M5_TEST_SANDBOX_FULL_NO_LINKS', 'DBA');
 
-	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets)
-		values('M5_TEST_SANDBOX_AND_TARGETS', sys_context('userenv', 'os_user'), null, 'No', p_database_name_1, 'No'); --Note this user defaults only to only DB1.
+	insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema)
+		values('M5_TEST_SANDBOX_AND_TARGETS', sys_context('userenv', 'os_user'), null, 'No', p_database_name_1, 'No', 'No'); --Note this user defaults only to only DB1.
 	insert into method5.m5_role(role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema, run_as_m5_or_sandbox)
 		values('M5_TEST_SANDBOX_AND_TARGETS', p_database_name_2, 'No', 'No', 'No', 'SANDBOX'); --But it can only access DB2.
 	insert into method5.m5_user_role(oracle_username, role_name)

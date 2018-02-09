@@ -55,6 +55,7 @@ Options #2 and #3 can be tricky to configure and are not recommended.
 The table METHOD5.M5_USER is mostly used for authentication and authorization.
   * IS_M5_ADMIN: Can this user change Method5 configuration tables.  This user will also receive emails about configuration problems and changes.  Either Yes or No.
   * CAN_USE_SQL_FOR_TARGETS: Can use a SELECT SQL statement for choosing targets.  Target SELECT statements are run as Method5 so only grant this to trusted users.  Either Yes or No.
+  * CAN_DROP_TAB_IN_OTHER_SCHEMA: Can set P_TABLE_NAME to be in a different schema.  That may sound innocent but it also implies the user can drop or delete data from other schemas on the management database.  Only give this to users you trust on the management database.  Either Yes or No.
 
 The table METHOD5.M5_ROLE allows complete control over the targets and features available to each user.  The column comments explain how to use each setting:
   * ROLE_NAME: Name of the role.

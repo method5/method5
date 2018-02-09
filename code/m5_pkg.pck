@@ -198,7 +198,8 @@ type config_data_rec is record(
 	has_valid_db_username        varchar2(3),
 	has_valid_db_and_os_username varchar2(3),
 	user_default_targets         varchar2(4000),
-	can_use_sql_for_targets      varchar2(3)
+	can_use_sql_for_targets      varchar2(3),
+	can_drop_tab_in_other_schema varchar2(3)
 );
 
 
@@ -345,20 +346,22 @@ begin
 		case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
 		case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
 		default_targets,
-		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_use_sql_for_targets end can_use_sql_for_targets
+		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_use_sql_for_targets end can_use_sql_for_targets,
+		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_drop_tab_in_other_schema end can_drop_tab_in_other_schema
 	into
 		v_config_data.has_valid_db_username       ,
 		v_config_data.has_valid_db_and_os_username,
 		v_config_data.user_default_targets        ,
-		v_config_data.can_use_sql_for_targets
+		v_config_data.can_use_sql_for_targets     ,
+		v_config_data.can_drop_tab_in_other_schema
 	from
 	(
 		--Find the highest match.
-		select oracle_username, os_username, default_targets, can_use_sql_for_targets, nomatch_0_db_1_dbAndOS_2
+		select oracle_username, os_username, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema, nomatch_0_db_1_dbAndOS_2
 			,max(nomatch_0_db_1_dbAndOS_2) over () best_match
 		from
 		(
-			select m5_user.oracle_username, os_username, default_targets, can_use_sql_for_targets
+			select m5_user.oracle_username, os_username, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema
 				,case
 					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
 						and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
@@ -1452,6 +1455,7 @@ end;
 	--P_TABLE_OWNER defaults to the current user.
 	--P_TABLE_NAME defaults to a name with a sequence.
 	procedure set_table_owner_and_name(
+		p_config_data               in config_data_rec,
 		p_table_name                in varchar2,
 		p_sequence                  in number,
 		p_table_owner              out varchar2,
@@ -1479,6 +1483,13 @@ end;
 				if v_count = 0 then
 					raise_application_error(-20024, 'This user specified in P_TABLE_NAME does not exist: '||
 						p_table_owner||'.');
+				end if;
+
+				--Check that the user has permission to create/drop/delete tables in other schemas.
+				if p_table_owner <> sys_context('userenv', 'session_user')
+					and p_config_data.can_drop_tab_in_other_schema = 'No' then
+					raise_application_error(-20037, 'You are not authorized to create tables in other schemas.'||chr(10)||
+						'Contact your Method5 administrator to change your access.');
 				end if;
 			--Else use default owner and use table name.
 			else
@@ -3606,7 +3617,7 @@ begin
 		v_target_string_with_default := add_default_targets_if_null(v_original_targets, v_config_data);
 		v_allowed_privs := get_allowed_privs(p_run_as_sys, v_is_shell_script, v_target_string_with_default);
 		v_sequence := get_sequence_nextval;
-		set_table_owner_and_name(p_table_name, v_sequence, v_table_owner, v_table_name);
+		set_table_owner_and_name(v_config_data, p_table_name, v_sequence, v_table_owner, v_table_name);
 		v_audit_rowid := audit(p_code, v_target_string_with_default, nvl(p_table_name, v_table_name), p_asynchronous, v_table_exists_action, p_run_as_sys);
 		control_access(v_audit_rowid, v_config_data);
 		validate_input(v_table_exists_action);

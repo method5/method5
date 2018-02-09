@@ -159,7 +159,7 @@ Replace the "&" values with real values.  If possible, pick two databases that u
 That command will output a SQL*Plus script to run to test several temporary users.  Run that script on a command line.  The output should display multiple "PASS" messages, but no "FAIL" messages.
 
 
-10: Populate M5_DATABASE with OEM data (optional).
+10: Populate M5_DATABASE with OEM data. (optional)
 --------------------------------------------------
 
 If you use Oracle Enterprise Manager (OEM) and want to use it to populate the table M5_DATABASE see the file examples/Load OEM data into M5_DATABASE.sql.
