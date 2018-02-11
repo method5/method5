@@ -500,7 +500,6 @@ begin
 	--Execute P_TARGET_STRING as a SELECT statement if it looks like one.
 	if v_clean_select_sql is not null then
 		--Try to run query, raise helpful error message if it doesn't work.
-		--TODO: SQL injection threat if this function is runnable by unprivileged users.
 		begin
 			--Add an "intersect" to ensure that only valid rows are returned.
 			if lower(trim(p_database_or_host)) = 'database' then
@@ -649,7 +648,7 @@ procedure run(
 	);
 
 	--Constants.
-	C_MAX_DATABASE_ATTEMPTS constant number := 100;
+	c_max_database_attempts constant number := 100;
 
 	--Collections.
 	type allowed_privs_rec is record(
@@ -670,7 +669,7 @@ procedure run(
 	type allowed_privs_nt is table of allowed_privs_rec;
 
 	--Code templates.
-	v_select_template constant varchar2(32767) := q'<
+	c_select_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 	v_dummy varchar2(1);
 begin
@@ -731,7 +730,7 @@ end;
 >';
 
 
-	v_select_limit_privs_template constant varchar2(32767) := q'<
+	c_select_limit_privs_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 	v_dummy varchar2(1);
 begin
@@ -883,7 +882,7 @@ end;
 >';
 
 
-	v_shell_script_template constant varchar2(32767) := q'<
+	c_shell_script_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 	v_database_name varchar2(128);
 	v_platform_name varchar2(4000);
@@ -965,7 +964,7 @@ end;
 >';
 
 
-	v_plsql_template constant varchar2(32767) := q'<
+	c_plsql_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 begin
 	execute immediate q'##QUOTE_DELIMITER4##
@@ -1129,7 +1128,7 @@ begin
 end;
 >';
 
-	v_plsql_limit_privs_template constant varchar2(32767) := q'<
+	c_plsql_limit_privs_template constant varchar2(32767) := q'<
 create procedure m5_temp_proc_##SEQUENCE## authid current_user is
 begin
 	execute immediate q'##QUOTE_DELIMITER4##
@@ -1371,6 +1370,132 @@ begin
 			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_##SEQUENCE## cascade');
 		end;
 	##QUOTE_DELIMITER4##';
+end;
+>';
+
+	c_sandbox_metadata_template constant varchar2(32767) := q'<
+declare
+	v_dummy varchar2(1);
+begin
+	--Ping database with simple select to create simple error message if link fails.
+	execute immediate 'select dummy from sys.dual@##DB_LINK_NAME##' into v_dummy;
+
+	execute immediate q'##QUOTE_DELIMITER3##
+		declare
+			v_rowcount number;
+			v_default_permanent_tablespace varchar2(128);
+			v_default_temporary_tablespace varchar2(128);
+			v_quota varchar2(128);
+			v_profile varchar2(128);
+		begin
+			--Find the temporary user properties if they exist, else use defaults.
+			select
+				nvl(requested_and_avail_ts, default_ts) tablespace,
+				nvl(requested_and_avail_temp_ts, default_temp_ts) temp_tablespace,
+				nvl(to_char('##QUOTA##'), 'UNLIMITED') quota,
+				nvl(requested_and_avail_profile, 'DEFAULT') profile
+			into v_default_permanent_tablespace, v_default_temporary_tablespace, v_quota, v_profile
+			from
+			(
+				--Requested and available values
+				select
+					(
+						select max(tablespace_name)
+						from dba_tablespaces@##DB_LINK_NAME##
+						where contents = 'PERMANENT'
+							and tablespace_name = trim(upper('##DEFAULT_PERMANENT_TABLESPACE##'))
+					) requested_and_avail_ts,
+					(
+						select max(tablespace_name)
+						from dba_tablespaces@##DB_LINK_NAME##
+						where contents = 'TEMPORARY'
+							and tablespace_name = trim(upper('##DEFAULT_TEMPORARY_TABLESPACE##'))
+					) requested_and_avail_temp_ts,
+					(
+						select distinct profile
+						from dba_profiles@##DB_LINK_NAME##
+						where profile = trim(upper('##PROFILE##'))
+					) requested_and_avail_profile
+				from dual
+			)
+			cross join
+			(
+				--Default values.
+				select
+					max(case when property_name = 'DEFAULT_PERMANENT_TABLESPACE' then property_value else null end) default_ts,
+					max(case when property_name = 'DEFAULT_TEMP_TABLESPACE' then property_value else null end) default_temp_ts
+				from database_properties@##DB_LINK_NAME##
+			);
+
+			--Create temporary user to run function.
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+				create user m5_temp_sandbox_m_##SEQUENCE##
+				identified by "'||replace(replace(sys.dbms_random.string(opt=> 'p', len=> 26), '''', null), '"', null) || 'aA#1'||'"
+				account lock password expire
+				default tablespace '||v_default_permanent_tablespace||'
+				temporary tablespace '||v_default_temporary_tablespace||'
+				quota '||v_quota||' on '||v_default_permanent_tablespace||'
+				profile '||v_profile||'
+			');
+
+			--Grant the user privileges.
+			declare
+				v_privs sys.odcivarchar2list := sys.odcivarchar2list('create table'##ALLOWED_PRIVS##);
+			begin
+				for i in 1 .. v_privs.count loop
+					begin
+						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(
+							'grant '||v_privs(i)||' to m5_temp_sandbox_m_##SEQUENCE##'
+						);
+					exception when others then null;
+					end;
+				end loop;
+			end;
+
+			--Create procedure to run code.
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
+				create procedure m5_temp_sandbox_m_##SEQUENCE##.m5_temp_proc_##SEQUENCE## authid current_user is
+					--Required for DDL over database link.
+					pragma autonomous_transaction;
+				begin
+					execute immediate q'##QUOTE_DELIMITER1##
+						##CTAS_DDL##
+					##QUOTE_DELIMITER1##';
+				end;
+			##QUOTE_DELIMITER2##');
+
+			--Create remote scheduler job to run the procedure as the sandbox user.
+			dbms_scheduler.create_job@##DB_LINK_NAME##(
+				job_name => 'm5_temp_sandbox_m_##SEQUENCE##.m5_temp_job_##SEQUENCE##',
+				job_type => 'stored_procedure',
+				job_action => 'm5_temp_sandbox_m_##SEQUENCE##.m5_temp_proc_##SEQUENCE##',
+				comments => 'Temporary Method5 job for a temporary Method5 user.  Both will be dropped after the job finishes.'
+			);
+
+			--Workaround to PLS-00960: RPCs cannot use parameters with schema-level object types in this release.
+			dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('
+				create procedure m5_temp_sandbox_m_##SEQUENCE##.run_job is
+				begin
+					dbms_scheduler.run_job(''m5_temp_sandbox_m_##SEQUENCE##.m5_temp_job_##SEQUENCE##'');
+				end;
+			');
+
+			--Run the procedure, that runs the job, that runs the proc, that runs the code.
+			execute immediate 'begin m5_temp_sandbox_m_##SEQUENCE##.run_job@##DB_LINK_NAME##; end;';
+		end;
+	##QUOTE_DELIMITER3##';
+
+--Exception block must be outside of dynamic PL/SQL.
+--Exceptions like "ORA-00257: archiver error. Connect internal only, until freed."
+--will make the whole block fail and must be caught by higher level block.
+exception when others then
+	--Cleanup by dropping the temporary user.
+	execute immediate q'##QUOTE_DELIMITER3##
+		begin
+			sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##('drop user m5_temp_sandbox_m_##SEQUENCE## cascade');
+		end;
+	##QUOTE_DELIMITER3##';
+	raise;
 end;
 >';
 
@@ -2718,13 +2843,16 @@ end;
 		p_explicit_expression_list in out varchar2,
 		p_select_plsql_script             varchar2,
 		p_command_name                    varchar2,
-		p_target_tab                      string_table,
+		p_allowed_privs                   allowed_privs_nt,
 		p_sequence                        number,
 		p_is_first_column_sortable in out boolean
 	) is
+		v_code varchar2(32767);
 		v_data_type varchar2(100);
 		v_name_already_used exception;
+		v_sandbox_sequence number;
 		pragma exception_init(v_name_already_used, -955);
+		pragma autonomous_transaction;
 	begin
 		--For SELECTS create a result table to fit columns.
 		if p_select_plsql_script = 'SELECT' then
@@ -2732,7 +2860,6 @@ end;
 				v_create_table_ddl varchar(32767);
 				v_temp_table_name varchar2(128);
 				v_successful_database_index number;
-				v_failed_database_list varchar2(32767);
 				v_last_error varchar2(32767);
 
 				v_illegal_use_of_long exception;
@@ -2764,20 +2891,76 @@ end;
 				loop
 					--Increment and test for limits.
 					v_database_index := v_database_index + 1;
-					exit when v_database_index > least(c_max_database_attempts, p_target_tab.count);
+					exit when v_database_index > least(c_max_database_attempts, p_allowed_privs.count);
 
 					--Try to create the table, handle errors.
+					declare
+						v_privs_string varchar2(32767);
+						v_sandbox_ctas varchar2(32767);
 					begin
-						--Create the table.
-						if p_run_as_sys then
+						--Create table with sandbox user.
+						if p_allowed_privs(v_database_index).run_as_m5_or_sandbox = 'SANDBOX' then
+
+							--Use a separate sequence for sandbox metadata users.
+							--This helps avoid this error:
+							--ORA-04062: timestamp of procedure "M5_TEMP_SANDBOX_X.RUN_JOB" has been changed
+							v_sandbox_sequence := get_sequence_nextval;
+
+							--For sandbox users the table must be created on the sandbox schema.
+							v_sandbox_ctas := get_ctas_sql(
+								p_code                     => p_code,
+								p_owner                    => 'm5_temp_sandbox_m_'||v_sandbox_sequence,
+								p_table_name               => v_temp_table_name,
+								p_has_version_star         => p_has_version_star,
+								p_has_column_gt_30         => p_has_column_gt_30,
+								p_has_long                 => p_has_long,
+								p_column_list              => p_explicit_column_list,
+								p_expression_list          => p_explicit_expression_list,
+								p_add_database_name_column => true,
+								p_copy_data                => false
+							);
+
+							--Create string of privileges.
+							for i in 1 .. p_allowed_privs(v_database_index).privileges.count loop
+								v_privs_string := v_privs_string || ',''' || p_allowed_privs(v_database_index).privileges(i) || '''';
+							end loop;
+
+							--Populate and execute template.
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(c_sandbox_metadata_template
+								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(v_database_index).sandbox_default_ts)
+								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(v_database_index).sandbox_temporary_ts)
+								,'##QUOTA##', p_allowed_privs(v_database_index).sandbox_quota)
+								,'##PROFILE##', p_allowed_privs(v_database_index).sandbox_profile)
+								,'##ALLOWED_PRIVS##', v_privs_string)
+								,'##SEQUENCE##', to_char(v_sandbox_sequence))
+								,'##TABLE_OWNER##', p_table_owner)
+								,'##TABLE_NAME##', p_table_name)
+								,'##DATABASE_NAME##', p_allowed_privs(v_database_index).target)
+								,'##DB_LINK_NAME##', p_allowed_privs(v_database_index).db_link_name)
+								,'##CTAS_DDL##', v_sandbox_ctas);
+							v_code := replace(v_code, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_code));
+							v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
+							v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
+
+							execute immediate v_code;
+
+							--Print the job code in debug mode, 4K bytes at a time because some tools don't handle large DBMS_OUTPUT well.
+							if g_debug then
+								for i in 0 .. ceil(length(v_code)/3980) - 1 loop
+									sys.dbms_output.put_line('V_CODE '||to_char(i+1)||':'||chr(10)||substr(v_code, i*3980+1, 3980));
+								end loop;
+							end if;
+						--Create table as SYS.
+						elsif p_run_as_sys then
 							execute immediate replace(q'[
 								begin
 									sys.m5_runner.run_as_sys@m5_##DATABASE_NAME##(:encrypted_raw);
 								end;
 							]'
-							, '##DATABASE_NAME##', p_target_tab(v_database_index)
+							, '##DATABASE_NAME##', p_allowed_privs(v_database_index).target
 							)
-							using get_encrypted_raw(p_target_tab(v_database_index), v_create_table_ddl);
+							using get_encrypted_raw(p_allowed_privs(v_database_index).target, v_create_table_ddl);
+						--Create table with METHDO5.
 						else
 							execute immediate replace(replace(replace(q'[
 								begin
@@ -2786,7 +2969,7 @@ end;
 									##QUOTE_DELIMITER1##');
 								end;
 							]'
-							, '##DATABASE_NAME##', p_target_tab(v_database_index))
+							, '##DATABASE_NAME##', p_allowed_privs(v_database_index).target)
 							, '##CTAS##', v_create_table_ddl)
 							, '##QUOTE_DELIMITER1##', find_available_quote_delimiter(v_create_table_ddl));
 						end if;
@@ -2802,7 +2985,7 @@ end;
 						--But only retry it once.
 						if v_retry_counter = 0 then
 							--Recreate the CTAS based on an explicit column listGet new list
-							get_column_metadata(p_code, p_run_as_sys, p_target_tab(v_database_index), p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
+							get_column_metadata(p_code, p_run_as_sys, p_allowed_privs(v_database_index).target, p_has_column_gt_30, p_has_long, p_explicit_column_list, p_explicit_expression_list);
 							v_create_table_ddl := get_ctas_sql(
 								p_code                     => p_code,
 								p_owner                    => 'method5',
@@ -2824,33 +3007,63 @@ end;
 						--Else it's just another failure for some weird reason.
 						else
 							v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
-							v_failed_database_list := v_failed_database_list || ',' || p_target_tab(v_database_index);
 						end if;
 					when others then
 						v_last_error := sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace;
-						v_failed_database_list := v_failed_database_list || ',' || p_target_tab(v_database_index);
 					end;
 				end loop;
 
 				--Raise an error if none of the databases worked.
 				if v_successful_database_index is null then
-					raise_application_error(-20030, 'The SELECT statement was not valid, please check the syntax'||
-						' and that the objects exist.  The statement was tested on '||substr(v_failed_database_list,2)||
-						'.  If the objects only exist on a small number of'||
-						' databases you may want to run Method5 first with P_TARGETS set to one database that has the'||
-						' objects.  The SQL raised this error: '||chr(10)||v_last_error);
+					--Different error message if processing stopped because it reached attempt limit.
+					if v_database_index > c_max_database_attempts then
+					raise_application_error(-20038, 'The SELECT statement did not run.'||chr(10)||
+						'Please ensure the syntax is valid, all the objects exist, and you have access to all the objects.'||chr(10)||
+						'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+						'The statement was stopped after failing '||c_max_database_attempts||' times; '||
+						'use a more precise P_TARGETS if the SELECT only works on a small number of databases.'||chr(10)||
+						'The SELECT statement raised this error:'||chr(10)||v_last_error);
+					else
+						raise_application_error(-20030, 'The SELECT statement did not run.'||chr(10)||
+							'Please ensure the syntax is valid, all the objects exist, and you have access to all the objects.'||chr(10)||
+							'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+							'The SELECT statement raised this error:'||chr(10)||v_last_error);
+					end if;
 				end if;
 
-				--Create a local table based on the remote table.
-				begin
-					execute immediate '
-						create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
-						select * from method5.'||v_temp_table_name||'@m5_'||p_target_tab(v_successful_database_index);
-				--Do nothing if the table already exists.
-				--This can happen if they use "DELETE" or "APPEND".
-				exception when v_name_already_used then
-					null;
-				end;
+				--Create local table from remote table on METHOD5, for M5 users.
+				if p_allowed_privs(v_successful_database_index).run_as_m5_or_sandbox = 'M5' then
+					begin
+						execute immediate '
+							create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
+							select * from method5.'||v_temp_table_name||'@m5_'||p_allowed_privs(v_successful_database_index).target;
+					--Do nothing if the table already exists.
+					--This can happen if they use "DELETE" or "APPEND".
+					exception when v_name_already_used then
+						null;
+					end;
+				--Create local table from remote table on the sandbox schema, for sandbox users.
+				else
+					begin
+						execute immediate '
+							create table '||p_table_owner||'.'||p_table_name||' nologging pctfree 0 as
+							select * from m5_temp_sandbox_m_'||v_sandbox_sequence||'.'||v_temp_table_name||'@m5_'||p_allowed_privs(v_successful_database_index).target;
+							--Avoid: ORA-14552: cannot perform a DDL, commit or rollback inside a query or DML
+							commit;
+					--Do nothing if the table already exists.
+					--This can happen if they use "DELETE" or "APPEND".
+					exception when v_name_already_used then
+						null;
+					end;
+
+					execute immediate replace(replace(q'[
+						begin
+							sys.dbms_utility.exec_ddl_statement@m5_##DB_LINK_NAME##('drop user m5_temp_sandbox_m_##SEQUENCE## cascade');
+						end;
+					]',
+					'##DB_LINK_NAME##', p_allowed_privs(v_successful_database_index).target),
+					'##SEQUENCE##', v_sandbox_sequence);
+				end if;
 			end;
 
 			--Find out if the second column is an unsortable type.
@@ -2902,9 +3115,10 @@ end;
 			exception when v_name_already_used then
 				null;
 			end;
-
-
 		end if;
+
+		--Avoid: ORA-06519: active autonomous transaction detected and rolled back
+		commit;
 	end create_data_table;
 
 	---------------------------------------------------------------------------
@@ -3125,7 +3339,7 @@ end;
 							>';
 						end if;
 
-						v_code := replace(replace(replace(replace(replace(replace(replace(v_select_template
+						v_code := replace(replace(replace(replace(replace(replace(replace(c_select_template
 							,'##DBA_OR_SYS_RUN_CTAS##', v_ctas_call)
 							,'##SEQUENCE##', to_char(v_sequence))
 							,'##TABLE_OWNER##', p_table_owner)
@@ -3172,7 +3386,7 @@ end;
 								v_privs_string := v_privs_string || ',''' || p_allowed_privs(i).privileges(j) || '''';
 							end loop;
 
-							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_select_limit_privs_template
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(c_select_limit_privs_template
 								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).sandbox_default_ts)
 								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).sandbox_temporary_ts)
 								,'##QUOTA##', p_allowed_privs(i).sandbox_quota)
@@ -3196,7 +3410,7 @@ end;
 				elsif p_select_plsql_script = 'PLSQL' then
 					--Regular PL/SQL template if it runs as Method5.
 					if p_allowed_privs(i).run_as_m5_or_sandbox = 'M5' then
-						v_code := replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_template
+						v_code := replace(replace(replace(replace(replace(replace(replace(replace(c_plsql_template
 							,'##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##', case when p_run_as_sys then 'replace(' else null end)
 							,'##SYS_REPLACE_WITH_ENCRYPTED_END##', case when p_run_as_sys then p_encrypted_code else null end)
 							,'##SEQUENCE##', to_char(v_sequence))
@@ -3215,7 +3429,7 @@ end;
 								v_privs_string := v_privs_string || ',''' || p_allowed_privs(i).privileges(j) || '''';
 							end loop;
 
-							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(v_plsql_limit_privs_template
+							v_code := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(c_plsql_limit_privs_template
 								,'##DEFAULT_PERMANENT_TABLESPACE##', p_allowed_privs(i).sandbox_default_ts)
 								,'##DEFAULT_TEMPORARY_TABLESPACE##', p_allowed_privs(i).sandbox_temporary_ts)
 								,'##QUOTA##', p_allowed_privs(i).sandbox_quota)
@@ -3243,7 +3457,7 @@ end;
 
 				--Shell script.
 				elsif p_select_plsql_script = 'SCRIPT' then
-					v_code := replace(replace(replace(replace(replace(replace(v_shell_script_template
+					v_code := replace(replace(replace(replace(replace(replace(c_shell_script_template
 						,'##CODE##', p_code)
 						,'##SEQUENCE##', to_char(v_sequence))
 						,'##TABLE_OWNER##', p_table_owner)
@@ -3629,7 +3843,7 @@ begin
 		check_if_already_running(v_table_name);
 		get_transformed_code_and_type(p_code, p_run_as_sys, v_is_shell_script, v_target_tab, v_transformed_code, v_encrypted_code, v_select_plsql_script, v_is_first_column_sortable, v_command_name, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list);
 		check_table_name_and_prep(v_table_owner, v_table_name, v_table_exists_action);
-		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_target_tab, v_sequence, v_is_first_column_sortable);
+		create_data_table(v_table_owner, v_table_name, v_transformed_code, p_run_as_sys, v_has_version_star, v_has_column_gt_30, v_has_long, v_explicit_column_list, v_explicit_expression_list, v_select_plsql_script, v_command_name, v_allowed_privs, v_sequence, v_is_first_column_sortable);
 		create_meta_table(v_table_owner, v_table_name, v_sequence, p_code, v_target_string_with_default, v_allowed_privs.count, v_audit_rowid);
 		create_error_table(v_table_owner, v_table_name, v_is_shell_script);
 		grant_cross_schema_privileges(v_table_owner, v_table_name, sys_context('userenv', 'session_user'));

@@ -60,8 +60,8 @@ function get_run_script(
 
 
 --Procedures to help with GET_RUN_SCRIPT.
-procedure create_users(p_database_name_1 varchar2, p_database_name_2 varchar2);
-procedure drop_users_if_exist;
+procedure create_test_users(p_database_name_1 varchar2, p_database_name_2 varchar2);
+procedure drop_test_users_if_exist;
 
 --Globals to select which test suites to run.
 c_test_function                constant number := power(2, 1);
@@ -155,13 +155,13 @@ begin
 	--Return results of the comparison.
 	if v_version_1 = 'Not available' then
 		return 'WARNING: Could not find version information for '||p_database_name_1||
-			' in M5_DATABASE.  Using different versions will produce more robust tests.'; 
+			' in M5_DATABASE.  Using different versions will produce more robust tests.'||chr(10); 
 	elsif v_version_2 = 'Not available' then
 		return 'WARNING: Could not find version information for '||p_database_name_2||
-			' in M5_DATABASE.  Using different versions will produce more robust tests.'; 
+			' in M5_DATABASE.  Using different versions will produce more robust tests.'||chr(10); 
 	elsif v_version_1 = v_version_2 then
 		return 'WARNING: '||p_database_name_1||' and '||p_database_name_2||' have the same '||
-			'version.  Using different versions will produce more robust tests.';
+			'version.  Using different versions will produce more robust tests.'||chr(10);
 	else
 		return null;
 	end if;
@@ -489,6 +489,27 @@ begin
 	exception when others then
 		assert_equals(v_test_name, v_expected_results,
 			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+
+	begin
+		v_test_name := 'Error when selecting from table that does not exist.';
+		v_expected_results :=
+			'Exception caught: ORA-20030: The SELECT statement did not run.'||chr(10)||
+			'Please ensure the syntax is valid, all the objects exist, and you have access to all the objects.'||chr(10)||
+			'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+			'The SELECT statement raised this error:'||chr(10)||
+			'ORA-00942: table or view does not exist';
+
+		execute immediate replace(q'[
+			select count(*)
+			from table(m5('select count(*) from "This Does Not Exist..."', '#DATABASE_1#'))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		--Use substr because we only want to test the text part of the error.
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||substr(sqlerrm, 1, 320));
 	end;
 end test_p_code;
 
@@ -1288,25 +1309,22 @@ begin
 
 	begin
 		v_test_name := 'User cannot select from a DBA table.';
-		v_expected_results := '1';
-
+		v_expected_results :=
+			'Exception caught: ORA-20030: The SELECT statement did not run.'||chr(10)||
+			'Please ensure the syntax is valid, all the objects exist, and you have access to all the objects.'||chr(10)||
+			'Run this query to check your Method5 roles and privileges: select * from method5.m5_my_access_vw;'||chr(10)||
+			'The SELECT statement raised this error:'||chr(10)||
+			'ORA-00942: table or view does not exist';
 		execute immediate replace(q'[
 			select count(*)
 			from table(m5('select count(*) from dba_users', '#DATABASE_2#'))
 		]', '#DATABASE_2#', p_database_name_2)
 		into v_actual_results;
 
-		execute immediate q'[
-			select count(*)
-			from m5_test_sandbox_and_targets.m5_errors
-			where error_stack_and_backtrace like '%ORA-00942: table or view does not exist%'
-		]'
-		into v_actual_results;
-
-		assert_equals(v_test_name, v_expected_results, v_actual_results);
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
 	exception when others then
-		assert_equals(v_test_name, v_expected_results,
-			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+		--Use substr because we only want to test the text part of the error.
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||substr(sqlerrm, 1, 320));
 	end;
 
 	begin
@@ -1540,7 +1558,7 @@ end run;
 
 
 --------------------------------------------------------------------------------
-procedure create_users(p_database_name_1 varchar2, p_database_name_2 varchar2) is
+procedure create_test_users(p_database_name_1 varchar2, p_database_name_2 varchar2) is
 begin
 	--Create user 1: Direct access - run as Method5 and use database links.
 	execute immediate 'create user M5_TEST_DIRECT identified by "justATempPassword#4321" quota unlimited on users';
@@ -1592,10 +1610,10 @@ begin
 	--Nothing inserted into M5_ROLE_PRIV
 
 	commit;
-end create_users;
+end create_test_users;
 
 --------------------------------------------------------------------------------
-procedure drop_users_if_exist is
+procedure drop_test_users_if_exist is
 	v_count number;
 
 	procedure drop_user(p_username varchar2) is
@@ -1617,7 +1635,7 @@ begin
 	drop_user('M5_TEST_DIRECT');
 	drop_user('M5_TEST_SANDBOX_FULL_NO_LINKS');
 	drop_user('M5_TEST_SANDBOX_AND_TARGETS');
-end drop_users_if_exist;
+end drop_test_users_if_exist;
 
 
 --------------------------------------------------------------------------------
@@ -1635,8 +1653,8 @@ begin
 			--These tests will create users, which may generate emails to administrators
 			--since it modifies important tables.
 			begin
-				method5.method5_test.drop_users_if_exist;
-				method5.method5_test.create_users('##DATABASE_NAME_1##', '##DATABASE_NAME_2##');
+				method5.method5_test.drop_test_users_if_exist;
+				method5.method5_test.create_test_users('##DATABASE_NAME_1##', '##DATABASE_NAME_2##');
 			end;
 			##SLASH##
 
@@ -1683,7 +1701,7 @@ begin
 
 			--#5: Run from a Method5 administrator account, to drop the test users.
 			begin
-				method5.method5_test.drop_users_if_exist;
+				method5.method5_test.drop_tests_users_if_exist;
 			end;
 			##SLASH##
 
