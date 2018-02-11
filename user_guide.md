@@ -3,9 +3,9 @@ Method5 User Guide
 
 **Contents**
 
-1. [Introduction to Method5](#introduction)
-2. [Why Do You Need Method5?](#why)
-3. [Feature Summary](#feature_summary)
+1. [Quick Start](#quick_start)
+2. [Introduction to Method5](#introduction)
+3. [Why Do You Need Method5?](#why)
 4. [Function or Procedure](#function_or_procedure)
 5. [Alternative Quoting Mechanism](#alternative_quoting_mechanism)
 6. [Where is the Data Stored?](#where_is_the_data_stored)
@@ -19,13 +19,35 @@ Method5 User Guide
 14. [Global Data Dictionary](#global_data_dictionary)
 15. [Version Star - Column Differences Between Versions](#version_star)
 16. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
-17. [Services for Non-DBAs](#services_for_non_dbas)
+17. [Services for non-Method5 users](#services_for_non_users)
 18. [Job Timeout](#job_timeout)
 19. [LONG to CLOB conversion](#long_to_clob_conversion)
 20. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
 21. [Administrator Daily Status Email](#administrator_daily_status_email)
-22. [Security](#security)
+22. [Security and User Configuration](#security)
 23. [Possible Uses](#possible_uses)
+
+
+<a name="quick_start"/>
+
+## Quick Start
+
+Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.  DBMS_OUTPUT will also display some useful information about the run.
+
+Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
+
+* P_CODE (required) - Any SQL statement, PL/SQL statement, or Linux/Unix shell script.
+* P_TARGETS (optional, default is configured per user) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business), a query that returns database names, or a pre-defined target group.
+* P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
+* P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
+* P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
+* P_RUN_AS_SYS (optional, defaults to FALSE) - Run the command as SYS.
+
+For ad hoc statements you can use the `M5_%` database links created in your schema.
+
+The global data dictionary contains several useful tables that are gathered every night: M5_DBA_USERS, M5_V$PARAMETER, M5_DBA_ROLE_PRIVS, M5_DBA_SYS_PRIVS, M5_DBA_TAB_PRIVS.
+
+Read below for more thorough details on these features.
 
 
 <a name="introduction"/>
@@ -47,27 +69,7 @@ Oracle DBAs have tools to automate pre-defined tasks, like database patching and
 
 The ideal solution is to make it trivial to query and change all databases simultaneously.  Dynamic SQL is sometimes classified as Method 1, 2, 3, or 4, depending on how dynamic it is.  DBAs need a new type of dynamic SQL, a Method 5, that allows them to specify the targets as easily as they specify the code.  A new syntax that allows any statement to run anywhere, in any SQL tool.  Something like the Oracle 12c `CONTAINERS` clause, but much more powerful.  Existing tools have failed to transform the way DBAs work because those tools are slow, insecure, and not relational.
 
-With Method5 you will be able to perform some administration tasks orders of magnitude faster.
-
-
-<a name="feature_summary"/>
-
-## Feature Summary
-
-Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.
-
-Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
-
-* P_CODE (required) - Any SQL statement, PL/SQL statement, or Linux/Unix shell script.
-* P_TARGETS (optional, defaults to all databases) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business) or a query that returns database names.
-* P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
-* P_TABLE_EXISTS_ACTION (optional, defaults to ERROR) - One of ERROR, APPEND, DELETE, or DROP.
-* P_ASYNCHRONOUS (optional, defaults to TRUE) - Return right away or wait for all results.
-* P_RUN_AS_SYS (optional, defaults to FALSE) - Run the command as SYS instead of the normal DBA.
-
-For ad hoc statements you can use the `M5_%` database links created in your schema.  There are also some nightly-generated tables with useful data, such as M5_DBA_USERS and M5_V$PARAMETER.
-
-Read below for more thorough details on these features.
+With Method5 you will be able to perform some administration and analysis tasks orders of magnitude faster.
 
 
 <a name="function_or_procedure"/>
@@ -303,7 +305,7 @@ This lets you examine some of the results before a slow database is finished pro
 
 ## Parameter 6: P_RUN_AS_SYS (optional)
 
-By default, `P_RUN_AS_SYS` is set to FALSE and commands run by the Method5 schema use the DBA role privilege.  When this parameter is set to TRUE the command is run as SYS.
+By default, `P_RUN_AS_SYS` is set to FALSE and commands are run by either the Method5 schema or a sandbox schema.  When this parameter is set to TRUE the command is run as SYS.
 
 This parameter should only be set to TRUE when necessary.  Almost all operations can be performed without SYS access.
 
@@ -417,17 +419,17 @@ If you need queries to run longer than 23 hours you can configure the timeout li
 When jobs time out they are recorded in the table METHOD5.M5_JOB_TIMEOUT.  That table can be useful for identifying misbehaving databases.
 
 
-<a name="services_for_non_dbas"/>
+<a name="services_for_non_users"/>
 
-## Creating services for non-DBA users
+## Services for non-Method5 users
 
-Method5 goes to great lengths to protect access and ensure that only configured DBAs can use it.  But sometimes it may be useful to provide other users with a limited, carefully controlled access to Method5.
+Method5 goes to great lengths to protect access and ensure that only configured users can run it.  But sometimes it may be useful to provide other users with a limited, carefully controlled access to Method5.
 
 Read-only access to specific query results is fairly straight-forward.  Create a job with DBMS_SCHEDULER to gather results into a specific table, then grant access on that table to roles or users.  The job should probably set `P_TABLE_EXISTS_ACTION` to either `DELETE` or `APPEND`, to ensure that the privileges are not dropped with the object.
 
 DDL and write access is more complicated.  It requires creating a scheduled job to pass authentication and authorization checks, a custom procedure that alters the JOB_ACTION based on input from a user, running the job with `use_current_session => false`, and then waiting and checking the _META table for it to complete.  See the script "Lock User Everywhere.sql" for an example.  *TODO - add script.*
 
-Keep in mind that scheduled jobs must be owned by a configured DBA.  Method5 always runs as an individual user, never a generic account.  If that DBA's account is de-activated, their jobs must be dropped and re-created by an active DBA.
+Keep in mind that scheduled jobs must be owned by a configured user.  Method5 always runs as an individual user, never a generic account.  If that user's account is de-activated, their jobs must be dropped and re-created by an active user.
 
 
 <a name="long_to_clob_conversion"/>
@@ -471,9 +473,11 @@ An email is sent to the Method5 administrators every day.  This email contains i
 
 <a name="security"/>
 
-## Security
+## Security and User Configuration
 
 Method5 is a great tool for database security.  See `security.md` for examples of how to use Method5 to improve security, the ways that Method5 is hardened to prevent abuse, and how to precisely configure Method5 security.
+
+See the bottom of `security.md` for a complete guide to adding and configuring users and limiting their privileges.
 
 
 <a name="possible_uses"/>
@@ -482,7 +486,7 @@ Method5 is a great tool for database security.  See `security.md` for examples o
 
 Method5 was built to help database administrators change their approach to solving database problems.
 
-Many good DBAs spend most of their time fighting fires one-database-at-a-time.  We say to ourselves, "it probably hasn't happened on other databases and it probably won't happen again".  When what we really mean is "it's not worth the effort to check every other database".
+Many good DBAs spend most of their time fighting fires one-database-at-a-time.  We say to ourselves, "it probably hasn't happened on other databases and it probably won't happen again".  When what we really mean is "I don't have the time to check every other database".
 
 With Method5 that extra effort is trivial and there are no more excuses to avoid root cause analysis.  Every time you encounter a problem, ask yourself if you can find it and prevent it on all other databases.
 
@@ -501,7 +505,7 @@ Here are a few examples of ways that Method5 is already used:
 
 There are a few DBA tasks that Method5 cannot fully automate.  However, Method5 can still assist with these tasks.
 
-* Upgrading and Patching - Method5 can run database and host commands but it requires a running database.  Upgrading and patching requires their own specialized tools.  (And in practice, in most environments those tasks are too fragile to fully automate.)
+* Upgrading and Patching - Method5 can run database and host commands but it requires a running database.  Upgrading and patching requires their own specialized tools.  (And in practice, in most environments those tasks are too fragile to fully automate anyway.)
 * Deployments - Developers will want to use their own specialized tools for this.  But Method5 can help harmonize environments and can compare all objects, in all databases, in a single view.
 
-At least one DBA on your team should use Method5 if your organization is serious about database automation.
+At least one DBA, developer, or analyst in your organization should use Method5 if your organization is serious about database automation.
