@@ -81,6 +81,8 @@ You will probably need to modify some of the SQL*Net settings to match your envi
 4: Access control.
 ------------------
 
+(See security.md for a full description of the configuration.)
+
 4A: Add Method5 users.  Use this query to find your precise OS usernames if you don't know them:
 
 	select user oracle_username, sys_context('userenv', 'os_user') os_username from dual;
@@ -98,7 +100,7 @@ Then insert the permitted values with a query like this.  Make sure to create at
 
 Grant new users a role, the ability to create database links, and the ability to write at least a little data.  This gives them the minimum object and system privileges to run Method5.  The privileges are very minor, see install_method5_objects.sql for details.
 
-	grant m5_user_role to &oracle_username;
+	grant m5_run to &oracle_username;
 	grant create database link to &oracle_username;
 
 	--You can use a quota instead of unlimited if you want.
@@ -141,6 +143,7 @@ Roles can run as either the Method5 user with all privileges, or as a temporary 
 	select * from method5.m5_user;
 	select * from method5.m5_role;
 	select * from method5.m5_role_priv;
+	select * from method5.m5_user_role;
 
 4C: (OPTIONAL) Disable one or more access control steps.  *This is strongly discouraged.*
 

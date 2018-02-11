@@ -1597,13 +1597,13 @@ begin
 	--Create user 1: Direct access - run as Method5 and use database links.
 	execute immediate 'create user M5_TEST_DIRECT identified by "justATempPassword#4321" quota unlimited on users';
 	execute immediate 'grant dba to M5_TEST_DIRECT';
-	execute immediate 'grant m5_user_role to M5_TEST_DIRECT';
+	execute immediate 'grant m5_run to M5_TEST_DIRECT';
 	execute immediate 'grant create database link to M5_TEST_DIRECT';
 
 	--Create user 2: Access through sandbox user, no database links.
 	execute immediate 'create user M5_TEST_SANDBOX_FULL_NO_LINKS identified by "justATempPassword#4321" quota unlimited on users';
 	execute immediate 'grant create session to M5_TEST_SANDBOX_FULL_NO_LINKS';
-	execute immediate 'grant m5_user_role to M5_TEST_SANDBOX_FULL_NO_LINKS';
+	execute immediate 'grant m5_run to M5_TEST_SANDBOX_FULL_NO_LINKS';
 	execute immediate 'grant create database link to M5_TEST_SANDBOX_FULL_NO_LINKS';
 	--Need some extra privileges to run the tests.
 	execute immediate 'grant execute on method5.method5_test to M5_TEST_SANDBOX_FULL_NO_LINKS';
@@ -1612,7 +1612,7 @@ begin
 	--Create user 3: Access through sandbox user, no database links, virtually no privileges, only defaults to ONE of the 2 databases.
 	execute immediate 'create user M5_TEST_SANDBOX_AND_TARGETS identified by "justATempPassword#4321" quota unlimited on users';
 	execute immediate 'grant create session to M5_TEST_SANDBOX_AND_TARGETS';
-	execute immediate 'grant m5_user_role to M5_TEST_SANDBOX_AND_TARGETS';
+	execute immediate 'grant m5_run to M5_TEST_SANDBOX_AND_TARGETS';
 	execute immediate 'grant create database link to M5_TEST_SANDBOX_AND_TARGETS';
 	--Need some extra privileges to run the tests.
 	execute immediate 'grant execute on method5.method5_test to M5_TEST_SANDBOX_AND_TARGETS';
@@ -1735,7 +1735,7 @@ begin
 
 			--#5: Run from a Method5 administrator account, to drop the test users.
 			begin
-				method5.method5_test.drop_tests_users_if_exist;
+				method5.method5_test.drop_test_users_if_exist;
 			end;
 			##SLASH##
 

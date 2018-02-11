@@ -16,7 +16,7 @@ Examples
     db03           X
     ...
 
-You can run any SQL statement, PL/SQL block, or Linux/Unix shell commands inside the `M5` function.  The function works with any SQL client and runs on any supported platform, version, or edition of Oracle.
+You can run any SQL statement, PL/SQL block, or Linux/Unix shell commands inside the `M5` function or the `M5_PROC` procedure.  The code works with any SQL client and runs on any supported platform, version, or edition of Oracle.
 
 See [the Method5 User Guide](user_guide.md) for an explanation of all the features, such as: parameters that control the targets and how the statements are run; where the data, metadata, and errors are stored; running as a procedure; and many more features.
 

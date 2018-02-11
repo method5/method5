@@ -606,30 +606,30 @@ create public synonym m5_synch_user for method5.m5_synch_user;
 
 
 ---------------------------------------
---#7: Role, minimum privileges, and why they are needed, for the Method5 users.
-create role m5_user_role;
+--#7: Role, minimum privileges, and why they are needed, for database users to run Method5.
+create role m5_run;
 
 --These object privileges allow users to run Method5.
 --But they can only use the packages as permitted by the M5_USER configuration.
-grant select  on method5.m5_database         to m5_user_role;
-grant execute on method5.m5                  to m5_user_role;
-grant execute on method5.m5_proc             to m5_user_role;
-grant execute on method5.m5_pkg              to m5_user_role;
-grant execute on method5.m5_synch_user       to m5_user_role;
-grant select  on method5.m5_generic_sequence to m5_user_role;
-grant execute on method5.m5_sleep            to m5_user_role;
-grant execute on method5.string_table        to m5_user_role;
-grant select on method5.m5_my_access_vw      to m5_user_role;
+grant select  on method5.m5_database         to m5_run;
+grant execute on method5.m5                  to m5_run;
+grant execute on method5.m5_proc             to m5_run;
+grant execute on method5.m5_pkg              to m5_run;
+grant execute on method5.m5_synch_user       to m5_run;
+grant select  on method5.m5_generic_sequence to m5_run;
+grant execute on method5.m5_sleep            to m5_run;
+grant execute on method5.string_table        to m5_run;
+grant select on method5.m5_my_access_vw      to m5_run;
 --For Method4 dynamic SQL to return "anything" creating a type is necessary to describe the results.
-grant create type      to m5_user_role;
+grant create type      to m5_run;
 --For Method4 dynamic SQL a function is needed to return the "anything".
-grant create procedure to m5_user_role;
+grant create procedure to m5_run;
 --The job allows Method4 dynamic SQL to purge each specific query from the
 --shared pool, forcing hard parsing on every statement.  This is useful with
 --Oracle Data Cartridge because the same query may be "described" differently
 --after each run.
-grant execute on method5.m5_purge_sql_from_shared_pool to m5_user_role;
-grant create job                                       to m5_user_role;
+grant execute on method5.m5_purge_sql_from_shared_pool to m5_run;
+grant create job                                       to m5_run;
 
 
 ---------------------------------------
