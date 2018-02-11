@@ -19,8 +19,8 @@ These steps must be run on the configuration server as a DBA configured to use M
 
 If you're installing Method5, run these steps in this order:
 
-* 4: Access control.
-* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while.)
+* 4: Access control.  *TIP* By default an "ALL" role was created and granted to the user who installed Method5.  You may be able to come back to this step later.
+* 1: Install Method5 on remote database.  (Run on every remote database - this may take a while, but you don't have to install them all right away.)
 * 9: Configure Target Groups.
 * 7: Add and test database links.
 * 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)

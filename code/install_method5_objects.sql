@@ -282,27 +282,56 @@ create table method5.m5_config
 	string_value varchar2(4000),
 	number_value number,
 	date_value   date,
+	changed_by   varchar2(128) default user not null,
+	changed_date date          default sysdate not null,
 	constraint config_pk primary key (config_id)
 );
 
 --Add default configuration values.
-insert into method5.m5_config(config_id, config_name, string_value)
-select method5.m5_config_seq.nextval, name, value
+insert into method5.m5_config(config_id, config_name, string_value, number_value)
+select method5.m5_config_seq.nextval, name, string_value, number_value
 from
 (
-	select 'Access Control - User is not locked'            name, 'ENABLED' value from dual union all
-	select 'Access Control - User has expected OS username' name, 'ENABLED' value from dual union all
-	select 'Default Targets'                                name, '%'       value from dual
+	select 'Access Control - User is not locked'            name, 'ENABLED' string_value, null number_value     from dual union all
+	select 'Access Control - User has expected OS username' name, 'ENABLED' string_value, null number_value     from dual union all
+	select 'Default Targets'                                name, '%'       string_value, null number_value     from dual union all
+	select 'Job Timeout (seconds)'                          name, null      string_value, 23*60*60 number_value from dual
 );
-
-insert into method5.m5_config(config_id, config_name, number_value)
-select method5.m5_config_seq.nextval, name, value
-from
-(
-	select 'Job Timeout (seconds)' name, 23*60*60 value from dual
-);
-
 commit;
+
+--Add triggers to set CHANGED_BY and CHANGED_DATE.
+begin
+	for tables in
+	(
+		select 'M5_CONFIG'      table_name from dual union all
+		select 'M5_ROLE'        table_name from dual union all
+		select 'M5_ROLE_PRIV'   table_name from dual union all
+		select 'M5_USER'        table_name from dual union all
+		select 'M5_USER_ROLE'   table_name from dual
+		order by 1
+	) loop
+		execute immediate replace(q'[
+			create or replace trigger method5.#TABLE_NAME#_trg
+			before insert or update
+			on method5.#TABLE_NAME#
+			for each row
+			begin
+				if not updating('CHANGED_BY') then
+					:new.changed_by := 	coalesce(
+						--Get the user from APEX if it was used.
+						sys_context('APEX$SESSION','app_user')
+						,regexp_substr(sys_context('userenv','client_identifier'),'^[^:]*')
+						,sys_context('userenv','session_user'));
+				end if;
+				if not updating('CHANGED_DATE') then
+					:new.changed_date := sysdate;
+				end if;
+			end;
+
+		]', '#TABLE_NAME#', tables.table_name);
+	end loop;
+end;
+/
 
 --Job timeouts.
 create table method5.m5_job_timeout
@@ -316,64 +345,6 @@ create table method5.m5_job_timeout
 	constraint m5_job_timeout_pk primary key (job_name, owner)
 );
 comment on table method5.m5_job_timeout is 'Used for slow or broken jobs that timed out.  The column names and types are similar to those in DBA_SCHEDULER_*.';
-
---Create triggers to alert admin whenever the configuration changes.
---TODO: Move to a post-SYS script, add to more tables.
-create or replace trigger method5.detect_changes_to_m5_config
-after insert or update or delete on method5.m5_config
---Purpose: Email the administrator if anyone changes the M5_CONFIG table.
-declare
-	v_sender_address varchar2(4000);
-	v_recipients varchar2(4000);
-begin
-	--Get email configuration information.
-	select min(string_value) sender_address
-		,listagg(string_value, ',') within group (order by string_value) recipients
-	into v_sender_address, v_recipients
-	from method5.m5_config
-	where config_name = 'Administrator Email Address';
-
-	--Only try to send an email if there is an address configured.
-	if v_sender_address is not null then
-		sys.utl_mail.send(
-			sender => v_sender_address,
-			recipients => v_recipients,
-			subject => 'M5_CONFIG table was changed.',
-			message => 'The database user '||sys_context('userenv', 'session_user')||
-				' (OS user '||sys_context('userenv', 'os_user')||') made a change to the'||
-				' table M5_CONFIG.'
-		);
-	end if;
-end;
-/
-
-create or replace trigger method5.detect_changes_to_m5_user_conf
-after insert or update or delete on method5.m5_user
---Purpose: Email the administrator if anyone changes the M5_USER table.
-declare
-	v_sender_address varchar2(4000);
-	v_recipients varchar2(4000);
-begin
-	--Get email configuration information.
-	select min(string_value) sender_address
-		,listagg(string_value, ',') within group (order by string_value) recipients
-	into v_sender_address, v_recipients
-	from method5.m5_config
-	where config_name = 'Administrator Email Address';
-
-	--Only try to send an email if there is an address configured.
-	if v_sender_address is not null then
-		sys.utl_mail.send(
-			sender => v_sender_address,
-			recipients => v_recipients,
-			subject => 'M5_USER table was changed.',
-			message => 'The database user '||sys_context('userenv', 'session_user')||
-				' (OS user '||sys_context('userenv', 'os_user')||') made a change to the'||
-				' table M5_USER.'
-		);
-	end if;
-end;
-/
 
 create table method5.m5_global_data_dictionary
 (

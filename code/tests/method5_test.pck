@@ -87,10 +87,12 @@ c_base_tests                   constant number :=
 c_test_run_as_sys              constant number := power(2, 13);
 c_test_shell_script            constant number := power(2, 14);
 
---Test sandbox users with as few privs as possible, as well as default and allowed targets.
-c_sandbox_and_targets       constant number := power(2,15);
-
 c_all_tests                    constant number := c_base_tests+c_test_run_as_sys+c_test_shell_script;
+
+--Test sandbox privileges, allowed and default targets, and config table protection.
+c_sandbox_and_targets       constant number := power(2,15);
+c_test_cannot_change_config constant number := power(2,16);
+
 
 
 /*******************************************************************************
@@ -1242,7 +1244,6 @@ end test_shell_script;
 
 --------------------------------------------------------------------------------
 procedure test_sandbox_and_targets(
-	p_database_name_1 varchar2,
 	p_database_name_2 varchar2,
 	p_other_schema_name	varchar2
 ) is
@@ -1465,6 +1466,38 @@ end test_sandbox_and_targets;
 
 
 --------------------------------------------------------------------------------
+procedure test_cannot_change_config is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+begin
+	for tables in
+	(
+		select 'M5_CONFIG'    table_name from dual union all
+		select 'M5_DATABASE'  table_name from dual union all
+		select 'M5_ROLE'      table_name from dual union all
+		select 'M5_ROLE_PRIV' table_name from dual union all
+		select 'M5_USER'      table_name from dual union all
+		select 'M5_USER_ROLE' table_name from dual
+		order by 1
+	) loop
+		begin
+			v_expected_results := 'Exception caught: ORA-20000: You do not have permission to modify the table '||tables.table_name||'.'||chr(10)||
+				'Only Method5 administrators can modify that table.'||chr(10)||
+				'Contact your current administrator if you need access.';
+
+			v_test_name := 'Modify '||tables.table_name;
+			execute immediate 'update method5.'||tables.table_name||' set changed_by = changed_by where rownum = 1';
+			assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+		exception when others then
+			assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+		end;
+	end loop;
+
+	rollback;
+end test_cannot_change_config;
+
+
+--------------------------------------------------------------------------------
 procedure run(
 	p_database_name_1   in varchar2,
 	p_database_name_2   in varchar2,
@@ -1502,21 +1535,22 @@ begin
 	dbms_output.disable;
 
 	--Run the chosen tests.
-	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                                    end if;
-	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                                   end if;
-	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                                    end if;
-	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                                      end if;
-	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                                end if;
-	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);                           end if;
-	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                                              end if;
-	if bitand(p_tests, c_test_p_table_exists_action  ) > 0 then test_p_table_exists_action(v_database_name_1);                                       end if;
-	if bitand(p_tests, c_test_audit                  ) > 0 then test_audit(v_database_name_1, v_database_name_2);                                    end if;
-	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                                        end if;
-	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);                             end if;
-	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2);                end if;
-	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                                  end if;
-	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);                             end if;
-	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_1, v_database_name_2, p_other_schema_name); end if;
+	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                     end if;
+	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                    end if;
+	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                     end if;
+	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                       end if;
+	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                 end if;
+	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);            end if;
+	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                               end if;
+	if bitand(p_tests, c_test_p_table_exists_action  ) > 0 then test_p_table_exists_action(v_database_name_1);                        end if;
+	if bitand(p_tests, c_test_audit                  ) > 0 then test_audit(v_database_name_1, v_database_name_2);                     end if;
+	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                         end if;
+	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);              end if;
+	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2); end if;
+	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                   end if;
+	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);              end if;
+	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_2, p_other_schema_name);     end if;
+	if bitand(p_tests, c_test_cannot_change_config   ) > 0 then test_cannot_change_config;                                            end if;
 
 	--TODO: Test dropping and recreating a database link.
 
@@ -1666,7 +1700,7 @@ begin
 					p_database_name_1   => '##DATABASE_NAME_1##',
 					p_database_name_2   => '##DATABASE_NAME_2##',
 					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
-					p_tests => method5.method5_test.c_base_tests ##RUN_AS_SYS## ##SHELL_SCRIPT##);
+					p_tests => method5.method5_test.c_base_tests  + method5.method5_test.c_test_cannot_change_config ##RUN_AS_SYS## ##SHELL_SCRIPT##);
 			end;
 			##SLASH##
 			quit;

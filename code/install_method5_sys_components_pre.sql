@@ -1,4 +1,4 @@
-prompt Installing SYS components for Method5...
+prompt Installing initial SYS components for Method5...
 
 
 --#1: Generate password hashes.
@@ -60,9 +60,17 @@ begin
 	--Optional, but useful and recommended master privileges:
 		execute immediate 'grant dba to method5';
 
+	---Optional privileges:
+		--Allows populating Method5 data from Oracle Enterprise Manager (OEM).
+		begin
+			execute immediate 'grant select on sysman.em_global_target_properties to method5';
+			execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
+		exception when v_table_or_view_does_not_exist then null;
+		end;
+
+
 
 	--Direct grants necessary for packages.
-
 	--TODO: Are these all truly necessary?
 
 	execute immediate 'grant create database link to method5';
@@ -77,55 +85,12 @@ begin
 	execute immediate 'grant select on dba_tab_columns to method5';
 	execute immediate 'grant select on dba_users to method5';
 	execute immediate 'grant select on sys.v_$parameter to method5';
+
+
 	execute immediate 'grant execute on sys.dbms_pipe to method5';
 	execute immediate 'grant execute on sys.utl_mail to method5';
 	execute immediate 'grant execute on sys.dbms_crypto to method5';
 	execute immediate 'grant execute on sys.dbms_random to method5';
-
-	begin
-		execute immediate 'grant select on sysman.em_global_target_properties to method5';
-		execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
-	exception when v_table_or_view_does_not_exist then null;
-	end;
-
-
-
-
-
-
-/*
-	OLD PRIVILEGES
-
-	execute immediate 'grant dba to method5';
-	--Need this for definer's rights procedure to grant custom tables to users:
-	execute immediate 'grant grant any object privilege to method5';
-
-	--Direct grants necessary for packages.
-	execute immediate 'grant create database link to method5';
-	execute immediate 'grant select on dba_db_links to method5';
-	execute immediate 'grant select on dba_profiles to method5';
-	execute immediate 'grant select on dba_role_privs to method5';
-	execute immediate 'grant select on dba_scheduler_job_run_details to method5';
-	execute immediate 'grant select on dba_scheduler_jobs to method5';
-	execute immediate 'grant select on dba_scheduler_running_jobs to method5';
-	execute immediate 'grant select on dba_synonyms to method5';
-	execute immediate 'grant select on dba_tables to method5';
-	execute immediate 'grant select on dba_tab_columns to method5';
-	execute immediate 'grant select on dba_users to method5';
-	execute immediate 'grant select on sys.v_$parameter to method5';
-	execute immediate 'grant select on sys.v_$sql to method5';
-	execute immediate 'grant execute on sys.dbms_pipe to method5';
-	execute immediate 'grant execute on sys.utl_mail to method5';
-	execute immediate 'grant execute on sys.dbms_crypto to method5';
-	execute immediate 'grant execute on sys.dbms_random to method5';
-
-	begin
-		execute immediate 'grant select on sysman.em_global_target_properties to method5';
-		execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
-	exception when v_table_or_view_does_not_exist then null;
-	end;
-*/
-
 
 
 	--Create database link for retrieving the database link hash.
