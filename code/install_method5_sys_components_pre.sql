@@ -24,7 +24,7 @@ begin
 	execute immediate 'create user method5 identified by "'||v_password_youll_never_know||'"';
 
 
-	--Necessary master Method5 privileges and why they are needed:
+	--Necessary master Method5 system privileges and why they are needed:
 		--If a user creates object in a different schema Method5 must grant them access to write to it.
 		execute immediate 'grant grant any object privilege to method5';
 		--Allows users to write tables to another user's schema.  (TODO: Add flag to control and limit this ability?)
@@ -51,11 +51,41 @@ begin
 		execute immediate 'grant create any procedure to method5';
 		execute immediate 'grant execute any procedure to method5';
 		execute immediate 'grant drop any procedure to method5';
-		--Required for method5.m5_purge_sql_from_shared_pool.
+		--Allows Method5 to manage links, which are central to the application.
+		execute immediate 'grant create database link to method5';
+
+	--Necessary master Method5 object privileges and why they are needed.
+		--Allows Method5 to run method5.m5_purge_sql_from_shared_pool.
 		--(That procedure purges one specific type of SQL statement for force hard parsing.
 		-- it does NOT simply run "alter system flush shared_pool".)
 		execute immediate 'grant select on sys.gv_$sql to method5';
 		execute immediate 'grant execute on sys.dbms_shared_pool to method5';
+		--Allows Method5 to send emails for intrusion detection and administrator daily summaries.
+		execute immediate 'grant execute on sys.utl_mail to method5';
+		--Allows Method5 to check for parameters that might not be configured correctly for running lots of jobs.
+		execute immediate 'grant select on sys.v_$parameter to method5';
+
+		--Allows Method5 to check for links in other schemas, to synchronize them if necesary.
+		execute immediate 'grant select on dba_db_links to method5';
+		--Allows Method5 to know the profile so it can use the same one remotely.
+		execute immediate 'grant select on dba_profiles to method5';
+		--Allows Method5 to see if P_TABLE_NAME already exists.
+		execute immediate 'grant select on dba_tables to method5';
+		--Allows Method5 to check if the user's account is locked.
+		execute immediate 'grant select on dba_users to method5';
+		--Allows Method5 to find out if some result columns cannot be sorted (such as LOBs).
+		execute immediate 'grant select on dba_tab_columns to method5';
+		--Allows Method5 to manage asynchronous jobs.
+		execute immediate 'grant select on dba_scheduler_jobs to method5';
+		--Allows Method5 to manage asynchronous jobs. 
+		execute immediate 'grant select on dba_scheduler_running_jobs to method5';
+		--Allows Method5 to ensure nobody tries to create an object with the same name as a public synonym.
+		execute immediate 'grant select on dba_synonyms to method5';
+		--These *should* be public packages but they are often revoked because of old
+		--DoD STIG (security technical implementation guidelines) that many organizations use.
+		execute immediate 'grant execute on sys.dbms_pipe to method5';
+		execute immediate 'grant execute on sys.dbms_crypto to method5';
+		execute immediate 'grant execute on sys.dbms_random to method5';
 
 	--Optional, but useful and recommended master privileges:
 		execute immediate 'grant dba to method5';
@@ -67,31 +97,6 @@ begin
 			execute immediate 'grant select on sysman.mgmt$db_dbninstanceinfo to method5';
 		exception when v_table_or_view_does_not_exist then null;
 		end;
-
-
-
-	--Direct grants necessary for packages.
-	--TODO: Are these all truly necessary?
-
-	execute immediate 'grant create database link to method5';
-	execute immediate 'grant select on dba_db_links to method5';
-	execute immediate 'grant select on dba_profiles to method5';
-	execute immediate 'grant select on dba_role_privs to method5';
-	execute immediate 'grant select on dba_scheduler_job_run_details to method5';
-	execute immediate 'grant select on dba_scheduler_jobs to method5';
-	execute immediate 'grant select on dba_scheduler_running_jobs to method5';
-	execute immediate 'grant select on dba_synonyms to method5';
-	execute immediate 'grant select on dba_tables to method5';
-	execute immediate 'grant select on dba_tab_columns to method5';
-	execute immediate 'grant select on dba_users to method5';
-	execute immediate 'grant select on sys.v_$parameter to method5';
-
-
-	execute immediate 'grant execute on sys.dbms_pipe to method5';
-	execute immediate 'grant execute on sys.utl_mail to method5';
-	execute immediate 'grant execute on sys.dbms_crypto to method5';
-	execute immediate 'grant execute on sys.dbms_random to method5';
-
 
 	--Create database link for retrieving the database link hash.
 	execute immediate replace(
