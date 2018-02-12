@@ -34,7 +34,25 @@ Method5 User Guide
 
 Method5 can be called as a function, `M5`, or a procedure, `M5_PROC`.  Each run creates three tables to hold the results, metadata, and errors.  Those tables can be referenced using the views M5_RESULTS, M5_METADATA, and M5_ERRORS.  DBMS_OUTPUT will also display some useful information about the run.
 
-Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
+For example, to run as a function and get the results immediately:
+
+	select * from table(m5(p_code => 'select * from dual', p_targets => 'database1'));
+
+Or to run as a procedure and get the results asynchronously:
+
+	--Start running the command on many databases.
+	begin
+		m5_proc(
+			p_code => 'alter system set job_queue_processes = 1000',
+			p_targets => 'dev,qa'
+		);
+	end;
+	/
+	
+	--View results, metadata, and errors.  It may take a while for all data to appear.
+	select * from m5_results;
+	select * from m5_metadata;
+	select * from m5_errors;Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
 
 * P_CODE (required) - Any SQL statement, PL/SQL statement, or Linux/Unix shell script.
 * P_TARGETS (optional, default is configured per user) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business), a query that returns database names, or a pre-defined target group.
