@@ -574,14 +574,14 @@ from
 			run_as_m5_or_sandbox, sandbox_default_ts, sandbox_temporary_ts, sandbox_quota, sandbox_profile,
 			column_value target
 		from method5.m5_role
-		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'database')
+		cross join table(method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'database'))
 		union all
 		select
 			role_name, target_string, can_run_as_sys, can_run_shell_script, install_links_in_schema,
 			run_as_m5_or_sandbox, sandbox_default_ts, sandbox_temporary_ts, sandbox_quota, sandbox_profile,
 			column_value target
 		from method5.m5_role
-		cross join method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'host')
+		cross join table(method5.m5_pkg.get_target_tab_from_target_str(m5_role.target_string, p_database_or_host => 'host'))
 	) target_role
 		on m5_user_role.role_name = target_role.role_name
 	left join method5.m5_role_priv

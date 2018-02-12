@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid definer is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '9.0.0';
+C_VERSION constant varchar2(10) := '9.0.1';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -180,7 +180,7 @@ Example: View all databases in the lifecycle DEV or with a database name like AC
 function get_target_tab_from_target_str(
 	p_target_string    in varchar2,
 	p_database_or_host in varchar2 default 'database'
-) return method5.string_table;
+) return method5.string_table result_cache;
 
 end;
 /
@@ -386,7 +386,7 @@ end get_config_data;
 function get_target_tab_from_target_str(
 	p_target_string    in varchar2,
 	p_database_or_host in varchar2 default 'database'
-) return method5.string_table is
+) return method5.string_table result_cache is
 	v_config_data config_data_rec := get_config_data();
 
 	--SQL statements:
