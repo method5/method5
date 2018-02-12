@@ -47,6 +47,8 @@ For ad hoc statements you can use the `M5_%` database links created in your sche
 
 The global data dictionary contains several useful tables that are gathered every night: M5_DBA_USERS, M5_V$PARAMETER, M5_DBA_ROLE_PRIVS, M5_DBA_SYS_PRIVS, M5_DBA_TAB_PRIVS.
 
+Some useful tables and views in the Method5 schema are: M5_DATABASE (list of all databases), M5_AUDIT (history of runs), and M5_USER/M5_ROLE/M5_ROLE_PRIV/M5_USER_ROLE/M5_PRIV_VW (user configuration).
+
 Read below for more thorough details on these features.
 
 

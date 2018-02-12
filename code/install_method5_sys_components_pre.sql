@@ -27,7 +27,7 @@ begin
 	--Necessary master Method5 system privileges and why they are needed:
 		--If a user creates object in a different schema Method5 must grant them access to write to it.
 		execute immediate 'grant grant any object privilege to method5';
-		--Allows users to write tables to another user's schema.  (TODO: Add flag to control and limit this ability?)
+		--Allows users to write tables to another user's schema.
 		execute immediate 'grant create any table to method5';
 		--Allows Method5 to monitor progress and update M5_AUDIT with metadata when the results are complete.
 		execute immediate 'grant create any trigger to method5';
