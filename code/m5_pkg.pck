@@ -2940,14 +2940,15 @@ end;
 							v_code := replace(v_code, '##QUOTE_DELIMITER2##', find_available_quote_delimiter(v_code));
 							v_code := replace(v_code, '##QUOTE_DELIMITER3##', find_available_quote_delimiter(v_code));
 
-							execute immediate v_code;
-
 							--Print the job code in debug mode, 4K bytes at a time because some tools don't handle large DBMS_OUTPUT well.
 							if g_debug then
 								for i in 0 .. ceil(length(v_code)/3980) - 1 loop
 									sys.dbms_output.put_line('V_CODE '||to_char(i+1)||':'||chr(10)||substr(v_code, i*3980+1, 3980));
 								end loop;
 							end if;
+
+							--Run it.
+							execute immediate v_code;
 						--Create table as SYS.
 						elsif p_run_as_sys then
 							execute immediate replace(q'[
