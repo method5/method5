@@ -149,7 +149,7 @@ begin
 						select grantee, table_name, privilege
 						from actual_grants
 						where table_name <> 'M5_DATABASE' --This table may be safe to grant.
-							and grantee <> 'M5_USER_ROLE'  --This applicatio role is safe.
+							and grantee <> 'M5_RUN'       --This application role is safe.
 						minus
 						select grantee, table_name, privilege
 						from expected_grants
