@@ -630,6 +630,16 @@ grant create procedure to m5_run;
 --after each run.
 grant execute on method5.m5_purge_sql_from_shared_pool to m5_run;
 grant create job                                       to m5_run;
+--The user must be able to logon.
+grant create session                                   to m5_run;
+--Allow the person who installed Method5 to use it.
+declare
+	v_username varchar2(128) := sys_context('userenv', 'session_user');
+begin
+	execute immediate 'grant m5_run to '||v_username;
+	execute immediate 'grant create database link to '||v_username;
+end;
+/
 
 
 ---------------------------------------

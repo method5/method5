@@ -90,4 +90,39 @@ begin
 end;
 /
 
-prompt Done.
+--Quick check that Method5 schema is valid.
+--If the top-level objects are valid then everything else should be OK.
+set serveroutput on;
+declare
+	v_count number := 0;
+begin
+	--Compile any invalid objects.
+	--There are some self-referential objects that just need a recompile.
+	dbms_utility.compile_schema('METHOD5', compile_all => false);
+
+	--Print message if any errors.
+	for objects in
+	(
+		select 'METHOD4_M5_POLL_TABLE_OT' object_name, 'TYPE BODY'    object_type from dual union all
+		select 'METHOD5_ADMIN'            object_name, 'PACKAGE BODY' object_type from dual union all
+		select 'METHOD5_TEST'             object_name, 'PACKAGE BODY' object_type from dual union all
+		select 'STATEMENT_CLASSIFIER'     object_name, 'PACKAGE BODY' object_type from dual union all
+		select 'M5'                       object_name, 'FUNCTION'     object_type from dual union all
+		select 'M5_PKG'                   object_name, 'PACKAGE BODY' object_type from dual
+		minus
+		select object_name, object_type
+		from dba_objects
+		where owner = 'METHOD5'
+			and status = 'VALID'
+		order by 1,2
+	) loop
+		v_count := v_count + 1;
+		dbms_output.put_line('ERROR - Installation failed, this object is invalid: '||objects.object_name);
+	end loop;
+
+	--Print message if success.
+	if v_count = 0 then
+		dbms_output.put_line('SUCCESS - All objects look OK.  Method5 installed correctly.');
+	end if;
+end;
+/

@@ -126,6 +126,9 @@ Run these steps as a DBA on the management server.  To make sure you really want
 		end loop;
 	end;
 	/
+
+	--Drop role granted to all Method5 users.
+	drop role m5_run;
 */
 
 If you are only uninstalling to re-install, make sure you completely log out of all sessions before installing anything.
@@ -156,5 +159,4 @@ Login to each remote target as SYS and run the below command.  THERE'S NO TURNIN
 	drop database link m5_sys_key;
 	drop role m5_minimum_remote_privs;
 	drop role m5_optional_remote_privs;
-	drop role m5_user_role;
 */
