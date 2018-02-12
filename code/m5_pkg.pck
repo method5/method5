@@ -214,8 +214,6 @@ procedure stop_jobs
 	v_must_be_a_job exception;
 	pragma exception_init(v_must_be_a_job, -27475);
 begin
-	--TODO: What about if the job hasn't even started yet?
-
 	for jobs_to_kill in
 	(
 		select dba_scheduler_running_jobs.owner, dba_scheduler_running_jobs.job_name, comments, elapsed_time
@@ -3721,7 +3719,7 @@ end;
 				--Find jobs that have not finished yet:
 				select *
 				from sys.dba_scheduler_jobs
-				where regexp_replace(dba_scheduler_jobs.comments, 'TABLE:(.*)"CALLER:.*', '\1') = '#P_TABLE_NAME#'
+				where regexp_replace(dba_scheduler_jobs.comments, 'TABLE:(.*)"CALLER:.*', '\1') = '#P_TABLE_NAME_UPPER#'
 				  and regexp_replace(dba_scheduler_jobs.comments, 'TABLE:.*"CALLER:(.*)', '\1') = user;
 
 				--------------------------------------------------------------------------------
@@ -3759,7 +3757,7 @@ end;
 		end if;
 
 		--Build message from template.
-		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
+		v_message := replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(replace(
 			v_message
 			, '#JOB_INFORMATION#', v_job_information)
 			, '#C_VERSION#', C_VERSION)
@@ -3767,6 +3765,7 @@ end;
 			, '#P_TARGETS#', v_targets)
 			, '#P_TABLE_OWNER#', lower(p_table_owner))
 			, '#P_TABLE_NAME#', lower(p_table_name))
+			, '#P_TABLE_NAME_UPPER#', p_table_name)
 			, '#P_ASYNCHRONOUS#', v_asynchronous)
 			, '#P_RUN_AS_SYS#', v_run_as_sys)
 			, '#P_TABLE_EXISTS_ACTION#', v_table_exists_action)

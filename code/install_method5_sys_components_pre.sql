@@ -75,10 +75,11 @@ begin
 		execute immediate 'grant select on dba_users to method5';
 		--Allows Method5 to find out if some result columns cannot be sorted (such as LOBs).
 		execute immediate 'grant select on dba_tab_columns to method5';
-		--Allows Method5 to manage asynchronous jobs and report on job status in admin email.
+		--Allows Method5 to manage asynchronous jobs (create, alter, stop) and report on job status in admin email.
 		execute immediate 'grant select on dba_scheduler_jobs to method5';
 		execute immediate 'grant select on dba_scheduler_running_jobs to method5';
 		execute immediate 'grant select on dba_scheduler_job_run_details to method5';
+		execute immediate 'grant manage scheduler to method5';
 		--Allows Method5 to ensure nobody tries to create an object with the same name as a public synonym.
 		execute immediate 'grant select on dba_synonyms to method5';
 		--These *should* be public packages but they are often revoked because of old
