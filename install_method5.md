@@ -159,7 +159,7 @@ Replace the "&" values with real values.  If possible, pick two databases that u
 	select method5.method5_test.get_run_script(
 		p_database_name_1   => '&database1',
 		p_database_name_2   => '&database2',
-		p_other_schema_name => '&other_user',
+		p_other_schema_name => '&other_user_that_exists_in_both_dbs',
 		p_test_run_as_sys   => '&sys_yes_or_no',
 		p_test_shell_script => '&shell_yes_or_no',
 		p_tns_alias         => '&tns_alias')

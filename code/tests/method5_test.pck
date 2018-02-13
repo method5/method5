@@ -316,7 +316,7 @@ end test_m5_views;
 
 
 --------------------------------------------------------------------------------
-procedure test_p_code(p_database_name_1 in varchar2) is
+procedure test_p_code(p_database_name_1 in varchar2, p_other_schema_name in varchar2) is
 	v_test_name varchar2(100);
 	v_expected_results varchar2(32767);
 	v_actual_results varchar2(32767);
@@ -359,14 +359,14 @@ begin
 		v_test_name := 'P_CODE 3 - Table that only exists in another database.';
 		v_expected_results := p_database_name_1||'-2';
 
-		--Create a table that only exists on your schema in another database.
+		--Create a table that only exists on a schema in another database.
 		v_table_name := get_custom_temp_table_name;
 		execute immediate replace(replace(replace(q'[
 			select 1
 			from table(m5('create table #OWNER#.#TABLE_NAME# as select * from (select 1+1 from dual) ', '#DATABASE_1#'))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
-		, '#OWNER#', sys_context('userenv', 'current_user'))
+		, '#OWNER#', p_other_schema_name)
 		, '#TABLE_NAME#', v_table_name)
 		into v_actual_results;
 
@@ -376,7 +376,7 @@ begin
 			from table(m5(q'!select * from #OWNER#.#TABLE_NAME#!', '#DATABASE_1#'))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
-		, '#OWNER#', sys_context('userenv', 'current_user'))
+		, '#OWNER#', p_other_schema_name)
 		, '#TABLE_NAME#', v_table_name)
 		into v_actual_results;
 
@@ -408,7 +408,7 @@ begin
 		v_test_name := 'P_CODE 5 - DBMS_OUTPUT from CALL';
 		v_expected_results := p_database_name_1||'-CALL DBMS_OUTPUT test';
 
-		--Create a temporary procedure that only exists on your schema in another database.
+		--Create a temporary procedure that only exists on a schema in another database.
 		execute immediate replace(replace(q'[
 			select 1
 			from table(m5(q'!
@@ -420,7 +420,7 @@ begin
 			))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
-		, '#OWNER#', sys_context('userenv', 'current_user'))
+		, '#OWNER#', p_other_schema_name)
 		into v_actual_results;
 
 		execute immediate replace(replace(q'[
@@ -428,7 +428,7 @@ begin
 			from table(m5(q'!call #OWNER#.temp_proc_for_m5_testing()!', '#DATABASE_1#'))
 		]'
 		, '#DATABASE_1#', p_database_name_1)
-		, '#OWNER#', sys_context('userenv', 'current_user'))
+		, '#OWNER#', p_other_schema_name)
 		into v_actual_results;
 
 		assert_equals(v_test_name, v_expected_results, v_actual_results);
@@ -1538,7 +1538,7 @@ begin
 	if bitand(p_tests, c_test_function               ) > 0 then test_function(v_database_name_1);                                     end if;
 	if bitand(p_tests, c_test_procedure              ) > 0 then test_procedure(v_database_name_1);                                    end if;
 	if bitand(p_tests, c_test_m5_views               ) > 0 then test_m5_views(v_database_name_1);                                     end if;
-	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1);                                       end if;
+	if bitand(p_tests, c_test_p_code                 ) > 0 then test_p_code(v_database_name_1, p_other_schema_name);                  end if;
 	if bitand(p_tests, c_test_p_targets              ) > 0 then test_p_targets(v_database_name_1, v_database_name_2);                 end if;
 	if bitand(p_tests, c_test_p_table_name           ) > 0 then test_p_table_name(v_database_name_1, p_other_schema_name);            end if;
 	if bitand(p_tests, c_test_p_asynchronous         ) > 0 then test_p_asynchronous(v_database_name_1);                               end if;
@@ -1703,6 +1703,9 @@ begin
 					p_tests => method5.method5_test.c_base_tests  + method5.method5_test.c_test_cannot_change_config ##RUN_AS_SYS## ##SHELL_SCRIPT##);
 			end;
 			##SLASH##
+			--Busy systems may not run the flush jobs fast enough to reset.
+			--This is only an issue during testing where the same commands are run several times, quickly.
+			alter system flush shared_pool;
 			quit;
 
 			--#3: Create and test a user with no links, and full DBA privs granted through a link.
