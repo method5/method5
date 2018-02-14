@@ -52,8 +52,9 @@ Or to run as a procedure and get the results asynchronously:
 	--View results, metadata, and errors.  It may take a while for all data to appear.
 	select * from m5_results;
 	select * from m5_metadata;
-	select * from m5_errors;Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
+	select * from m5_errors;
 
+Method5 parameters (the function version supports P_CODE, P_TARGETS, and P_RUN_AS_SYS):
 * P_CODE (required) - Any SQL statement, PL/SQL statement, or Linux/Unix shell script.
 * P_TARGETS (optional, default is configured per user) - Can be either a comma-separated list (of database names, hosts, lifecycles, or lines of business), a query that returns database names, or a pre-defined target group.
 * P_TABLE_NAME (optional, defaults to auto-generated name) - The base name for the results, _META, and _ERR tables.
