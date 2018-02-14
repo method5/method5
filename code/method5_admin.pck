@@ -172,6 +172,13 @@ is
 				end;
 				#SLASH#
 
+				--REQUIRED: DBMS_SCHEDULER should already be granted to PUBLIC.
+				--Some security/audit/hardening scripts may revoke it but only because they are using an
+				--old version of the DoD STIG (secure technical implementation guidelines).  The new version
+				--does not revoke this public grant anymore.
+				--It is required to make the SANDBOX users work.
+				grant execute on sys.dbms_scheduler to public;
+
 				--OPTIONAL, but recommended: Grant DBA to Method5 role.
 				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
 				--  If you only want to block specific users from having DBA look at the table M5_USER.

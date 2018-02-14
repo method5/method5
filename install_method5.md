@@ -70,6 +70,18 @@ If it's missing, run these steps as SYS to install it:
 	from v$parameter
 	where name = 'smtp_out_server';
 
+8. Ensure that DBMS_SCHEDULER is granted to PUBLIC.  (This is the default privilege.  It is revoked by some old DoD STIG (secure technical implementation guidelines), but not the most recent version.  However a lot of security programs still flag this important privilege.)
+
+	select
+		case
+			when count(*) >= 1 then 'PASS - DBMS_SCHEDULER is granted to PUBLIC.'
+			else 'FAIL - DBMS_SCHEDULER will be automatically granted to PUBLIC.'||chr(10)||
+				'Check your audit/security/hardening scripts to ensure it is not removed later or SANDBOX accounts will break.'
+		end dbms_scheduler_grant_check
+	from dba_tab_privs
+	where grantee = 'PUBLIC'
+		and table_name = 'DBMS_SCHEDULER';
+
 
 2: Install initial SYS components.
 ----------------------------------

@@ -35,7 +35,7 @@ It's important that Method5 itself does not create any security issues.  To keep
   5. **Multi-step authentication.**  Authentication requires an existing database account as well as the operating system username.
   6. **Intrusion detection.**  Un-authorized access attempts or changes to key configuration tables will send an email to an administrator.  Even in the worst-case scenario, where someone gains root access to your master database, they would likely generate an alert.
   7. **Shell script and SYS protection.**  Method5 has optional features to allow authorized users to run shell scripts and commands as SYS.  These features are well protected to ensure that attackers on remote databases cannot use them, even if they get DBA access.  Shell scripts and remote SYS commands are only allowed if they come from the master database.  Those commands must be encrypted using AES 256, using a secret key that is randomly generated for each database, and stored in the SYS.LINK$ table that not even the DBA role can read.  Those commands also include a session GUID to prevent re-running old commands.
-  8. **Configuration Table protection.** All important configuration tables are tracked and protected by SYS triggers that only let administrators change them.
+  8. **Configuration table protection.** All important configuration tables are tracked and protected by SYS triggers that only let administrators change them.
   9. **Open Source.**  All code is available for inspection.  Method5 does not rely only on security through obscurity.
 
 

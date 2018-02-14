@@ -30,10 +30,10 @@ begin
 			sys.utl_mail.send(
 				sender => v_sender_address,
 				recipients => v_recipients,
-				subject => 'M5_CONFIG table was changed.',
+				subject => 'METHOD5.'||p_table_name||' table was changed.',
 				message => 'The database user '||sys_context('userenv', 'session_user')||
 					' (OS user '||sys_context('userenv', 'os_user')||') made a change to the'||
-					' table M5_CONFIG.'
+					' table METHOD5.'||p_table_name||'.'
 			);
 		end if;
 	--I hate to swallow exceptions but in this case it's more important to raise an exception
