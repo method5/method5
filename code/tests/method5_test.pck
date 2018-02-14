@@ -1489,7 +1489,7 @@ begin
 			execute immediate 'update method5.'||tables.table_name||' set changed_by = changed_by where rownum = 1';
 			assert_equals(v_test_name, v_expected_results, 'No exception caught.');
 		exception when others then
-			assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+			assert_equals(v_test_name, v_expected_results, substr('Exception caught: '||sqlerrm, 1, length(v_expected_results)));
 		end;
 	end loop;
 
@@ -1695,6 +1695,9 @@ begin
 			--#2: Create and test a user with all privileges.
 			sqlplus M5_TEST_DIRECT/"justATempPassword#4321"@##TNS_ALIAS##
 			set serveroutput on timing on;
+			--Busy systems may not run the flush jobs fast enough to reset.
+			--This is only an issue during testing where the same commands are run several times, quickly.
+			alter system flush shared_pool;
 			begin
 				method5.method5_test.run(
 					p_database_name_1   => '##DATABASE_NAME_1##',
@@ -1703,8 +1706,6 @@ begin
 					p_tests => method5.method5_test.c_base_tests  + method5.method5_test.c_test_cannot_change_config ##RUN_AS_SYS## ##SHELL_SCRIPT##);
 			end;
 			##SLASH##
-			--Busy systems may not run the flush jobs fast enough to reset.
-			--This is only an issue during testing where the same commands are run several times, quickly.
 			alter system flush shared_pool;
 			quit;
 

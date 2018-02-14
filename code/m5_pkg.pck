@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid definer is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '9.0.3';
+C_VERSION constant varchar2(10) := '9.0.4';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -3260,6 +3260,8 @@ end;
 		create_view('M5_RESULTS', p_table_owner, p_table_name);
 		create_view('M5_METADATA', p_table_owner, p_table_name||'_meta');
 		create_view('M5_ERRORS', p_table_owner, p_table_name||'_err');
+		--This is necessary so the current session can "see" the view when run as a function.
+		commit;
 	end create_views;
 
 	---------------------------------------------------------------------------
