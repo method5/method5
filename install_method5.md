@@ -83,15 +83,15 @@ If it's missing, run these steps as SYS to install it:
 		and table_name = 'DBMS_SCHEDULER';
 
 
-2: Install initial SYS components.
-----------------------------------
+2: Install SYS components.
+--------------------------
 
 Run this script on the management server as SYS.  It's a small script, you can either copy and paste the statements or run it in SQL*Plus.  It should not generate any errors.  For example:
 
 	C:\> cd Method5
 	C:\Method5> sqlplus / as sysdba
 	...
-	SQL> @code/install_method5_sys_components_pre.sql
+	SQL> @code/install_method5_sys_components.sql
 	SQL> quit
 
 
@@ -104,16 +104,7 @@ Run this script on the management server as a user with the DBA role, in SQL*Plu
 	SQL> quit
 
 
-4: Install final SYS components.
---------------------------------
-
-Run this script on the management server as SYS.  It's a small script, you can either copy and paste the statements or run it in SQL*Plus.  It should not generate any errors.  For example:
-
-	SQL> @code/install_method5_sys_components_post.sql
-	SQL> quit
-
-
-5: Configure M5_DATABASE.
+4: Configure M5_DATABASE.
 -------------------------
 
 Run this step on the management server as a user with the DBA role.
@@ -123,7 +114,7 @@ Manually add rows to the main configuration table, METHOD5.M5_DATABASE.  This ta
 *TIP* Four sample rows were inserted by default, use them to get started.  Don't worry about adding all your databases or getting it 100% perfect right away.  Come back to this step later after you've used Method5 for a while.
 
 
-6: Configure default targets.
+5: Configure default targets.
 -----------------------------
 
 Run this code on the management server as a user with the DBA role.
@@ -136,7 +127,7 @@ By default, Method5 runs against all targets.  This default can be changed from 
 	commit;
 
 
-7: Set Method5 profile.
+6: Set Method5 profile.
 -----------------------
 
 Run this optional code on the management server as a user with the DBA role.
@@ -146,13 +137,13 @@ You probably want to use a meaningful profile for Method5.  Whatever you select 
 	alter user method5 profile &PROFILE_NAME ;
 
 
-8: Run steps in administer_method5.md.
+7: Run steps in administer_method5.md.
 --------------------------------------
 
 See the file administer_method5.md for details.
 
 
-9: Install Method5 housekeeping jobs and global data dictionary.
+8: Install Method5 housekeeping jobs and global data dictionary.
 ----------------------------------------------------------------
 
 Run these scripts on the management server as a user with the DBA role, in SQL*Plus.  They must NOT be run by SYS.  They should not generate any errors.
@@ -161,8 +152,8 @@ Run these scripts on the management server as a user with the DBA role, in SQL*P
 	SQL> @code/install_method5_global_data_dictionary.sql
 
 
-10: Run integration tests to verify installation. (optional)
-------------------------------------------------------------
+9: Run integration tests to verify installation. (optional)
+-----------------------------------------------------------
 
 Run this code on the management server, as a user who has the DBA role and is a Method5 administrator.
 

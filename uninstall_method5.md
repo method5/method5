@@ -26,10 +26,12 @@ Run these steps as a DBA on the management server.  To make sure you really want
 	declare
 		procedure drop_job_not_exists(p_job_name varchar2) is
 			v_unknown_job exception;
+			v_job_does_not_exist exception;
 			pragma exception_init(v_unknown_job, -27475);
+			pragma exception_init(v_job_does_not_exist, -27476);
 		begin
 			dbms_scheduler.drop_job(p_job_name);
-		exception when v_unknown_job then null;
+		exception when v_unknown_job or v_job_does_not_exist then null;
 		end;
 	begin
 		drop_job_not_exists('method5.cleanup_m5_temp_triggers_job');

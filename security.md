@@ -103,7 +103,11 @@ Method5 gives you complete control over the access of each Method5 user.  You ca
 In short you have to make a choice for each user - let them run as the Method5 user with full privileges, or let them run as a temporary sandbox user with completely custom privileges.  For example, you may want to allow senior database administrators to run with full privileges on all targets, but give data analysts a read-only role on a subset of targets.
 
 **METHOD5.M5_USER** is mostly used for authentication and authorization.
+  * ORACLE_USERNAME: Individual Oracle account used to access Method5.  Do not use a shared account.
+  * OS_USERNAME: Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.
+  * EMAIL_ADDRESS: Only necessary for administrators so they can be notified when configuration tables are changed.
   * IS_M5_ADMIN: Can this user change Method5 configuration tables.  This user will also receive emails about configuration problems and changes.  Either Yes or No.
+  * DEFAULT_TARGETS: Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.
   * CAN_USE_SQL_FOR_TARGETS: Can use a SELECT SQL statement for choosing targets.  Target SELECT statements are run as Method5 so only grant this to trusted users.  Either Yes or No.
   * CAN_DROP_TAB_IN_OTHER_SCHEMA: Can set P_TABLE_NAME to be in a different schema.  That may sound innocent but it also implies the user can drop or delete data from other schemas on the management database.  Only give this to users you trust on the management database.  Either Yes or No.
 

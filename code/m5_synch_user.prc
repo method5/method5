@@ -410,7 +410,7 @@ end;
 			--Validate and transform the role list.
 			v_roles_nt := validate_and_get_nt_from_csv(p_role_privs, 'P_ROLE_PRIVS');
 			for i in 1 .. v_roles_nt.count loop
-				v_role_list := v_role_list || ',''' || upper(v_roles_nt(i)) || '''';
+				v_role_list := v_role_list || ',''' || trim(upper(v_roles_nt(i))) || '''';
 			end loop;
 			v_role_list := substr(v_role_list, 2);
 

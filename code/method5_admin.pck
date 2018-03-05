@@ -5,6 +5,7 @@ create or replace package method5.method5_admin authid current_user is
 	function generate_password_reset_one_db return clob;
 	function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
 	procedure drop_m5_db_links_for_user(p_username varchar2);
+	procedure refresh_m5_ptime(p_targets varchar2);
 	function refresh_all_user_m5_db_links return clob;
 	procedure change_m5_user_password;
 	procedure change_remote_m5_passwords;
@@ -13,7 +14,7 @@ create or replace package method5.method5_admin authid current_user is
 end;
 /
 create or replace package body method5.method5_admin is
---Copyright (C) 2016 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See http://method5.github.io/ for more information.
 
 
@@ -38,6 +39,26 @@ is
 			--Do NOT save this output - it contains password hashes and should be regenerated each time.
 			----------------------------------------
 		]', '			', null)||chr(10);
+	end;
+
+	function create_user_check return clob is
+	begin
+		return replace(replace(
+		q'[
+			--Check the user.  This script will only work as SYS.
+			whenever sqlerror exit;
+			begin
+				if user <> 'SYS' then
+					raise_application_error(-20000, 
+						'This step must be run as SYS.'||chr(13)||chr(10)||
+						'Logon as SYS and re-run.');
+				end if;
+			end;
+			#SLASH#
+			whenever sqlerror continue;
+		]'
+		, '			', null)||chr(10)
+		, '#SLASH#', '/');
 	end;
 
 	function create_profile return clob is
@@ -946,6 +967,7 @@ begin
 	end if;
 
  	v_script := v_script || create_header;
+	v_script := v_script || create_user_check;
 	v_script := v_script || create_profile;
 	v_script := v_script || create_user;
 	v_script := v_script || create_grants;
@@ -1366,6 +1388,70 @@ end drop_m5_db_links_for_user;
 
 
 --------------------------------------------------------------------------------
+--Purpose: Refresh Method5 password time on all databases.
+--The Method5 password is never displayed or known by anyone so I consider this
+--a fair workaround to avoid having Method5 show up on password age audits.
+--But if your organization considers this "cheating", use the other procedures
+--to really change the password.
+procedure refresh_m5_ptime(p_targets varchar2) is
+begin
+	m5_proc(
+		p_code =>
+		q'[
+			--Reset Method5 password time.
+			--(The Method5 password is never displayed or known so I consider this to be fair.
+			--But if your organization can't do this, use the more complicated "change_m5_user_password" process.)
+			declare
+				v_profile varchar2(128);
+				v_password_reuse_max varchar2(4000);
+				v_password_reuse_time varchar2(4000);
+				v_hash varchar2(32767);
+			begin
+				--Get Method5 profile name.
+				select profile
+				into v_profile
+				from dba_users
+				where username = 'METHOD5';
+
+				--Get original profile values.
+				select
+					max(case when resource_name = 'PASSWORD_REUSE_MAX' then limit else null end) password_reuse_max,
+					max(case when resource_name = 'PASSWORD_REUSE_TIME' then limit else null end) password_reuse_time
+				into v_password_reuse_max, v_password_reuse_time
+				from dba_profiles
+				where profile = v_profile;
+
+				--Get the Method5 password hash.
+				select spare4||';'||password
+				into v_hash
+				from sys.user$
+				where name = 'METHOD5';
+
+				--Change the profile to temporarily allow password re-use.
+				execute immediate 'alter profile '||v_profile||' limit password_reuse_max unlimited';
+				execute immediate 'alter profile '||v_profile||' limit password_reuse_time unlimited';
+
+				--Change Method5 password, report on any errors but don't stop processing.
+				begin
+					execute immediate 'alter user method5 identified by values '''||v_hash||'''';
+				exception when others then
+					dbms_output.put_line('Error changing password: '||sqlerrm);
+				end;
+
+				--Change the profile back to the original values.
+				execute immediate 'alter profile '||v_profile||' limit password_reuse_max '||v_password_reuse_max;
+				execute immediate 'alter profile '||v_profile||' limit password_reuse_time '||v_password_reuse_time;
+
+				--Print final message.
+				dbms_output.put_line('Done.');
+			end;
+		]',
+		p_targets => p_targets
+	);
+end refresh_m5_ptime;
+
+
+--------------------------------------------------------------------------------
 --Purpose: Change the Method5 user password, as well as the install link.
 --	This should almost always be followed up by change_remote_m5_passwords.
 procedure change_m5_user_password is
@@ -1474,7 +1560,7 @@ begin
 	, '#DATABASE_NAME#', lower(sys_context('userenv', 'db_name')));
 
 	--Change password on all databases.
-	method5.m5_pkg.run(p_code => v_password_change_plsql);
+	method5.m5_pkg.run(p_code => v_password_change_plsql, p_targets => '%');
 
 	--TODO(?): Remove from the audit trail?
 end change_remote_m5_passwords;

@@ -9,6 +9,11 @@ prompt Creating jobs for global data dictionary...;
 
 
 ---------------------------------------
+--#0: Check the user.
+@code/check_user must_be_m5_user
+
+
+---------------------------------------
 --#1: DBA_USERS.
 begin
 	dbms_scheduler.create_job(

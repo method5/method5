@@ -3,7 +3,7 @@ Administer Method5
 
 **Contents**
 
-1. [Install Method5 on remote database.](#install_method5_on_remote_database)
+1. [Install Method5 on remote databases.](#install_method5_on_remote_databases)
 2. [Reset Method5 password one-at-a-time.](#reset_method5_password)
 3. [Ad hoc statements to customize database links.](#customize_database_links)
 4. [Access control.](#access_control)
@@ -20,25 +20,25 @@ These steps must be run on the configuration server as a DBA configured to use M
 If you're installing Method5, run these steps in this order:
 
 * 4: Access control.  *TIP* By default an "ALL" role was created and granted to the user who installed Method5.  You may be able to come back to this step later.
-* 1: Install Method5 on remote database.  (Run on every remote database, including the master database - this may take a while, but you don't have to install them all right away.)
+* 1: Install Method5 on remote databases.
 * 9: Configure Target Groups.
 * 7: Add and test database links.
 * 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
 
 
-<a name="install_method5_on_remote_database"/>
+<a name="install_method5_on_remote_databases"/>
 
-1: Install Method5 on remote database.
---------------------------------------
+1: Install Method5 on remote databases.
+---------------------------------------
 
-Run this command on the management server as a DBA, but run the output on each new remote server as SYSDBA.
+Run this command on the management server, as a DBA, to generate a SQL*Plus script.  (It's a long script, you might want to use an IDE like SQL Developer so you easily save the output.)
 
-	set long 1000000;
 	select method5.method5_admin.generate_remote_install_script() from dual;
+
+Run that generated script on *every* new database, as SYSDBA.  This is the only step that must be run on every database, and it only needs to be run once.  *TIP* This may take a while, you can start with a few databases and come back to this step later.
 
 Run these commands on the management server as a DBA and view the results.
 
-	set long 1000000;
 	--This will create new database links.
 	begin
 		m5_proc(p_code => 'select * from dual', p_asynchronous => false);
@@ -170,16 +170,33 @@ Drop all links for a user who should no longer have access to Method5.
 6: Change Method5 passwords.
 ----------------------------
 
+6A: Method5 does not know or display the schema password.  It's effectively passwordless.  If you just need to avoid security findings on "password age", these commands will do that in a few seconds:
+
+	begin
+		method5.method5_admin.refresh_m5_ptime(p_targets => '%');
+	end;
+	/
+
+	select database_name, to_char(result) from m5_results;
+	select * from m5_metadata;
+	select * from m5_errors;
+
+If you're not comfortable with that workaround, and truly need to change the passwords, use the below, more difficult procedures.
+
+
+**OR**
+
+
 Follow the below steps to change the Method5 passwords on all databases.  For individual problems with remote databases see the section "Reset Method5 password one-at-a-time.".
 
-06A: Change the Method5 user password on the management server.
+6B: Change the Method5 user password on the management server.
 
 	begin
 		method5.method5_admin.change_m5_user_password;
 	end;
 	/
 
-6B: Change the remote Method5 passwords.
+6C: Change the remote Method5 passwords.
 
 	begin
 		method5.method5_admin.change_remote_m5_passwords;
@@ -192,14 +209,14 @@ Check the results below while the background jobs are running.  If there are con
 	select * from m5_metadata;
 	select * from m5_errors;
 
-6C: Change the Method5 database link passwords.  This step may take about a minute.
+6D: Change the Method5 database link passwords.  This step may take about a minute.
 
 	begin
 		method5.method5_admin.change_local_m5_link_passwords;
 	end;
 	/
 
-6D: Refresh all user Method5 database links.
+6E: Refresh all user Method5 database links.
 
 	select method5.method5_admin.refresh_all_user_m5_db_links() from dual;
 

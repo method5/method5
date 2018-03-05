@@ -4,6 +4,13 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+9.0.4 --> 9.1.1: Bug fixes and simpler installation.
+-------------------------------------
+
+1. Run these files, on the master server, to install new packages: /code/m5_pkg.pck, /code/method5_admin.pck, and code/m5_synch_user.prc.
+2. Replace administer_method5.md with the latest file.
+
+
 8.8.4 --> 9.0.0: Security enhancements.
 -------------------------------------
 

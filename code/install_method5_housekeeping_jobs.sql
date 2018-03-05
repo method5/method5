@@ -2,6 +2,12 @@ prompt Creating Method5 housekeeping jobs...
 
 
 ---------------------------------------
+--#0: Check the user.
+@code/check_user must_be_m5_user
+set serveroutput off;
+
+
+---------------------------------------
 --#1: Create JOB to clean-up temporary tables created to hold results.
 begin
 	dbms_scheduler.create_job
@@ -371,40 +377,52 @@ end;
 
 prompt Checking job statuses (these should all say SUCCEEDED)...
 
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'CLEANUP_M5_TEMP_TRIGGERS_JOB' and log_date > sysdate - 3
-order by log_date desc;
+col job_name format a30;
+col log_date format a18;
+col status format a9;
+set pagesize 1000;
 
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'CLEANUP_M5_TEMP_TABLES_JOB' and log_date > sysdate - 3
-order by log_date desc;
-
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'DIRECT_M5_GRANTS_JOB' and log_date > sysdate - 3
-order by log_date desc;
-
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'CLEANUP_REMOTE_M5_OBJECTS_JOB' and log_date > sysdate - 3
-order by log_date desc;
-
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'EMAIL_M5_DAILY_SUMMARY_JOB' and log_date > sysdate - 3
-order by log_date desc;
-
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'STOP_TIMED_OUT_JOBS_JOB' and log_date > systimestamp - interval '20' minute
-order by log_date desc;
-
-select log_date, status, additional_info
-from dba_scheduler_job_run_details
-where job_name = 'BACKUP_M5_DATABASE_JOB' and log_date > systimestamp - interval '20' minute
-order by log_date desc;
+select
+	expected_jobs.job_name,
+	to_char(log_date, 'YYYY-MM-DD HH24:MI') log_date,
+	status,
+	case when log_date is null then 'Error - the job has never run' else additional_info end additional_info
+from
+(
+	select column_value job_name
+	from table(sys.odcivarchar2list(
+		'CLEANUP_M5_TEMP_TRIGGERS_JOB',
+		'CLEANUP_M5_TEMP_TABLES_JOB',
+		'DIRECT_M5_GRANTS_JOB',
+		'CLEANUP_REMOTE_M5_OBJECTS_JOB',
+		'EMAIL_M5_DAILY_SUMMARY_JOB',
+		'STOP_TIMED_OUT_JOBS_JOB',
+		'BACKUP_M5_DATABASE_JOB'
+	))
+) expected_jobs
+left join
+(
+	select *
+	from
+	(
+		select job_name, log_date, status, additional_info
+			,row_number() over (partition by job_name order by log_date desc) last_when_1
+		from dba_scheduler_job_run_details
+		where job_name in
+		(
+			'CLEANUP_M5_TEMP_TRIGGERS_JOB',
+			'CLEANUP_M5_TEMP_TABLES_JOB',
+			'DIRECT_M5_GRANTS_JOB',
+			'CLEANUP_REMOTE_M5_OBJECTS_JOB',
+			'EMAIL_M5_DAILY_SUMMARY_JOB',
+			'STOP_TIMED_OUT_JOBS_JOB',
+			'BACKUP_M5_DATABASE_JOB'
+		)
+	)
+	where last_when_1 = 1
+) actual_jobs
+	on expected_jobs.job_name = actual_jobs.job_name
+order by job_name;
 
 
 prompt Done.
