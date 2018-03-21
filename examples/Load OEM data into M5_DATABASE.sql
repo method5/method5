@@ -55,7 +55,7 @@ from
 		lower(replace(replace(
 				'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
 				--service_name may work better for some organizations:
-				--'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$global_name))) ',
+				--'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$instance_name))) ',
 			'$instance_name', instance_name)
 			,'$host_name', host_name)
 		) as connect_string
