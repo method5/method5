@@ -20,7 +20,7 @@ declare
 		dbms_output.put_line('|______||_|  \_\|_|  \_\ \____/ |_|  \_\ ');
 	end print_error;
 begin
-
+	--Check for errors.
 	if '&1' = 'must_run_as_sys' then
 		if user <> 'SYS' then
 			print_error;
@@ -63,6 +63,9 @@ begin
 		print_error;
 		raise_application_error(-20000, 'Unexpected parameter.');
 	end if;
+
+	--Print success message.
+	dbms_output.put_line('PASS.  The script is running as this user: '||user);
 end;
 /
 whenever sqlerror continue;

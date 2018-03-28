@@ -19,7 +19,9 @@ Run these steps on the management server by a user with the DBA role.
 
 3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
-4. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
+4. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you will almost certainly want to use a GUI for administration steps and running Method5.
+
+5. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
 
 		select
 			case
@@ -37,7 +39,7 @@ Run these steps on the management server by a user with the DBA role.
 			from dba_scheduler_jobs
 		);
 
-5. Run this SQL to check that JOB_QUEUE_PROCESSES is adequate for DBMS_SCHEDULER parallelism.
+6. Run this SQL to check that JOB_QUEUE_PROCESSES is adequate for DBMS_SCHEDULER parallelism.
 
 		select
 			case
@@ -47,7 +49,7 @@ Run these steps on the management server by a user with the DBA role.
 		from v$parameter
 		where name = 'job_queue_processes';
 
-6. Run this SQL to check that UTL_MAIL is installed.
+7. Run this SQL to check that UTL_MAIL is installed.
 
 	select case when count(*) = 0 then 'FAIL - you must install UTL_MAIL' else 'PASS' end utl_mail_check
 	from dba_objects
@@ -58,7 +60,7 @@ If it's missing, run these steps as SYS to install it:
 	SQL> @?/rdbms/admin/utlmail.sql
 	SQL> @?/rdbms/admin/prvtmail.plb
 
-7. Run this SQL to check that SMTP_OUT_SERVER is set.
+8. Run this SQL to check that SMTP_OUT_SERVER is set.
 
 	select
 		case
@@ -70,7 +72,7 @@ If it's missing, run these steps as SYS to install it:
 	from v$parameter
 	where name = 'smtp_out_server';
 
-8. Ensure that DBMS_SCHEDULER is granted to PUBLIC.  (This is the default privilege.  It is revoked by some old DoD STIG (secure technical implementation guidelines), but not the most recent version.  However a lot of security programs still flag this important privilege.)
+9. Ensure that DBMS_SCHEDULER is granted to PUBLIC.  (This is the default privilege.  It is revoked by some old DoD STIG (secure technical implementation guidelines), but not the most recent version.  However a lot of security programs still flag this important privilege.)
 
 	select
 		case
@@ -111,7 +113,7 @@ Run this step on the management server as a user with the DBA role.
 
 Manually add rows to the main configuration table, METHOD5.M5_DATABASE.  This table is critical to the configuration of the system, it is used for filtering databases and creating links.  Pay close attention to the details.
 
-*TIP* Four sample rows were inserted by default, use them to get started.  Don't worry about adding all your databases or getting it 100% perfect right away.  Come back to this step later after you've used Method5 for a while.
+Four sample rows were inserted by default, use them to get started.  Don't worry about adding all your databases or getting it 100% perfect right away.  Come back to this step later after you've used Method5 for a while.
 
 
 5: Configure default targets.

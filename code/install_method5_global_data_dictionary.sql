@@ -154,6 +154,8 @@ end;
 ---------------------------------------
 --#5: Force job to run first time.
 prompt Running jobs.  This may take a few minutes to gather all the data...;
+--No need to see the M5_PROC output.
+set serveroutput off;
 
 begin
 	dbms_scheduler.run_job('M5_DBA_USERS_JOB');

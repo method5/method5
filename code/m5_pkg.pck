@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid definer is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '9.1.1';
+C_VERSION constant varchar2(10) := '9.2.0';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -193,13 +193,13 @@ type config_data_rec is record(
 	admin_email_sender_address   varchar2(4000),
 	admin_email_recipients       varchar2(4000),
 	access_control_locked        varchar2(4000),
-	access_control_os_username   varchar2(4000),
 	global_default_targets       varchar2(4000),
 	has_valid_db_username        varchar2(3),
-	has_valid_db_and_os_username varchar2(3),
+	has_valid_os_username        varchar2(3),
 	user_default_targets         varchar2(4000),
 	can_use_sql_for_targets      varchar2(3),
-	can_drop_tab_in_other_schema varchar2(3)
+	can_drop_tab_in_other_schema varchar2(3),
+	db_domain_suffix             varchar2(4000)
 );
 
 
@@ -312,10 +312,11 @@ end get_and_remove_pipe_data;
 
 
 /******************************************************************************/
---Get configuration data from M5_CONFIG and M5_USER.
+--Get configuration data from M5_CONFIG, M5_USER, and V$PARAMETER.
 --(Private function that's called by both get_target_tab_from_target_str and run.
 function get_config_data return config_data_rec is
 	v_config_data config_data_rec;
+	v_db_domain varchar2(4000);
 begin
 	--User configuration for admin email addresses.
 	select
@@ -331,51 +332,50 @@ begin
 	--M5_CONFIG data.
 	select
 		max(case when config_name = 'Access Control - User is not locked'            then string_value else null end) user_not_locked,
-		max(case when config_name = 'Access Control - User has expected OS username' then string_value else null end) os_username,
 		max(case when config_name = 'Default Targets' then string_value else null end) gloal_default_targets
 	into
-		v_config_data.access_control_locked     ,
-		v_config_data.access_control_os_username,
+		v_config_data.access_control_locked,
 		v_config_data.global_default_targets
 	from method5.m5_config;
 
-	--User configuration data for the best match.
+	--User configuration data, with empty and 'No' for missing data.
 	select
-		case when nomatch_0_db_1_dbAndOS_2 in (1,2) then 'Yes' else 'No' end has_valid_db_username,
-		case when nomatch_0_db_1_dbAndOS_2 in (2)   then 'Yes' else 'No' end has_valid_db_and_os_username,
-		default_targets,
-		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_use_sql_for_targets end can_use_sql_for_targets,
-		case when nomatch_0_db_1_dbAndOS_2 in (0)   then 'No' else can_drop_tab_in_other_schema end can_drop_tab_in_other_schema
+		nvl(max(has_valid_db_username), 'No') has_valid_db_username,
+		max(has_valid_os_username) has_valid_os_username,
+		max(default_targets) default_targets,
+		max(can_use_sql_for_targets) can_use_sql_for_targets,
+		max(can_drop_tab_in_other_schema) can_drop_tab_in_other_schema
 	into
 		v_config_data.has_valid_db_username       ,
-		v_config_data.has_valid_db_and_os_username,
+		v_config_data.has_valid_os_username       ,
 		v_config_data.user_default_targets        ,
 		v_config_data.can_use_sql_for_targets     ,
 		v_config_data.can_drop_tab_in_other_schema
 	from
 	(
-		--Find the highest match.
-		select oracle_username, os_username, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema, nomatch_0_db_1_dbAndOS_2
-			,max(nomatch_0_db_1_dbAndOS_2) over () best_match
-		from
-		(
-			select m5_user.oracle_username, os_username, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema
-				,case
-					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-						and lower(os_username) = lower(sys_context('userenv', 'os_user')) then 2
-					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-						and sys_context('userenv', 'module') = 'DBMS_SCHEDULER' then 2
-					when lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
-						and os_username is null then 1
-					else
-						0
-				end nomatch_0_db_1_dbAndOS_2
-			from method5.m5_user
-		)
-	)
-	where best_match = nomatch_0_db_1_dbAndOS_2
-		--Only need one.  If there are multiple 0 rows they'll all be the same anyway.
-		and rownum = 1;
+		--Configuration data for current user.
+		select m5_user.oracle_username, os_username, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema
+			,'Yes' has_valid_db_username
+			,case
+				when
+					os_username is null or
+					lower(os_username) = lower(sys_context('userenv', 'os_user')) or
+					sys_context('userenv', 'module') = 'DBMS_SCHEDULER'
+				then 'Yes'
+				else 'No'
+			end has_valid_os_username
+		from method5.m5_user
+		where lower(m5_user.oracle_username) = lower(sys_context('userenv', 'session_user'))
+	);
+
+	--DB_DOMAIN from V$PARAMETER.
+	--The DB_DOMAIN changes all the database links if it exists.
+	select value
+	into v_db_domain
+	from v$parameter
+	where name = 'db_domain';
+
+	v_config_data.db_domain_suffix := case when v_db_domain is null then null else '.' || upper(v_db_domain) end;
 
 	return v_config_data;
 end get_config_data;
@@ -1716,7 +1716,7 @@ end;
 		end if;
 
 		--Check both database and operating system username, if the configuration requires it.
-		if p_config_data.access_control_os_username = 'ENABLED' and p_config_data.has_valid_db_and_os_username = 'No' then
+		if p_config_data.has_valid_os_username = 'No' then
 			audit_send_email_raise_error('You are not logged into the expected client OS username.');
 		end if;
 
@@ -1796,7 +1796,7 @@ end;
 
 	---------------------------------------------------------------------------
 	--Create database links for the Method5 user.
-	procedure create_db_links_in_m5_schema(p_sequence number) is
+	procedure create_db_links_in_m5_schema(p_sequence number, p_config_data config_data_rec) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
 	begin
@@ -1865,7 +1865,8 @@ end;
 				from sys.dba_db_links
 				where owner = 'METHOD5'
 			) my_database_links
-				on database_names.link_name = db_link
+				--Ignore DB_DOMAIN suffix, if any.
+				on database_names.link_name = replace(db_link, p_config_data.db_domain_suffix)
 			where instance_number = 1
 				--Only get rows where the link does not exist.
 				and my_database_links.db_link is null
@@ -1898,7 +1899,10 @@ end;
 			begin
 				execute immediate 'begin method5.m5_temp_procedure_'||p_sequence||'; end;';
 				commit;
-				sys.m5_change_db_link_pw(p_m5_username => 'METHOD5', p_dblink_username => 'METHOD5', p_dblink_name => missing_links.link_name);
+				sys.m5_change_db_link_pw(
+					p_m5_username => 'METHOD5',
+					p_dblink_username => 'METHOD5',
+					p_dblink_name => missing_links.link_name);
 				commit;
 				execute immediate 'drop procedure method5.m5_temp_procedure_'||p_sequence;
 				commit;
@@ -1913,7 +1917,7 @@ end;
 
 	---------------------------------------------------------------------------
 	--Copy links from package owner to the running user.
-	procedure synchronize_links_for_user(p_allowed_privs allowed_privs_nt) is
+	procedure synchronize_links_for_user(p_allowed_privs allowed_privs_nt, p_config_data config_data_rec) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
 
@@ -1962,7 +1966,7 @@ end;
 					from sys.dba_db_links
 					where db_link like 'M5%'
 						--Exclude this link only used by Method5 for installation.
-						and db_link <> 'M5_INSTALL_DB_LINK'
+						and db_link not like 'M5_INSTALL_DB_LINK%'
 						and owner = 'METHOD5'
 				) default_links
 				left join
@@ -1978,7 +1982,8 @@ end;
 			) loop
 				--Only create the link if the user is authorized to have it.
 				for i in 1 .. p_allowed_privs.count loop
-					if missing_links.default_db_link = p_allowed_privs(i).db_link_name then
+					--Ignore DB_DOMAIN suffix, if any.
+					if replace(missing_links.default_db_link, p_config_data.db_domain_suffix) = p_allowed_privs(i).db_link_name then
 						--Drop user link if it exists
 						if missing_links.user_db_link is not null then
 							create_temp_proc('drop database link '||missing_links.user_db_link);
@@ -3838,8 +3843,8 @@ begin
 		control_access(v_audit_rowid, v_config_data);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job(v_allowed_privs);
-		create_db_links_in_m5_schema(v_sequence);
-		synchronize_links_for_user(v_allowed_privs);
+		create_db_links_in_m5_schema(v_sequence, v_config_data);
+		synchronize_links_for_user(v_allowed_privs, v_config_data);
 		v_target_tab := get_target_tab(v_allowed_privs);
 		raise_exception_if_no_targets(v_allowed_privs, v_original_targets, v_target_string_with_default, v_is_shell_script);
 		check_if_already_running(v_table_name);

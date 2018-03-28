@@ -4,6 +4,18 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+9.1.1 --> 9.2.0: Bug fixes and simpler installation.
+-------------------------------------
+
+1. Run these files, on the master server, to install new packages: code/m5_pkg.pck, code/method5_admin.pck, and code/tests/method5_test.pck.
+2. Run the PL/SQL block "--#3: Create SYS procedure to change database link password hashes." from code/install_method5_sys_components.sql, on the master server.
+3. Replace all the .md documentation files in the top directory with the latest files.
+4. Run these commands:
+	comment on column method5.m5_user.os_username                  is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.  If NULL then the OS_USERNAME will not be checked.';
+	delete from method5.m5_config where config_name = 'Access Control - User has expected OS username';
+	commit;
+
+
 9.0.4 --> 9.1.1: Bug fixes and simpler installation.
 -------------------------------------
 

@@ -13,17 +13,20 @@ Administer Method5
 8. [Audit Method5 activity.](#audit_method5_activity)
 9. [Configure Target Groups.](#configure_target_groups)
 
-Method5 administration only needs to be performed by one person.  The configuration will automatically apply to all other users.
+When installing Method5 run only the below steps, in order:
 
-These steps must be run on the configuration server as a DBA configured to use Method5.  However, the output for "Reset Method5 password one-at-a-time." and "Install Method5 on remote database.", must be run on a remote database.
-
-If you're installing Method5, run these steps in this order:
-
-* 4: Access control.  *TIP* By default an "ALL" role was created and granted to the user who installed Method5.  You may be able to come back to this step later.
-* 1: Install Method5 on remote databases.
-* 9: Configure Target Groups.
+* 4: Access control.  (By default an "ALL" role was created and granted to the user who installed Method5.  You may be able to come back to this step later.)
+* 1: Install Method5 on remote databases.  (Only install on a small number of databases to get started.)
 * 7: Add and test database links.
 * 3: Ad hoc statements to customize database links.  (As needed, to help with previous step.)
+* 9: Configure Target Groups.  (This step is optional.)
+
+Method5 administration only needs to be performed by one person.  The configuration automatically applies to other users.
+
+These steps must be run on the master configuration server as a DBA configured to use Method5.  However, the output for "Reset Method5 password one-at-a-time" and "Install Method5 on remote database", must be run on a remote database.
+
+Use a GUI program like Oracle SQL Developer to run these steps.  Method5 displays orders of magnitude more data than typical administration tasks.  Programs like SQL*Plus are not good at displaying that much data.
+
 
 
 <a name="install_method5_on_remote_databases"/>
@@ -31,11 +34,11 @@ If you're installing Method5, run these steps in this order:
 1: Install Method5 on remote databases.
 ---------------------------------------
 
-Run this command on the management server, as a DBA, to generate a SQL*Plus script.  (It's a long script, you might want to use an IDE like SQL Developer so you easily save the output.)
+Run this command on the management server, as a DBA, to generate a SQL*Plus script.  It's a big script, use a GUI program like Oracle SQL Developer so you can easily save the output.
 
 	select method5.method5_admin.generate_remote_install_script() from dual;
 
-Run that generated script on *every* new database, as SYSDBA.  This is the only step that must be run on every database, and it only needs to be run once.  *TIP* This may take a while, you can start with a few databases and come back to this step later.
+Run that generated script on *every* new database, as SYSDBA.  This is the only step that must be run on every database, and it only needs to be run once.  This may take a while, you can start with a few databases and come back to this step later.
 
 Run these commands on the management server as a DBA and view the results.
 
@@ -52,6 +55,8 @@ Run these commands on the management server as a DBA and view the results.
 		method5.method5_admin.set_local_and_remote_sys_key(p_db_link => '&db_link');
 	end;
 	/
+
+If there are are errors use step #3 to diagnose link issues.  If you can't solve the problem please create a GitHub issue at https://github.com/method5/method5 or contact jon@jonheller.org for help.
 
 
 <a name="reset_method5_password"/>
@@ -226,7 +231,7 @@ Check the results below while the background jobs are running.  If there are con
 7: Add and test database links.
 -------------------------------
 
-Run a simple against every database.  The first time this is run it may take a few minutes to create the database links.
+Run a simple query against every database.
 
 	select * from table(m5('select * from dual'));
 
@@ -235,6 +240,8 @@ Check the results, metadata, and errors:
 	select * from m5_results;
 	select * from m5_metadata;
 	select * from m5_errors;
+
+If there are are errors use step #3 to diagnose link issues.  If you can't solve the problem please create a GitHub issue at https://github.com/method5/method5 or contact jon@jonheller.org for help.
 
 
 <a name="audit_method5_activity"/>

@@ -24,6 +24,51 @@ create or replace package body method5.method5_admin is
 
 
 --------------------------------------------------------------------------------
+--Purpose: Stop from running in SQL*Plus.
+--SQL*Plus is great for running scripts but it sucks for displaying lots of data.
+procedure do_not_allow_sqlplus is
+	v_program varchar2(4000);
+begin
+	execute immediate
+	q'[
+		select program
+		from v$session
+		where audsid = sys_context('userenv', 'sessionid')
+	]'
+	into v_program;
+
+	if lower(v_program) like '%sqlplus%' then
+		dbms_output.enable;
+		dbms_output.put_line(' ______  _____   _____    ____   _____   ');
+		dbms_output.put_line('|  ____||  __ \ |  __ \  / __ \ |  __ \  ');
+		dbms_output.put_line('| |__   | |__) || |__) || |  | || |__) | ');
+		dbms_output.put_line('|  __|  |  _  / |  _  / | |  | ||  _  /  ');
+		dbms_output.put_line('| |____ | | \ \ | | \ \ | |__| || | \ \  ');
+		dbms_output.put_line('|______||_|  \_\|_|  \_\ \____/ |_|  \_\ ');
+
+		raise_application_error(-20000, 
+			'Run this step in a GUI, such as Oracle SQL Developer or Toad.  SQL*Plus is not good at displaying large amounts of data.');
+	end if;
+end do_not_allow_sqlplus;
+
+
+--------------------------------------------------------------------------------
+--Purpose: Return '.'||DB_DOMAIN if the DB_DOMAIN is set.
+function get_db_domain_suffix return varchar2 is
+	v_db_domain varchar2(4000);
+begin
+	--DB_DOMAIN from V$PARAMETER.
+	--The DB_DOMAIN changes all the database links if it exists.
+	select value
+	into v_db_domain
+	from v$parameter
+	where name = 'db_domain';
+
+	return case when v_db_domain is null then null else '.' || upper(v_db_domain) end;
+end get_db_domain_suffix;
+
+
+--------------------------------------------------------------------------------
 --Purpose: Generate a script to install Method5 on remote databases.
 function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob
 is
@@ -35,7 +80,7 @@ is
 		q'[
 			----------------------------------------
 			--Install Method5 on remote target.
-			--Run this script as SYS.
+			--Run this script as SYS using SQL*Plus.
 			--Do NOT save this output - it contains password hashes and should be regenerated each time.
 			----------------------------------------
 		]', '			', null)||chr(10);
@@ -966,7 +1011,9 @@ begin
 		raise_application_error(-20000, 'The RUN_AS_SYS feature must be enabled in order to use the shell script feature.');
 	end if;
 
- 	v_script := v_script || create_header;
+	do_not_allow_sqlplus;
+
+	v_script := v_script || create_header;
 	v_script := v_script || create_user_check;
 	v_script := v_script || create_profile;
 	v_script := v_script || create_user;
@@ -990,7 +1037,7 @@ end generate_remote_install_script;
 --Create a local and remote key for SYS access.
 procedure set_local_and_remote_sys_key(p_db_link in varchar2) is
 	v_count number;
-	v_clean_db_link varchar2(128) := trim(upper(p_db_link));
+	v_clean_db_link varchar2(128) := replace(trim(upper(p_db_link)), get_db_domain_suffix);
 	v_sys_key raw(32);
 begin
 	--Throw error if the sys key already exists locally.
@@ -1045,6 +1092,7 @@ function set_all_missing_sys_keys return clob is
 
 ]';
 	v_status_index varchar2(32767);
+	v_db_domain_suffix varchar2(4000) := get_db_domain_suffix();
 	pragma autonomous_transaction;
 
 	--Convert a nested table into a comma-separated and indented list.
@@ -1085,14 +1133,18 @@ begin
 		select
 			dba_db_links.db_link,
 			case when m5_sys_key.db_link is not null then 'Yes' else 'No' end sys_key_exists
-		from dba_db_links
+		from
+		(
+			select owner, replace(dba_db_links.db_link, v_db_domain_suffix) db_link
+			from dba_db_links
+		) dba_db_links
 		left join method5.m5_sys_key
 			on dba_db_links.db_link = m5_sys_key.db_link
 		where owner = 'METHOD5'
 			and dba_db_links.db_link like 'M5%'
 			and lower(replace(dba_db_links.db_link, 'M5_')) in
 				(select lower(database_name) from m5_database where is_active = 'Yes')
-			and dba_db_links.db_link <> 'M5_INSTALL_DB_LINK'
+			and dba_db_links.db_link not like 'M5_INSTALL_DB_LINK%'
 		order by dba_db_links.db_link
 	) loop
 		begin
@@ -1344,7 +1396,9 @@ end generate_link_test_script;
 
 --------------------------------------------------------------------------------
 --Purpose: Drop all Method5 database links for a specific user.
---	This may be a good idea when someone leaves your organization or chanes roles.
+--	This may be a good idea when someone leaves your organization or changes roles,
+--	or if there is a huge change to your connection strings and you need to recreate
+--	all links.
 procedure drop_m5_db_links_for_user(p_username varchar2) is
 	v_temp_procedure clob;
 begin
@@ -1356,7 +1410,7 @@ begin
 			,row_number() over (partition by owner order by db_link desc) last_when_1
 		from dba_db_links
 		where db_link like 'M5!_%' escape '!'
-			and db_link <> 'M5_INSTALL_DB_LINK'
+			and db_link not like 'M5_INSTALL_DB_LINK%'
 			and owner = trim(upper(p_username))
 		order by 1,2
 	) loop
@@ -1472,7 +1526,7 @@ begin
 	select count(*)
 	into v_count
 	from dba_db_links
-	where db_link = 'M5_INSTALL_DB_LINK'
+	where db_link like 'M5_INSTALL_DB_LINK%'
 		and owner = 'METHOD5';
 
 	--If the link exists, drop it by creating and executing a procedure on that schema
@@ -1530,7 +1584,6 @@ begin
 			from v$parameter
 			where name = 'sec_case_sensitive_logon';
 
-
 			--Do nothing if this is the management database - the user already exists.
 			if lower(sys_context('userenv', 'db_name')) = '#DB_NAME#' then
 				null;
@@ -1578,7 +1631,7 @@ begin
 		select *
 		from dba_db_links
 		where owner = 'METHOD5'
-			and db_link <> 'M5_INSTALL_DB_LINK'
+			and db_link not like 'M5_INSTALL_DB_LINK%'
 		order by db_link
 	) loop
 		--Build procedure string to drop and recdreate link.

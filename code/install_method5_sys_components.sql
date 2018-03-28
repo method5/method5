@@ -142,7 +142,8 @@ Purpose: Change an M5_ database link password hash to the Method5 password hash.
 	So the links must be created with a phony password and SYS.LINK$ is updated.
 Warning 1: This only works on new database links that haven't been cached.
 Warning 2: This procedure modifies undocumented SYS table LINK$.
-	It has only been tested for 11.2.0.4 and 12.1.0.2.
+	It has only been tested for 11.2.0.4 and 12.1.0.2.  It may not work with
+	the 18c encrypted data dictionary feature.
 */
 	p_m5_username varchar2,
 	p_dblink_username varchar2,
@@ -152,10 +153,29 @@ is
 	v_name varchar2(128);
 	v_lineno number;
 	v_caller_t varchar2(128);
+	v_upper_db_domain_suffix varchar2(4000);
+	v_clean_dblink varchar2(4000);
 begin
 	--Error if the link name does not start with M5.
 	if upper(trim(p_dblink_name)) not like 'M5%' then
 		raise_application_error(-20000, 'This procedure only works for Method5 links.');
+	end if;
+
+	--DB_DOMAIN from V$PARAMETER.
+	--The DB_DOMAIN changes all the database links if it exists.
+	select value
+	into v_upper_db_domain_suffix
+	from v$parameter
+	where name = 'db_domain';
+
+	v_upper_db_domain_suffix := case when v_upper_db_domain_suffix is null then null else '.' || upper(v_upper_db_domain_suffix) end;
+
+	--Cleanup the link name by making it uppercase and removing spaces.
+	v_clean_dblink := upper(trim(p_dblink_name));
+
+	--Add DB_DOMAIN suffix if it needs one and doesn't already have one.
+	if v_upper_db_domain_suffix is not null and instr(v_clean_dblink, v_upper_db_domain_suffix) = 0 then
+		v_clean_dblink := v_clean_dblink || v_upper_db_domain_suffix;
 	end if;
 
 	--TODO?  This would make it more difficult to ad hoc fix links.
@@ -176,9 +196,9 @@ begin
 		from sys.link$
 		join dba_users on link$.owner# = dba_users.user_id
 		where dba_users.username = p_m5_username
-			and name = 'M5_INSTALL_DB_LINK'
+			and name like 'M5_INSTALL_DB_LINK%'
 	)
-	where name = upper(trim(p_dblink_name))
+	where name = v_clean_dblink
 		and owner# = (select user_id from dba_users where username = upper(trim(p_dblink_username)));
 end m5_change_db_link_pw;
 >');

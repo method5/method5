@@ -13,7 +13,7 @@ Finally, when you're done uninstalling, I'd like to know what went wrong and wha
 Remove from Management Server
 -----------------------------
 
-Run these steps as a DBA on the management server.  To make sure you really want to do this, the step is commented out.  Remove the multiline comment and unindent before running.
+Run these steps as SYS on the management server.  To make sure you really want to do this, the step is commented out.  Remove the multiline comment and unindent before running.
 
 /*
 	--Stop current jobs:
@@ -131,6 +131,12 @@ Run these steps as a DBA on the management server.  To make sure you really want
 
 	--Drop role granted to all Method5 users.
 	drop role m5_run;
+
+	--Drop SYS objects.
+	drop procedure sys.m5_change_db_link_pw;
+	drop procedure sys.m5_create_triggers;
+	drop procedure sys.get_method5_hashes;
+	drop procedure sys.m5_protect_config_tables;
 */
 
 If you are only uninstalling to re-install, make sure you completely log out of all sessions before installing anything.

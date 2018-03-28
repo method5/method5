@@ -177,7 +177,7 @@ create table method5.m5_user
 );
 comment on table method5.m5_user                               is 'Method5 users.';
 comment on column method5.m5_user.oracle_username              is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
-comment on column method5.m5_user.os_username                  is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.';
+comment on column method5.m5_user.os_username                  is 'Individual operating system account used to access Method5.  Depending on your system and network configuration enforcing this username may also ensure two factor authentication.  Do not use a shared account.  If NULL then the OS_USERNAME will not be checked.';
 comment on column method5.m5_user.email_address                is 'Only necessary for administrators so they can be notified when configuration tables are changed.';
 comment on column method5.m5_user.is_m5_admin                  is 'Can this user change Method5 configuration tables.  This user will also receive emails about configuration problems and changes.  Either Yes or No.';
 comment on column method5.m5_user.default_targets              is 'Use this target list if none is specified.  Leave NULL to use the global default set in M5_CONFIG.';
@@ -297,10 +297,9 @@ insert into method5.m5_config(config_id, config_name, string_value, number_value
 select method5.m5_config_seq.nextval, name, string_value, number_value
 from
 (
-	select 'Access Control - User is not locked'            name, 'ENABLED' string_value, null number_value     from dual union all
-	select 'Access Control - User has expected OS username' name, 'ENABLED' string_value, null number_value     from dual union all
-	select 'Default Targets'                                name, '%'       string_value, null number_value     from dual union all
-	select 'Job Timeout (seconds)'                          name, null      string_value, 23*60*60 number_value from dual
+	select 'Access Control - User is not locked'            name, 'ENABLED'  string_value, null number_value     from dual union all
+	select 'Default Targets'                                name, '%'        string_value, null number_value     from dual union all
+	select 'Job Timeout (seconds)'                          name, null       string_value, 23*60*60 number_value from dual
 );
 commit;
 

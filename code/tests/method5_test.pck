@@ -83,15 +83,18 @@ c_base_tests                   constant number :=
 	c_test_p_table_name+c_test_p_asynchronous+c_test_p_table_exists_action+c_test_audit+
 	c_test_long+c_test_version_star+c_test_get_target_tab_from_tar;
 
---These tests may not work in some environments if SYS or shell script feature is disable.
-c_test_run_as_sys              constant number := power(2, 13);
-c_test_shell_script            constant number := power(2, 14);
+--These tests will only work for a user with direct database links.
+c_test_db_link_recreation      constant number := power(2, 13);
 
-c_all_tests                    constant number := c_base_tests+c_test_run_as_sys+c_test_shell_script;
+--These tests may not work in some environments if SYS or shell script feature is disable.
+c_test_run_as_sys              constant number := power(2, 14);
+c_test_shell_script            constant number := power(2, 15);
+
+c_all_tests                    constant number := c_base_tests+c_test_db_link_recreation+c_test_run_as_sys+c_test_shell_script;
 
 --Test sandbox privileges, allowed and default targets, and config table protection.
-c_sandbox_and_targets       constant number := power(2,15);
-c_test_cannot_change_config constant number := power(2,16);
+c_sandbox_and_targets       constant number := power(2,16);
+c_test_cannot_change_config constant number := power(2,17);
 
 
 
@@ -1092,6 +1095,33 @@ end test_get_target_tab_from_targe;
 
 
 --------------------------------------------------------------------------------
+procedure test_db_link_recreation(p_database_name_1 in varchar2) is
+	v_test_name varchar2(100);
+	v_expected_results varchar2(4000);
+	v_actual_results varchar2(4000);
+begin
+	begin
+		v_test_name := 'DB link recreation';
+		v_expected_results := '1';
+
+		--Drop the link to force it to be re-created.
+		execute immediate 'drop database link m5_'||p_database_name_1;
+
+		execute immediate replace(q'[
+			select 1
+			from table(m5('select * from dual', '#DATABASE_1#'))
+		]', '#DATABASE_1#', p_database_name_1)
+		into v_actual_results;
+
+		assert_equals(v_test_name, v_expected_results, v_actual_results);
+	exception when others then
+		assert_equals(v_test_name, v_expected_results,
+			sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
+	end;
+end test_db_link_recreation;
+
+
+--------------------------------------------------------------------------------
 procedure test_run_as_sys(p_database_name_1 in varchar2) is
 	v_test_name varchar2(100);
 	v_expected_results varchar2(4000);
@@ -1547,12 +1577,11 @@ begin
 	if bitand(p_tests, c_test_long                   ) > 0 then test_long(v_database_name_1);                                         end if;
 	if bitand(p_tests, c_test_version_star           ) > 0 then test_version_star(v_database_name_1, v_database_name_2);              end if;
 	if bitand(p_tests, c_test_get_target_tab_from_tar) > 0 then test_get_target_tab_from_targe(v_database_name_1, v_database_name_2); end if;
+	if bitand(p_tests, c_test_db_link_recreation     ) > 0 then test_db_link_recreation(v_database_name_1);                           end if;
 	if bitand(p_tests, c_test_run_as_sys             ) > 0 then test_run_as_sys(v_database_name_1);                                   end if;
 	if bitand(p_tests, c_test_shell_script           ) > 0 then test_shell_script(v_database_name_1, v_database_name_2);              end if;
 	if bitand(p_tests, c_sandbox_and_targets         ) > 0 then test_sandbox_and_targets(v_database_name_2, p_other_schema_name);     end if;
 	if bitand(p_tests, c_test_cannot_change_config   ) > 0 then test_cannot_change_config;                                            end if;
-
-	--TODO: Test dropping and recreating a database link.
 
 	--Re-enable DBMS_OUTPUT.
 	--It had to be suppressed because Method5 prints some information that
@@ -1703,7 +1732,8 @@ begin
 					p_database_name_1   => '##DATABASE_NAME_1##',
 					p_database_name_2   => '##DATABASE_NAME_2##',
 					p_other_schema_name => '##OTHER_SCHEMA_NAME##',
-					p_tests => method5.method5_test.c_base_tests  + method5.method5_test.c_test_cannot_change_config ##RUN_AS_SYS## ##SHELL_SCRIPT##);
+					p_tests => method5.method5_test.c_base_tests + method5.method5_test.c_test_db_link_recreation
+					+ method5.method5_test.c_test_cannot_change_config ##RUN_AS_SYS## ##SHELL_SCRIPT##);
 			end;
 			##SLASH##
 			alter system flush shared_pool;
@@ -1743,6 +1773,10 @@ begin
 			end;
 			##SLASH##
 
+			--If you are developing a new version you may want to run the tests twice:
+			--once on a master database with no DB_DOMAIN and once where DB_DOMAIN is set.
+			--Some of the logic is different if DB_DOMAIN is set but that's not an easy
+			--parameter to change - you need two separate instances.
 			]'
 		, '			')
 		,'##SLASH##', '/')
