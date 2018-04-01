@@ -188,7 +188,7 @@ comment on column method5.m5_user.changed_date                 is 'Date this row
 
 --Default admin is the user who installs Method5.  They are given full privileges.
 insert into method5.m5_user(oracle_username, os_username, email_address, is_m5_admin, default_targets, can_use_sql_for_targets, can_drop_tab_in_other_schema)
-values (user, sys_context('userenv', 'os_user'), null, 'Yes', null, 'Yes', 'Yes');
+values (user, null /* Uncomment this to enable OS name requirement: sys_context('userenv', 'os_user')*/, null, 'Yes', null, 'Yes', 'Yes');
 
 create table method5.m5_role
 (
