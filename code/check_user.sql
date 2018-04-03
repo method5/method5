@@ -2,7 +2,7 @@
 --Parameters: &1 - Can be one of "must_run_as_sys", "must_not_run_as_sys_and_has_dba", or "must_be_m5_user".
 
 whenever sqlerror exit;
-set serveroutput on format truncated verify off;
+set serveroutput on format truncated verify off feedback off;
 prompt Checking user...;
 declare
 	v_count number;
@@ -69,4 +69,5 @@ begin
 end;
 /
 whenever sqlerror continue;
-set verify on;
+set verify on feedback on;
+set serveroutput on format wrapped;
