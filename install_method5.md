@@ -5,84 +5,27 @@ Installing Method5 is a one-time, semi-automated process.  Pick one person to in
 
 Testing Method5 only requires a single database.  A multi-database environment can be simulated by inserting fake values in step 4, "Configure M5_DATABASE".  Create rows with fake database names but set the connect strings to use the same database.
 
-If there are problems with the installation please submit an issue to the GitHub repository, or send an email to Jon Heller at hjon@VentechSolutions.com.
+If there are problems with the installation please submit an issue to the GitHub repository, or send an email to Jon Heller at jon@jonheller.org.
 
 
 1: Check pre-requisites.
 ------------------------
 
-Run these steps on the management server by a user with the DBA role.
+Read and understand these requirements:
 
-1. There must be a central management server that can connect to all databases.
+1. You must have a central management server that can connect to all databases.
 
-2. The management server should be at least version 11.2.0.3.  Lower versions have security issues with database links.
+2. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
 
-3. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
+3. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you will almost certainly want to use a GUI for administration steps and running Method5.
 
-4. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you will almost certainly want to use a GUI for administration steps and running Method5.
+4. Run this script on the central management server, in SQL*Plus, as SYS.  For example:
 
-5. Run this SQL to ensure the PURGE_LOG job exists, is enabled, and is scheduled in the near future.  This is necessary because there are a large number of jobs and you don't want to keep their history forever.
-
-		select
-			case
-				when has_job_scheduled_soon = 1 then 'PASS - The job PURGE_LOG is enabled and set to run in the near future.'
-				when has_purge_log_job = 0 then 'FAIL - The job PURGE_LOG does not exist.  Without this job the DBMS_SCHEDULER log will grow too large.'
-				when has_enabled_purge_log_job = 0 then 'FAIL - The job PURGE_LOG is not enabled.  Without this job the DBMS_SCHEDULER log will grow too large.'
-				when has_job_scheduled_soon = 0 then 'FAIL - The job PURGE_LOG is not scheduled in the near future.  Without this job the DBMS_SCHEDULER log will grow too large.'
-			end purge_log_status
-		from
-		(
-			select
-				sum(case when job_name = 'PURGE_LOG' then 1 else 0 end) has_purge_log_job,
-				sum(case when job_name = 'PURGE_LOG' and enabled = 'TRUE' then 1 else 0 end) has_enabled_purge_log_job,
-				sum(case when job_name = 'PURGE_LOG' and enabled = 'TRUE' and abs(cast(next_run_date as date)-sysdate) < 10 then 1 else 0 end) has_job_scheduled_soon
-			from dba_scheduler_jobs
-		);
-
-6. Run this SQL to check that JOB_QUEUE_PROCESSES is adequate for DBMS_SCHEDULER parallelism.
-
-		select
-			case
-				when to_number(value) >= 50 then 'PASS - job_queue_processes is sufficient.'
-				else 'FAIL - the parameter job_queue_processes should be set to at least 50 to ensure sufficient parallelism.'
-			end job_queue_processes_check
-		from v$parameter
-		where name = 'job_queue_processes';
-
-7. Run this SQL to check that UTL_MAIL is installed.
-
-	select case when count(*) = 0 then 'FAIL - you must install UTL_MAIL' else 'PASS' end utl_mail_check
-	from dba_objects
-	where object_name = 'UTL_MAIL';
-
-If it's missing, run these steps as SYS to install it:
-
-	SQL> @?/rdbms/admin/utlmail.sql
-	SQL> @?/rdbms/admin/prvtmail.plb
-
-8. Run this SQL to check that SMTP_OUT_SERVER is set.
-
-	select
-		case
-			when value is null then
-				'FAIL - You must set system parameter SMTP_OUT_SERVER.'
-			else
-				'PASS - SMTP_OUT_SERVER is set.'
-			end value
-	from v$parameter
-	where name = 'smtp_out_server';
-
-9. Ensure that DBMS_SCHEDULER is granted to PUBLIC.  (This is the default privilege.  It is revoked by some old DoD STIG (secure technical implementation guidelines), but not the most recent version.  However a lot of security programs still flag this important privilege.)
-
-	select
-		case
-			when count(*) >= 1 then 'PASS - DBMS_SCHEDULER is granted to PUBLIC.'
-			else 'FAIL - DBMS_SCHEDULER will be automatically granted to PUBLIC.'||chr(10)||
-				'Check your audit/security/hardening scripts to ensure it is not removed later or SANDBOX accounts will break.'
-		end dbms_scheduler_grant_check
-	from dba_tab_privs
-	where grantee = 'PUBLIC'
-		and table_name = 'DBMS_SCHEDULER';
+	C:\> cd Method5
+	C:\Method5> sqlplus / as sysdba
+	...
+	SQL> @code/check_m5_prerequisites.sql
+	SQL> quit
 
 
 2: Install SYS components.
