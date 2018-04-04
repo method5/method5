@@ -135,16 +135,17 @@ is
 		v_12c_hash varchar2(4000);
 		v_11g_hash_without_des varchar2(4000);
 		v_11g_hash_with_des varchar2(4000);
+		v_10g_hash varchar2(4000);
 		v_profile varchar2(4000);
 	begin
-		sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des);
+		sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des, v_10g_hash);
 
 		select profile
 		into v_profile
 		from dba_users
 		where username = 'METHOD5';
 
-		return replace(replace(replace(replace(replace(replace(
+		return replace(replace(replace(replace(replace(replace(replace(
 		q'[
 			--Create the Method5 user with the appropriate hash.
 			declare
@@ -164,7 +165,7 @@ is
 						if v_sec_case_sensitive_logon = 'TRUE' then
 							execute immediate q'!create user method5 profile #PROFILE# identified by values '#11G_HASH_WITHOUT_DES#'!';
 						else
-							if '#11G_HASH_WITH_DES#' is null then
+							if '#10G_HASH#' is null then
 								raise_application_error(-20000, 'The 10g hash is not available.  You must set '||
 									'the target database sec_case_sensitive_logon to TRUE for this to work.');
 							else
@@ -180,6 +181,7 @@ is
 			/]'
 		, '#12C_HASH#', nvl(v_12c_hash, v_11g_hash_without_des))
 		, '#11G_HASH_WITHOUT_DES#', v_11g_hash_without_des)
+		, '#10G_HASH#', v_10g_hash)
 		, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
 		, '#PROFILE#', v_profile)
 		, '#DB_NAME#', lower(sys_context('userenv', 'db_name')))
@@ -1182,13 +1184,14 @@ function generate_password_reset_one_db return clob is
 	v_12c_hash varchar2(4000);
 	v_11g_hash_without_des varchar2(4000);
 	v_11g_hash_with_des varchar2(4000);
+	v_10g_hash varchar2(4000);
 	v_plsql clob;
 begin
 	--Get the appropriate hashes.
-	sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des);
+	sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des, v_10g_hash);
 
 	--Create PL/SQL block to apply new password hash.
-	v_plsql := replace(replace(replace(replace(q'[
+	v_plsql := replace(replace(replace(replace(replace(q'[
 		----------------------------------------
 		--Reset Method5 password on one remote database.
 		--
@@ -1235,7 +1238,7 @@ begin
 				if v_sec_case_sensitive_logon = 'TRUE' then
 					execute immediate q'!alter user method5 identified by values '#11G_HASH_WITHOUT_DES#'!';
 				else
-					if '#11G_HASH_WITH_DES#' is null then
+					if '#10G_HASH#' is null then
 						raise_application_error(-20000, 'The 10g hash is not available.  You must set '||
 							'the target database sec_case_sensitive_logon to TRUE for this to work.');
 					else
@@ -1262,6 +1265,7 @@ begin
 		, '#12C_HASH#', v_12c_hash)
 		, '#11G_HASH_WITHOUT_DES#', v_11g_hash_without_des)
 		, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
+		, '#10G_HASH#', v_10g_hash)
 		, chr(10)||'		', chr(10));
 
 	return v_plsql;
@@ -1569,13 +1573,14 @@ procedure change_remote_m5_passwords is
 	v_12c_hash varchar2(4000);
 	v_11g_hash_without_des varchar2(4000);
 	v_11g_hash_with_des varchar2(4000);
+	v_10g_hash varchar2(4000);
 	v_password_change_plsql varchar2(4000);
 begin
 	--Get the password hashes.
-	sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des);
+	sys.get_method5_hashes(v_12c_hash, v_11g_hash_without_des, v_11g_hash_with_des, v_10g_hash);
 
 	--Create statement to change passwords.
-	v_password_change_plsql := replace(replace(replace(replace(q'[
+	v_password_change_plsql := replace(replace(replace(replace(replace(q'[
 		declare
 			v_sec_case_sensitive_logon varchar2(100);
 		begin
@@ -1593,7 +1598,7 @@ begin
 					if v_sec_case_sensitive_logon = 'TRUE' then
 						execute immediate q'!alter user method5 identified by values '#11G_HASH_WITHOUT_DES#'!';
 					else
-						if '#11G_HASH_WITH_DES#' is null then
+						if '#10G_HASH#' is null then
 							raise_application_error(-20000, 'The 10g hash is not available.  You must set '||
 								'the target database sec_case_sensitive_logon to TRUE for this to work.');
 						else
@@ -1610,6 +1615,7 @@ begin
 	, '#12C_HASH#', v_12c_hash)
 	, '#11G_HASH_WITHOUT_DES#', v_11g_hash_without_des)
 	, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
+	, '#10G_HASH#', v_10g_hash)
 	, '#DATABASE_NAME#', lower(sys_context('userenv', 'db_name')));
 
 	--Change password on all databases.

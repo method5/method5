@@ -222,7 +222,8 @@ create or replace procedure sys.get_method5_hashes
 (
 	p_12c_hash in out varchar2,
 	p_11g_hash_without_des in out varchar2,
-	p_11g_hash_with_des in out varchar2
+	p_11g_hash_with_des in out varchar2,
+	p_10g_hash in out varchar2
 ) is
 begin
 	--10 and 11g.
@@ -230,16 +231,19 @@ begin
 		select
 			spare4,
 			spare4 hash_without_des,
-			spare4||';'||password hash_with_des
-		into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des
+			spare4||';'||password hash_with_des,
+			password
+		into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des, p_10g_hash
 		from sys.user$
 		where name = 'METHOD5';
 	--12c.
 	$else
 		select
 			spare4,
-			regexp_substr(spare4, 'S:.{60}')
-		into p_12c_hash, p_11g_hash_without_des
+			regexp_substr(spare4, 'S:.{60}'),
+			regexp_substr(spare4, 'S:.{60}')||';'||password hash_with_des,
+			password
+		into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des, p_10g_hash
 		from sys.user$
 		where name = 'METHOD5';
 	$end

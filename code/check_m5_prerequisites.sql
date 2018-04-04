@@ -37,7 +37,7 @@ declare
 		where name = 'M5_TEMP_FAKE_USER_DROP_ME';
 
 		--Raise error depending on the version.
-		if null/*v_password*/ is null then
+		if v_password is null then
 			v_problem_count := v_problem_count + 1;
 
 			--The exact instructions depend on the version.
