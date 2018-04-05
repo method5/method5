@@ -15,7 +15,7 @@ end;
 /
 create or replace package body method5.method5_admin is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
---See http://method5.github.io/ for more information.
+--See https://method5.github.io/ for more information.
 
 
 /******************************************************************************
@@ -608,7 +608,7 @@ is
 			--Copyright (C) 2017 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 			--Version 1.0.3
 			--Read this page if you're curious about this program or concerned about security implications:
-			--https://github.com/method5/method5/blob/master/user_guide.md#security
+			--https://github.com/method5/method5/blob/master/security.md
 
 				--This unique string prevents operating system duplicates.
 				c_unique_string varchar2(100) := to_char(sysdate, 'YYYY_MM_DD_HH24_MI_SS_')||rawtohex(sys_guid());
@@ -621,6 +621,7 @@ is
 
 				c_temp_path constant varchar2(100) := '/tmp/method5/';
 				c_directory constant varchar2(100) := 'M5_TMP_DIR';
+				c_bin_directory constant varchar2(100) := '/bin/';
 
 				v_job_failed exception;
 				pragma exception_init(v_job_failed, -27369);
@@ -668,7 +669,7 @@ is
 					dbms_scheduler.create_program (
 						program_name        => 'M5_TEMP_MKDIR_PROGRAM_'||c_random_number,
 						program_type        => 'EXECUTABLE',
-						program_action      => '/usr/bin/mkdir',
+						program_action      => c_bin_directory||'mkdir',
 						number_of_arguments => 1,
 						comments            => 'Temporary program created for Method5.  Created on: '||to_char(systimestamp, 'YYYY-MM-DD HH24:MI:SS')
 					);
@@ -705,7 +706,8 @@ is
 						if sqlerrm like '%File exists%' then
 							null;
 						else
-							raise;
+							raise_application_error(-20000, 'There was an error creating /tmp/method5/:'||chr(10)||
+								sys.dbms_utility.format_error_stack||sys.dbms_utility.format_error_backtrace);
 						end if;
 					end;
 
@@ -742,7 +744,7 @@ is
 					dbms_scheduler.create_program (
 						program_name        => 'M5_TEMP_CHMOD_PROGRAM_'||c_random_number,
 						program_type        => 'EXECUTABLE',
-						program_action      => '/usr/bin/chmod',
+						program_action      => c_bin_directory||'chmod',
 						number_of_arguments => 2,
 						comments            => 'Temporary program created for Method5.  Created on: '||to_char(systimestamp, 'YYYY-MM-DD HH24:MI:SS')
 					);

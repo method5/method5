@@ -5,27 +5,26 @@ Method5 User Guide
 
 1. [Quick Start](#quick_start)
 2. [Introduction to Method5](#introduction)
-3. [Why Do You Need Method5?](#why)
-4. [Function or Procedure](#function_or_procedure)
-5. [Alternative Quoting Mechanism](#alternative_quoting_mechanism)
-6. [Where is the Data Stored?](#where_is_the_data_stored)
-7. [Parameter: P_CODE](#parameter_p_code)
-8. [Parameter: P_TARGETS](#parameter_p_targets)
-9. [Parameter: P_TABLE_NAME](#parameter_p_table_name)
-10. [Parameter: P_TABLE_EXISTS_ACTION](#parameter_p_table_exists_action)
-11. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
-12. [Parameter: P_RUN_AS_SYS](#parameter_p_run_as_sys)
-13. [M5 Links](#m5_links)
-14. [Global Data Dictionary](#global_data_dictionary)
-15. [Version Star - Column Differences Between Versions](#version_star)
-16. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
-17. [Services for non-Method5 users](#services_for_non_users)
-18. [Job Timeout](#job_timeout)
-19. [LONG to CLOB conversion](#long_to_clob_conversion)
-20. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
-21. [Administrator Daily Status Email](#administrator_daily_status_email)
-22. [Security and User Configuration](#security)
-23. [Possible Uses](#possible_uses)
+3. [Function or Procedure](#function_or_procedure)
+4. [Alternative Quoting Mechanism](#alternative_quoting_mechanism)
+5. [Where is the Data Stored?](#where_is_the_data_stored)
+6. [Parameter: P_CODE](#parameter_p_code)
+7. [Parameter: P_TARGETS](#parameter_p_targets)
+8. [Parameter: P_TABLE_NAME](#parameter_p_table_name)
+9. [Parameter: P_TABLE_EXISTS_ACTION](#parameter_p_table_exists_action)
+10. [Parameter: P_ASYNCHRONOUS](#parameter_p_asynchronous)
+11. [Parameter: P_RUN_AS_SYS](#parameter_p_run_as_sys)
+12. [M5 Links](#m5_links)
+13. [Global Data Dictionary](#global_data_dictionary)
+14. [Version Star - Column Differences Between Versions](#version_star)
+15. [DBMS_XMLGEN.GETXML - Table Differences Between Versions](#dbms_xmlgen.getxml)
+16. [Services for non-Method5 users](#services_for_non_users)
+17. [Job Timeout](#job_timeout)
+18. [LONG to CLOB conversion](#long_to_clob_conversion)
+19. [Account Maintenance with M5_SYNCH_USER](#m5_synch_user)
+20. [Administrator Daily Status Email](#administrator_daily_status_email)
+21. [Security and User Configuration](#security)
+22. [Possible Uses](#possible_uses)
 
 
 <a name="quick_start"/>
@@ -68,6 +67,8 @@ The global data dictionary contains several useful tables that are gathered ever
 
 Some useful tables and views in the Method5 schema are: M5_DATABASE (list of all databases), M5_AUDIT (history of runs), and M5_USER/M5_ROLE/M5_ROLE_PRIV/M5_USER_ROLE/M5_PRIV_VW (user configuration).
 
+There are several pre-built solutions in the examples directory, such as multi-database schema comparisons and synchronizing accounts.
+
 Read below for more thorough details on these features.
 
 
@@ -77,20 +78,11 @@ Read below for more thorough details on these features.
 
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets users easily run SQL statements, PL/SQL blocks, and Unix shell commands quickly and securely on hundreds of databases.
 
+Method5 is ideal for supporting a large number of Oracle databases.  Just as code should not update tables one-row-at-a-time, administration should not be done one-database-at-a-time.  Method5 is the only *relational* remote execution program and helps you perform some tasks orders of magnitude faster.
+
 Running statements simultaneously on all your databases can be as easy as this:  `select * from table(m5('select * from dual'));`  Statements are processed in parallel and will start returning relational data in seconds.  The program works in any SQL IDE and users do not need to worry about agents, plugins, or configuration files.
 
 Some users will only need the `select * from table(m5('...'));` syntax.  For more advanced users, this guide explains all Method5 features.  These features can precisely control what is run, how it's run, and where it's run.
-
-
-<a name="why"/>
-
-## Why Do You Need Method5?
-
-Oracle DBAs have tools to automate pre-defined tasks, like database patching and application deployments.  But those tools are too complex and slow to help with unexpected operational problems that take up so much time.  When DBAs solve a problem they rarely spend the time to find, fix, and prevent the problem from happening on other databases.  SQL, PL/SQL, and the relational model can make the solution easy, but the solution is stuck inside a single database.  Nobody has time to connect to every database and check for a problem that may not happen again.
-
-The ideal solution is to make it trivial to query and change all databases simultaneously.  Dynamic SQL is sometimes classified as Method 1, 2, 3, or 4, depending on how dynamic it is.  DBAs need a new type of dynamic SQL, a Method 5, that allows them to specify the targets as easily as they specify the code.  A new syntax that allows any statement to run anywhere, in any SQL tool.  Something like the Oracle 12c `CONTAINERS` clause, but much more powerful.  Existing tools have failed to transform the way DBAs work because those tools are slow, insecure, and not relational.
-
-With Method5 you will be able to perform some administration and analysis tasks orders of magnitude faster.
 
 
 <a name="function_or_procedure"/>
@@ -245,7 +237,7 @@ The values in a comma-separated list will match any database that shares the sam
 
 The value may also use the Oracle pattern matching syntax, `%` and `_`.
 
-All target values must exist in the M5_DATABASE.  And the row in M5_DATABASE must have IS_ACTIVE set to "Yes" (the default value).
+All target values must exist in M5_DATABASE.  And the row in M5_DATABASE must have IS_ACTIVE set to "Yes" (the default value).
 
 For example, if you want all development databases, as well as ones on the ACME contract (line of business), and some other custom databases:
 
