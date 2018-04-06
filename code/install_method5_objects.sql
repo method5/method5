@@ -147,7 +147,7 @@ with database_info as
 		(select version from v$instance) version,
 		(SELECT replace(replace(product, 'TNS for '), ':') FROM product_component_version where product like 'TNS%') operating_system,
 		(
-			select '(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(sid='||instance_name||')))'
+			select '(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(service_name='||nvl(sys_context('userenv', 'con_name'), instance_name)||')))'
 			from v$instance
 		) m5_default_connect_string
 	from dual
