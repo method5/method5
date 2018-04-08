@@ -3,7 +3,9 @@ Install Method5
 
 Installing Method5 is a one-time, semi-automated process.  Pick one person to install and administer Method5.  That person should have intermediate DBA skills, and preferably some development background.
 
-Testing Method5 only requires a single database.  A multi-database environment can be simulated by inserting fake values in step 4, "Configure M5_DATABASE".  Create rows with fake database names but set the connect strings to use the same database.
+Testing Method5 only requires a single database.  A multi-database environment can be simulated by inserting fake values in step 4, "Configure M5_DATABASE".
+
+If you are using the multitenant architecture, Method5 has currently only been tested on pluggable databases, not container databases.
 
 If there are problems with the installation please submit an issue to the GitHub repository, or send an email to Jon Heller at jon@jonheller.org.
 
@@ -15,7 +17,7 @@ Read and understand these requirements:
 
 1. You must have a central management server that can connect to all databases.
 
-2. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.
+2. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.  If you are using the multitenant architecture, Method5 currently only runs on pluggable databases and not container databases.
 
 3. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you will almost certainly want to use a GUI for administration steps and running Method5.
 
