@@ -64,9 +64,9 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 	comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
 
 	begin
-		m5_proc('grant select on sys.v_$instance to method5', '%', p_run_as_sys => true);
+		m5_proc('grant select on sys.v_$instance to method5', '%', p_run_as_sys => true, p_asynchronous => false);
 
-		m5_proc('grant select on sys.v_$database to method5', '%', p_run_as_sys => true);
+		m5_proc('grant select on sys.v_$database to method5', '%', p_run_as_sys => true, p_asynchronous => false);
 
 		m5_proc(
 			p_code => q'[
@@ -88,11 +88,12 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 		end database_name,
 		v$database.platform_name
 	from v$database cross join v$instance;]',
-			p_targets => '%');
+			p_targets => '%', p_asynchronous => false);
 
 		m5_proc(
 			p_code => q'[comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for traditional architecture) or the CON_NAME (for multi-tenant architecture).  This is surprisingly difficult to do across all versions and over a database link.']',
-			p_targets => '%'
+			p_targets => '%',
+			p_asynchronous => false
 		);
 	end;
 	/
