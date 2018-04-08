@@ -7,7 +7,7 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 9.2.0 --> 9.2.2: Bug fixes and simpler installation.
 -------------------------------------
 
-1. Run these files, on the master server, to install new packages: code/m5_pkg.pck, code/method5_admin.pck  TODO
+1. Run these files, on the master server, to install new packages: code/m5_pkg.pck and code/method5_admin.pck.
 
 2. Replace all the .md documentation files in the top directory with the latest files.
 
