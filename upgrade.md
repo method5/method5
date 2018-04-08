@@ -4,65 +4,98 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
-9.2.0 --> 9.3.0: Bug fixes and simpler installation.
+9.2.0 --> 9.2.2: Bug fixes and simpler installation.
 -------------------------------------
 
-TODO
+1. Run these files, on the master server, to install new packages: code/m5_pkg.pck, code/method5_admin.pck  TODO
 
-alter table method5.m5_database modify host_name varchar2(15);
-alter table method5.m5_database modify database_name varchar2(15);
-alter table method5.m5_database add constraint m5_database_ck_hostname check (regexp_like(host_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
-alter table method5.m5_database add constraint m5_database_ck_dbname check (regexp_like(database_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
+2. Replace all the .md documentation files in the top directory with the latest files.
 
-comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.  The name will be used for links and other schema objects so it must be small and follow schema object naming rules.  (These limits do not apply to host names used in connection strings.)';
-comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
+3. Run this command on the master server, as SYS:
 
-begin
-	m5_proc('grant select on sys.v_$instance to method5', '%', p_run_as_sys => true);
-end;
-/
+	create or replace procedure sys.get_method5_hashes
+	--Purpose: Method5 administrators need access to the password hashes.
+	--But the table SYS.USER$ is hidden in 12c, we only want to expose this one hash.
+	--
+	--TODO 1: http://www.red-database-security.com/wp/best_of_oracle_security_2015.pdf
+	--	The 12c hash is incredibly insecure.  Is it safe to remove the "H:" hash?
+	--TODO 2: Is there a way to derive the 10g hash from the 12c H: hash?
+	--	Without that, 12c local does not support remote 10g or 11g with case insensitive passwords.
+	(
+		p_12c_hash in out varchar2,
+		p_11g_hash_without_des in out varchar2,
+		p_11g_hash_with_des in out varchar2,
+		p_10g_hash in out varchar2
+	) is
+	begin
+		--10 and 11g.
+		$if dbms_db_version.ver_le_11_2 $then
+			select
+				spare4,
+				spare4 hash_without_des,
+				spare4||';'||password hash_with_des,
+				password
+			into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des, p_10g_hash
+			from sys.user$
+			where name = 'METHOD5';
+		--12c.
+		$else
+			select
+				spare4,
+				regexp_substr(spare4, 'S:.{60}'),
+				regexp_substr(spare4, 'S:.{60}')||';'||password hash_with_des,
+				password
+			into p_12c_hash, p_11g_hash_without_des, p_11g_hash_with_des, p_10g_hash
+			from sys.user$
+			where name = 'METHOD5';
+		$end
+	end;
+	/
 
-begin
-	m5_proc('grant select on sys.v_$database to method5', '%', p_run_as_sys => true);
-end;
-/
+4. Run these commands on the master server, as a DBA:
 
-begin
-	m5_proc(
-		p_code => q'[
-create or replace view method5.db_name_or_con_name_vw as
-select
-	case
-		--Old version:
-		when v$instance.version like '9.%' or v$instance.version like '10.%' or v$instance.version like '11.%' then
-			sys_context('userenv', 'db_name')
-		--New version but with old architecture:
-		when sys_context('userenv', 'cdb_name') is null then
-			sys_context('userenv', 'db_name')
-		--New version, with multi-tenant, on the CDB$ROOT:
-		when sys_context('userenv', 'con_name') = 'CDB$ROOT' then
-			v$database.name
-		--New version, with multi-tenant, on the PDB:
-		else
-			sys_context('userenv', 'con_name')
-	end database_name,
-	v$database.platform_name
-from v$database cross join v$instance;]',
-		p_targets => '%');
-end;
-/
+	alter table method5.m5_database modify host_name varchar2(15);
+	alter table method5.m5_database modify database_name varchar2(15);
+	alter table method5.m5_database add constraint m5_database_ck_hostname check (regexp_like(host_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
+	alter table method5.m5_database add constraint m5_database_ck_dbname check (regexp_like(database_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
 
-begin
-	m5_proc(
-		p_code => q'[comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for traditional architecture) or the CON_NAME (for multi-tenant architecture).  This is surprisingly difficult to do across all versions and over a database link.']',
-		p_targets => '%'
-	);
-end;
-/
+	comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.  The name will be used for links and other schema objects so it must be small and follow schema object naming rules.  (These limits do not apply to host names used in connection strings.)';
 
-select * from m5_results;
-select * from m5_metadata;
-select * from m5_errors;
+	comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
+
+	begin
+		m5_proc('grant select on sys.v_$instance to method5', '%', p_run_as_sys => true);
+
+		m5_proc('grant select on sys.v_$database to method5', '%', p_run_as_sys => true);
+
+		m5_proc(
+			p_code => q'[
+	create or replace view method5.db_name_or_con_name_vw as
+	select
+		case
+			--Old version:
+			when v$instance.version like '9.%' or v$instance.version like '10.%' or v$instance.version like '11.%' then
+				sys_context('userenv', 'db_name')
+			--New version but with old architecture:
+			when sys_context('userenv', 'cdb_name') is null then
+				sys_context('userenv', 'db_name')
+			--New version, with multi-tenant, on the CDB$ROOT:
+			when sys_context('userenv', 'con_name') = 'CDB$ROOT' then
+				v$database.name
+			--New version, with multi-tenant, on the PDB:
+			else
+				sys_context('userenv', 'con_name')
+		end database_name,
+		v$database.platform_name
+	from v$database cross join v$instance;]',
+			p_targets => '%');
+
+		m5_proc(
+			p_code => q'[comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for traditional architecture) or the CON_NAME (for multi-tenant architecture).  This is surprisingly difficult to do across all versions and over a database link.']',
+			p_targets => '%'
+		);
+	end;
+	/
 
 
 9.1.1 --> 9.2.0: Bug fixes and simpler installation.
