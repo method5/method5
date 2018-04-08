@@ -4,6 +4,67 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+9.2.0 --> 9.3.0: Bug fixes and simpler installation.
+-------------------------------------
+
+TODO
+
+alter table method5.m5_database modify host_name varchar2(15);
+alter table method5.m5_database modify database_name varchar2(15);
+alter table method5.m5_database add constraint m5_database_ck_hostname check (regexp_like(host_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
+alter table method5.m5_database add constraint m5_database_ck_dbname check (regexp_like(database_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$'));
+
+comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.  The name will be used for links and other schema objects so it must be small and follow schema object naming rules.  (These limits do not apply to host names used in connection strings.)';
+comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
+
+begin
+	m5_proc('grant select on sys.v_$instance to method5', '%', p_run_as_sys => true);
+end;
+/
+
+begin
+	m5_proc('grant select on sys.v_$database to method5', '%', p_run_as_sys => true);
+end;
+/
+
+begin
+	m5_proc(
+		p_code => q'[
+create or replace view method5.db_name_or_con_name_vw as
+select
+	case
+		--Old version:
+		when v$instance.version like '9.%' or v$instance.version like '10.%' or v$instance.version like '11.%' then
+			sys_context('userenv', 'db_name')
+		--New version but with old architecture:
+		when sys_context('userenv', 'cdb_name') is null then
+			sys_context('userenv', 'db_name')
+		--New version, with multi-tenant, on the CDB$ROOT:
+		when sys_context('userenv', 'con_name') = 'CDB$ROOT' then
+			v$database.name
+		--New version, with multi-tenant, on the PDB:
+		else
+			sys_context('userenv', 'con_name')
+	end database_name,
+	v$database.platform_name
+from v$database cross join v$instance;]',
+		p_targets => '%');
+end;
+/
+
+begin
+	m5_proc(
+		p_code => q'[comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for traditional architecture) or the CON_NAME (for multi-tenant architecture).  This is surprisingly difficult to do across all versions and over a database link.']',
+		p_targets => '%'
+	);
+end;
+/
+
+select * from m5_results;
+select * from m5_metadata;
+select * from m5_errors;
+
+
 9.1.1 --> 9.2.0: Bug fixes and simpler installation.
 -------------------------------------
 

@@ -91,6 +91,10 @@ begin
 		execute immediate 'grant execute on sys.dbms_pipe to method5';
 		execute immediate 'grant execute on sys.dbms_crypto to method5';
 		execute immediate 'grant execute on sys.dbms_random to method5';
+		--Allows Method5 to read database and platform name, for both traditional and multi-tenant,
+		--in the view DB_NAME_OR_CON_NAME_VW.
+		execute immediate 'grant select on sys.v_$instance to method5';
+		execute immediate 'grant select on sys.v_$database to method5';
 
 	--Optional, but useful and recommended master privilege:
 		execute immediate 'grant dba to method5';

@@ -987,10 +987,40 @@ is
 	end create_sys_m5_run_shell_script;
 
 
-	function create_privilege_limiter return clob is
+	function create_db_name_or_con_name_vw return clob is
+		v_script varchar2(32767);
+		v_result varchar2(32767);
 	begin
-		return null;
-	end create_privilege_limiter;
+		--Use DBA_VIEWS instead of DBMS_METADATA.GET_DDL because the later may include features in the
+		--"CREATE" section that don't work on earlier versions.
+		execute immediate
+		q'[
+			select text
+			from dba_views
+			where owner = 'METHOD5'
+				and view_name = 'DB_NAME_OR_CON_NAME_VW'
+		]'
+		into v_result;
+
+		--Add simple CREATE header.
+		v_script := 'create or replace view method5.db_name_or_con_name_vw as' || chr(10) || v_result;
+		v_script := v_script || ';' || chr(10) || chr(10);
+
+		--Get the comments.
+		execute immediate
+		q'[
+			select comments
+			from dba_tab_comments
+			where owner = 'METHOD5'
+				and table_name = 'DB_NAME_OR_CON_NAME_VW'
+		]'
+		into v_result;
+
+		--Add the COMMENT statement.
+		v_script := v_script || 'comment on table method5.db_name_or_con_name_vw is '''||v_result||''';'||chr(10)||chr(10);
+
+		return v_script;
+	end create_db_name_or_con_name_vw;
 
 
 	function create_footer return clob is
@@ -1030,7 +1060,7 @@ begin
 	if lower(trim(p_allow_run_shell_script)) = 'yes' then
 		v_script := v_script || create_sys_m5_run_shell_script;
 	end if;
-	v_script := v_script || create_privilege_limiter;
+	v_script := v_script || create_db_name_or_con_name_vw;
 	v_script := v_script || create_footer;
 
 	return v_script;

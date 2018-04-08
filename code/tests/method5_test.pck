@@ -1466,7 +1466,7 @@ begin
 
 		execute immediate q'[
 			begin
-				m5_proc('select * from dual', 'select ''devdb2'' from dual');
+				m5_proc('select * from dual', 'select ''some_db'' from dual');
 			end;
 		]';
 

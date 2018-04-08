@@ -37,8 +37,8 @@ create table method5.m5_audit
 
 create table method5.m5_database
 (
-	host_name                  varchar2(256) not null,
-	database_name              varchar2(9) not null,
+	host_name                  varchar2(15) not null,
+	database_name              varchar2(15) not null,
 	instance_name              varchar2(16),
 	lifecycle_status           varchar2(256),
 	line_of_business           varchar2(1024),
@@ -53,13 +53,16 @@ create table method5.m5_database
 	changed_by                 varchar2(128),
 	changed_date               date,
 	constraint m5_database_pk primary key (host_name, database_name),
+	--Host and database names must be valid schema object names.
+	constraint m5_database_ck_hostname check (regexp_like(host_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$')),
+	constraint m5_database_ck_dbname check (regexp_like(database_name, '^[a-zA-Z]+[a-zA-Z0-9#\_\$]*$')),
 	constraint m5_database_numbers_only_ck check (regexp_like(target_version, '^[0-9\.]*$')),
 	constraint m5_database_is_active_ck check (is_active in ('Yes', 'No'))
 );
 comment on table method5.m5_database is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.';
 
-comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.';
-comment on column method5.m5_database.database_name              is 'A short string to identify a database.  This name will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.';
+comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.  The name will be used for links and other schema objects so it must be small and follow schema object naming rules.  (These limits do not apply to host names used in connection strings.)';
+comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
 comment on column method5.m5_database.instance_name              is 'A short string to uniquely identify a database instance.  For standalone databases this will probably be the same as the DATABASE_NAME.  For a Real Application Cluster (RAC) database this will probably be DATABASE_NAME plus a number at the end.';
 comment on column method5.m5_database.lifecycle_status           is 'A value like "DEV" or "PROD".  (Your organization may refer to this as the "environment" or "tier".)';
 comment on column method5.m5_database.line_of_business           is 'A value to identify a database by business unit, contract, company, etc.';
@@ -93,10 +96,10 @@ begin
 			--It is OK if not all CONNECT_STRING values are 100% perfect, problems can be manually adjusted later if necessary.
 			:new.m5_default_connect_string :=
 				lower(replace(replace(
-						'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
-						--service_name may work better for some organizations:
-						--'$instance_name=(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$global_name))) ',
-					'$instance_name', :new.instance_name)
+						'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$instance_name))) '
+						--SID may work better for some organizations:
+						--'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
+					,'$instance_name', :new.instance_name)
 					,'$host_name', :new.host_name)
 				);
 			--
@@ -127,14 +130,34 @@ begin
 	if not updating('CHANGED_DATE') then
 		:new.changed_date := sysdate;
 	end if;
-end;
+end m5_database_trg;
 /
 
-create table method5.m5_database_hist as
-select sysdate the_date, m5_database.*
-from method5.m5_database;
+--Create view necessary to insert 4 sample rows:
+create or replace view method5.db_name_or_con_name_vw as
+select
+	case
+		--Old version:
+		when v$instance.version like '9.%' or v$instance.version like '10.%' or v$instance.version like '11.%' then
+			sys_context('userenv', 'db_name')
+		--New version but with old architecture:
+		when sys_context('userenv', 'cdb_name') is null then
+			sys_context('userenv', 'db_name')
+		--New version, with multi-tenant, on the CDB$ROOT:
+		when sys_context('userenv', 'con_name') = 'CDB$ROOT' then
+			v$database.name
+		--New version, with multi-tenant, on the PDB:
+		else
+			sys_context('userenv', 'con_name')
+	end database_name,
+	v$database.platform_name
+from v$database cross join v$instance;
 
---Create 4 sample rows.  Most data is fake but the connection information should work for most databases.
+comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for traditional architecture) or the CON_NAME (for multi-tenant architecture).  This is surprisingly difficult to do across all versions and over a database link.';
+
+--Create 4 initial rows:
+--Most data is fake, except the connection information should work for most databases
+--and there's one mostly-real row for the master database.
 insert into method5.m5_database
 (
 	host_name, database_name, instance_name, lifecycle_status, line_of_business,
@@ -143,21 +166,26 @@ insert into method5.m5_database
 with database_info as
 (
 	select
-		(select host_name version from v$instance) host_name,
+		'localhost' host_name,
+		(select database_name from method5.db_name_or_con_name_vw) database_name,
 		(select version from v$instance) version,
 		(SELECT replace(replace(product, 'TNS for '), ':') FROM product_component_version where product like 'TNS%') operating_system,
-		(
-			select '(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(service_name='||nvl(sys_context('userenv', 'con_name'), instance_name)||')))'
-			from v$instance
-		) m5_default_connect_string
+		'(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(service_name=' ||
+			(select database_name from method5.db_name_or_con_name_vw) ||
+			case when sys_context('userenv', 'db_domain') is not null then '.' || sys_context('userenv', 'db_domain') else null end ||
+		')))' m5_default_connect_string
 	from dual
 )
-select host_name, 'devdb1'  database_name, 'devdb1'  instance_name, 'dev'  lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select host_name, 'testdb1' database_name, 'testdb1' instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select host_name, 'devdb2'  database_name, 'devdb2'  instance_name, 'dev'  lifecycle_status, 'Ajax' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select host_name, 'testdb2' database_name, 'testdb2' instance_name, 'test' lifecycle_status, 'Ajax' line_of_business, version, operating_system, m5_default_connect_string from database_info;
+select host_name        , 'testdb1'         database_name, 'testdb1'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
+select host_name        , 'testdb2'         database_name, 'testdb2'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
+select 'Weird_HName_#$1', 'Weird_DName_#$1' database_name, 'Weird_DName_#$1' instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
+select host_name        , database_name     database_name, database_name instance_name    , '????' lifecycle_status, '????' line_of_business, version, operating_system, m5_default_connect_string from database_info;
 
 commit;
+
+create table method5.m5_database_hist as
+select sysdate the_date, m5_database.*
+from method5.m5_database;
 
 create table method5.m5_user
 (
