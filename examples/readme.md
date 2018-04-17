@@ -1,5 +1,5 @@
-Method5 Scripts
-===============
+Method5 Examples
+================
 
 Unlike other automation programs, you generally don't need pre-built "recipes" or "playbooks" to use Method5.  Good DBAs already have loads of useful SQL and PL/SQL statements, it's usually trivial to use them in Method5.
 
@@ -21,6 +21,7 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 1. [Account Maintenance.sql](#account_maintenance)
 2. [Email Active DBA Users Job.sql](#email_active_dba_users_job)
 3. [Global Database Statistics.sql](#global_database_statistics)
+4. [Load OEM data into M5_DATABASE.sql](#load_oem_data_into_m5_database)
 
 ---
 
@@ -108,3 +109,10 @@ Once it's trivial to gather data you can spend more time looking at potential ac
 ## Global Database Statistics
 
 Convey the complexity of your environment through a few simple statistics, such as database count, schema count, object count, physical I/O per day, connections per day, queries per day, and segment size.
+
+
+<a name="load_oem_data_into_m5_database"/>
+
+## Load OEM data into M5_DATABASE
+
+Populate the main configuration table M5_DATABASE with data from Oracle Enterprise Manager (OEM).
