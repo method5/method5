@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid definer is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '9.2.2';
+C_VERSION constant varchar2(10) := '9.2.3';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -2677,12 +2677,12 @@ end;
 				--Look at concrete tokens for SQL*Plus keywords.
 				elsif upper(v_tokens(i).value) in
 				(
-					'@','@@','ACCEPT','APPEND','ARCHIVE','ATTRIBUTE','BREAK','BTITLE','CHANGE',
-					'CLEAR','COLUMN','COMPUTE','CONNECT','COPY','DEFINE','DEL','DESCRIBE',
-					'DISCONNECT','EDIT','EXECUTE','EXIT','GET','HELP','HISTORY','HOST','INPUT',
-					'LIST','PASSWORD','PAUSE','PRINT','PROMPT','RECOVER','REMARK','REPFOOTER',
-					'REPHEADER','RUN','SAVE','SET','SHOW','SHUTDOWN','SPOOL','START','STARTUP',
-					'STORE','TIMING','TTITLE','UNDEFINE','VARIABLE','WHENEVER','XQUERY'
+					'@','@@','ACCEPT','ACC','APPEND','A','ARCHIVE','ATTRIBUTE','BREAK','BRE','BTITLE','BTI','CHANGE','C',
+					'CLEAR','CL','COLUMN','COL','COMPUTE','COMP','CONNECT','CONN','COPY','DEFINE','DEF','DEL','DESCRIBE','DESC',
+					'DISCONNECT','DISC','EDIT','ED','EXECUTE','EXEC','EXIT','GET','HELP','HISTORY','HIST','HOST','HO','INPUT','I',
+					'LIST','L','PASSWORD','PASSW','PAUSE','PAU','PRINT','PROMPT','PRO','QUIT','RECOVER','REMARK','REM','REPFOOTER','REPF',
+					'REPHEADER','REPH','RUN','R','SAVE','SAV','SET','SHOW','SHO','SHUTDOWN','SPOOL','SPO','START','STA','STARTUP',
+					'STORE','TIMING','TIM','TTITLE','TTI','UNDEFINE','UNDEF','VARIABLE','VAR','WHENEVER','XQUERY'
 				) then
 					raise_application_error(-20004, 'The code is not a valid SQL or PL/SQL statement.'||
 						'  It looks like a SQL*Plus command and Method5 does not yet run SQL*Plus.'||

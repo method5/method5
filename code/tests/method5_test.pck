@@ -390,7 +390,7 @@ begin
 	end;
 
 	begin
-		v_test_name := 'P_CODE 4 - SQL*Plus commands generate a special error message.';
+		v_test_name := 'P_CODE 4A - SQL*Plus commands generate a special error message.';
 		v_expected_results := 'Exception caught: ORA-20004: The code is not a valid SQL or PL/SQL statement.  '||
 			'It looks like a SQL*Plus command and Method5 does not yet run SQL*Plus.  '||
 			'Try wrapping the script in a PL/SQL block, like this: begin <statements> end;';
@@ -398,6 +398,24 @@ begin
 		execute immediate replace(q'[
 			begin
 				m5_proc('execute some_procedure();', '#DATABASE_1#', p_asynchronous => false);
+			end;
+		]'
+		, '#DATABASE_1#', p_database_name_1);
+
+		assert_equals(v_test_name, v_expected_results, 'No exception caught.');
+	exception when others then
+		assert_equals(v_test_name, v_expected_results, 'Exception caught: '||sqlerrm);
+	end;
+
+	begin
+		v_test_name := 'P_CODE 4B - SQL*Plus abbreviated commands generate a special error message.';
+		v_expected_results := 'Exception caught: ORA-20004: The code is not a valid SQL or PL/SQL statement.  '||
+			'It looks like a SQL*Plus command and Method5 does not yet run SQL*Plus.  '||
+			'Try wrapping the script in a PL/SQL block, like this: begin <statements> end;';
+
+		execute immediate replace(q'[
+			begin
+				m5_proc('exec some_procedure();', '#DATABASE_1#', p_asynchronous => false);
 			end;
 		]'
 		, '#DATABASE_1#', p_database_name_1);
