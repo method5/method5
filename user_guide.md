@@ -1,4 +1,6 @@
-Method5 User Guide
+<img src="examples/images/method5_logo_small_compressed.png">
+
+User Guide
 ==================
 
 **Contents**
