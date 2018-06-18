@@ -208,6 +208,10 @@ is
 					execute immediate 'grant create table to m5_minimum_remote_privs';
 					execute immediate 'grant create procedure to m5_minimum_remote_privs';
 					execute immediate 'grant execute on sys.dbms_sql to m5_minimum_remote_privs';
+
+					--These direct privileges are required for the view db_name_or_con_name_vw.
+					execute immediate 'grant select on sys.v_$instance to method5';
+					execute immediate 'grant select on sys.v_$database to method5';
 				end;
 				#SLASH#
 

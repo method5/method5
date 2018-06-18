@@ -1,13 +1,13 @@
 Install Method5
 ===============
 
-Installing Method5 is a one-time, semi-automated process.  Pick one person to install and administer Method5.  That person should have intermediate DBA skills, and preferably some development background.
+Installing Method5 is a one-time, semi-automated process.  Pick one person to install and administer Method5.  That person should have intermediate DBA skills, and preferably some development experience.
 
 Testing Method5 only requires a single database.  A multi-database environment can be simulated by inserting fake values in step 4, "Configure M5_DATABASE".
 
 If you are using the multitenant architecture, Method5 has currently only been tested on pluggable databases, not container databases.
 
-If there are problems with the installation please submit an issue to the GitHub repository, or send an email to Jon Heller at jon@jonheller.org.
+If you want help with the installation please send an email to Jon Heller, jon@jonheller.org.  Or you can submit an issue to the GitHub repository.
 
 
 1: Check pre-requisites.

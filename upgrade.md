@@ -4,6 +4,18 @@ Upgrade Method5
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
 
+9.2.3 --> 9.2.4: Bug fixes for remote installation.
+-------------------------------------
+
+1. Run these files, on the master server, to install new packages: code/m5_pkg.pck, code/method5_admin.pck.
+
+
+9.2.2 --> 9.2.3: Bug fixes for SQL*Plus abbreviated commands.
+-------------------------------------
+
+1. Run these files, on the master server, to install new packages: code/m5_pkg.pck.
+
+
 9.2.0 --> 9.2.2: Bug fixes and simpler installation.
 -------------------------------------
 
