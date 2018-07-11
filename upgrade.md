@@ -19,11 +19,9 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 9.2.0 --> 9.2.2: Bug fixes and simpler installation.
 -------------------------------------
 
-1. Run these files, on the master server, to install new packages: code/m5_pkg.pck and code/method5_admin.pck.
+1. Replace all the .md documentation files in the top directory with the latest files.
 
-2. Replace all the .md documentation files in the top directory with the latest files.
-
-3. Run this command on the master server, as SYS:
+2. Run this command on the master server, as SYS:
 
 	create or replace procedure sys.get_method5_hashes
 	--Purpose: Method5 administrators need access to the password hashes.
@@ -64,7 +62,7 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 	end;
 	/
 
-4. Run these commands on the master server, as a DBA:
+3. Run these commands on the master server, as a DBA:
 
 	alter table method5.m5_database modify host_name varchar2(15);
 	alter table method5.m5_database modify database_name varchar2(15);
@@ -109,6 +107,8 @@ Follow the below steps to upgrade your installation.  The steps are incremental.
 		);
 	end;
 	/
+
+4. Run these files, on the master server, to install new packages: code/m5_pkg.pck and code/method5_admin.pck.
 
 
 9.1.1 --> 9.2.0: Bug fixes and simpler installation.
