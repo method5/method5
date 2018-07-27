@@ -157,7 +157,6 @@ is
 	v_name varchar2(128);
 	v_lineno number;
 	v_caller_t varchar2(128);
-	v_upper_db_domain_suffix varchar2(4000);
 	v_clean_dblink varchar2(4000);
 begin
 	--Error if the link name does not start with M5.
@@ -165,22 +164,8 @@ begin
 		raise_application_error(-20000, 'This procedure only works for Method5 links.');
 	end if;
 
-	--DB_DOMAIN from V$PARAMETER.
-	--The DB_DOMAIN changes all the database links if it exists.
-	select value
-	into v_upper_db_domain_suffix
-	from v$parameter
-	where name = 'db_domain';
-
-	v_upper_db_domain_suffix := case when v_upper_db_domain_suffix is null then null else '.' || upper(v_upper_db_domain_suffix) end;
-
 	--Cleanup the link name by making it uppercase and removing spaces.
 	v_clean_dblink := upper(trim(p_dblink_name));
-
-	--Add DB_DOMAIN suffix if it needs one and doesn't already have one.
-	if v_upper_db_domain_suffix is not null and instr(v_clean_dblink, v_upper_db_domain_suffix) = 0 then
-		v_clean_dblink := v_clean_dblink || v_upper_db_domain_suffix;
-	end if;
 
 	--TODO?  This would make it more difficult to ad hoc fix links.
 	--TODO?  Use the Method5 authentication functions?
@@ -202,7 +187,8 @@ begin
 		where dba_users.username = p_m5_username
 			and name like 'M5_INSTALL_DB_LINK%'
 	)
-	where name = v_clean_dblink
+	--Ignore everything on or after the first period.  It could be a current or old DB_DOMAIN.
+	where regexp_replace(name, '\..*') = regexp_replace(v_clean_dblink, '\..*')
 		and owner# = (select user_id from dba_users where username = upper(trim(p_dblink_username)));
 end m5_change_db_link_pw;
 >');

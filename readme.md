@@ -1,4 +1,4 @@
-Method5 v9.2.4
+Method5 v9.2.6
 ==============
 
 Method5 extends Oracle SQL to allow parallel remote execution.  It lets users easily run SQL statements quickly and securely on hundreds of databases.
@@ -48,3 +48,13 @@ License
 -------
 
 Method5 is licensed under the LGPLv3.
+
+
+Acknowledgements
+----------------
+
+Special thanks to the following people:
+
+* Adrian Billington for creating [DLA](https://github.com/oracle-developer/dla), which is used for Method4 SQL.
+* My coworkers at General Dynamics and Ventech Solutions, who provided a lot of feedback and testing.
+* Mike Gangler, Wayne Sharp, and various people at conferences like ECO, RMOUG, GLOC, and KScope, who found bugs or asked questions that helped shape the product.

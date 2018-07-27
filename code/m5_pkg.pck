@@ -2,7 +2,7 @@ create or replace package method5.m5_pkg authid definer is
 --Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
-C_VERSION constant varchar2(10) := '9.2.4';
+C_VERSION constant varchar2(10) := '9.2.6';
 g_debug boolean := false;
 
 /******************************************************************************
@@ -1796,7 +1796,7 @@ end;
 
 	---------------------------------------------------------------------------
 	--Create database links for the Method5 user.
-	procedure create_db_links_in_m5_schema(p_sequence number, p_config_data config_data_rec) is
+	procedure create_db_links_in_m5_schema(p_sequence number) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
 	begin
@@ -1860,16 +1860,17 @@ end;
 			) database_names
 			left join
 			(
-				--Current user's database links.
+				--Method5's database links.
 				select db_link
 				from sys.dba_db_links
 				where owner = 'METHOD5'
-			) my_database_links
-				--Ignore DB_DOMAIN suffix, if any.
-				on database_names.link_name = replace(db_link, p_config_data.db_domain_suffix)
+			) m5_database_links
+				--Ignore everything on or after the first period.
+				--It could be a current or old DB_DOMAIN.
+				on database_names.link_name = regexp_replace(db_link, '\..*')
 			where instance_number = 1
 				--Only get rows where the link does not exist.
-				and my_database_links.db_link is null
+				and m5_database_links.db_link is null
 			order by lower(link_name)
 		) loop
 			--Build procedure to create a link.
@@ -1917,7 +1918,7 @@ end;
 
 	---------------------------------------------------------------------------
 	--Copy links from package owner to the running user.
-	procedure synchronize_links_for_user(p_allowed_privs allowed_privs_nt, p_config_data config_data_rec) is
+	procedure synchronize_links_for_user(p_allowed_privs allowed_privs_nt) is
 		v_sql varchar2(32767);
 		pragma autonomous_transaction;
 
@@ -1982,8 +1983,8 @@ end;
 			) loop
 				--Only create the link if the user is authorized to have it.
 				for i in 1 .. p_allowed_privs.count loop
-					--Ignore DB_DOMAIN suffix, if any.
-					if replace(missing_links.default_db_link, p_config_data.db_domain_suffix) = p_allowed_privs(i).db_link_name then
+					--Ignore everything on or after the first period.  It could be a current or old DB_DOMAIN.
+					if regexp_replace(missing_links.default_db_link, '\..*') = p_allowed_privs(i).db_link_name then
 						--Drop user link if it exists
 						if missing_links.user_db_link is not null then
 							create_temp_proc('drop database link '||missing_links.user_db_link);
@@ -3843,8 +3844,8 @@ begin
 		control_access(v_audit_rowid, v_config_data);
 		validate_input(v_table_exists_action);
 		create_link_refresh_job(v_allowed_privs);
-		create_db_links_in_m5_schema(v_sequence, v_config_data);
-		synchronize_links_for_user(v_allowed_privs, v_config_data);
+		create_db_links_in_m5_schema(v_sequence);
+		synchronize_links_for_user(v_allowed_privs);
 		v_target_tab := get_target_tab(v_allowed_privs);
 		raise_exception_if_no_targets(v_allowed_privs, v_original_targets, v_target_string_with_default, v_is_shell_script);
 		check_if_already_running(v_table_name);
