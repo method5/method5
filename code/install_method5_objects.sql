@@ -545,6 +545,10 @@ end m5_proc;
 @code/m5_synch_user.prc
 
 
+--Install Snare objects and packages.
+@code/install_snare.sql
+
+
 ---------------------------------------
 --#5: Create views.
 create or replace view method5.m5_priv_vw as
