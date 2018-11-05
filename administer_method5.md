@@ -34,7 +34,7 @@ Use a GUI program like Oracle SQL Developer to run these steps.  Method5 display
 1: Install Method5 on remote databases.
 ---------------------------------------
 
-Run this command on the management server, as a DBA, to generate a SQL*Plus script.  It's a big script, use a GUI program like Oracle SQL Developer so you can easily save the output.
+Run this command on the management server, as a DBA, to generate a SQL*Plus script.  It's a big script, use a GUI program like Oracle SQL Developer so you can easily save the output.  (If you're using Oracle SQL Developer, use the "Run Statement" button, not the "Run Script" button.)
 
 	select method5.method5_admin.generate_remote_install_script() from dual;
 
