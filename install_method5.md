@@ -58,6 +58,8 @@ Run this step on the management server as a user with the DBA role.
 
 Manually add rows to the main configuration table, METHOD5.M5_DATABASE.  This table is critical to the configuration of the system, it is used for filtering databases and creating links.  Pay close attention to the details.
 
+The host and database columns have size and value restrictions, since those names are both used to create a database link names.  If you have a host or database name that doesn't fit those rules, use an alias in those columns.  Later in the installation, in step #3 in administer_method5.md, you will be able to customize the connection string for the database links and use whatever names are necessary.
+
 Four sample rows were inserted by default, use them to get started.  Don't worry about adding all your databases or getting it 100% perfect right away.  Come back to this step later after you've used Method5 for a while.
 
 
