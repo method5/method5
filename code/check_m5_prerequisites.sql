@@ -12,6 +12,7 @@ set feedback off;
 
 declare
 	v_problem_count number := 0;
+	v_warning_count number := 0;
 
 	--------------------------------------
 	procedure check_10g_password_hash is
@@ -38,7 +39,7 @@ declare
 
 		--Raise error depending on the version.
 		if v_password is null then
-			v_problem_count := v_problem_count + 1;
+			v_warning_count := v_warning_count + 1;
 
 			--The exact instructions depend on the version.
 			declare
@@ -156,8 +157,10 @@ declare
 			order by 1
 		) loop
 			--Display value.
-			if checks.value like '%*FAIL*%' or checks.value like '%*WARNING*%' then
+			if checks.value like '%*FAIL*%' then
 				v_problem_count := v_problem_count + 1;
+			elsif checks.value like '%*WARNING*%' then
+				v_warning_count := v_warning_count + 1;
 			end if;
 			dbms_output.put_line(checks.value);
 		end loop;
@@ -172,9 +175,9 @@ begin
 
 	dbms_output.new_line;
 	dbms_output.new_line;
-	if v_problem_count = 0 then
+	if v_problem_count = 0 and v_warning_count = 0 then
 		dbms_output.put_line('All prerequisites are met.');
-	else
+	elsif v_problem_count >= 1 then
 		dbms_output.put_line(' ______  _____   _____    ____   _____   ');
 		dbms_output.put_line('|  ____||  __ \ |  __ \  / __ \ |  __ \  ');
 		dbms_output.put_line('| |__   | |__) || |__) || |  | || |__) | ');
@@ -182,7 +185,17 @@ begin
 		dbms_output.put_line('| |____ | | \ \ | | \ \ | |__| || | \ \  ');
 		dbms_output.put_line('|______||_|  \_\|_|  \_\ \____/ |_|  \_\ ');
 		dbms_output.new_line;
-		dbms_output.put_line('Please fix the above issues and re-run this script.');
+		dbms_output.put_line('Please fix the above failures and re-run this script.');
+		dbms_output.new_line;
+	else
+		dbms_output.put_line(' __          __     _____  _   _ _____ _   _  _____ ');
+		dbms_output.put_line(' \ \        / /\   |  __ \| \ | |_   _| \ | |/ ____|');
+		dbms_output.put_line('  \ \  /\  / /  \  | |__) |  \| | | | |  \| | |  __ ');
+		dbms_output.put_line('   \ \/  \/ / /\ \ |  _  /| . ` | | | | . ` | | |_ |');
+		dbms_output.put_line('    \  /\  / ____ \| | \ \| |\  |_| |_| |\  | |__| |');
+		dbms_output.put_line('     \/  \/_/    \_\_|  \_\_| \_|_____|_| \_|\_____|');
+		dbms_output.new_line;
+		dbms_output.put_line('You may want to fix the above warnings and re-run this script.');
 		dbms_output.new_line;
 	end if;
 end;
