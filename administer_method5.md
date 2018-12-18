@@ -43,6 +43,7 @@ Run that generated script on *every* new database, as SYSDBA.  This is the only 
 Run these commands on the management server as a DBA and view the results.
 
 	--This will create new database links.
+	--Don't panic if this step fails - you may need to customize links in step #3.
 	begin
 		m5_proc(p_code => 'select * from dual', p_asynchronous => false);
 	end;
