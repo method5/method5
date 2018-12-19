@@ -1728,7 +1728,29 @@ function get_run_script(
 	p_test_shell_script varchar2,
 	p_tns_alias         varchar2
 ) return varchar2 is
+	v_count number;
+
+	procedure verify_db_exists_and_active(p_database_name varchar2) is
+		v_count number;
+	begin
+		select count(*)
+		into v_count
+		from m5_database
+		where lower(trim(database_name)) = lower(trim(p_database_name))
+			and is_active = 'Yes';
+
+		if v_count = 0 then
+			raise_application_error(-20000,
+				'The database "'||p_database_name||'" is either not in M5_DATABASE.DATABASE_NAME '||
+				'or IS_ACTIVE is set to "No".');
+		end if;
+	end verify_db_exists_and_active;
 begin
+	--Verify names.
+	verify_db_exists_and_active(p_database_name_1);
+	verify_db_exists_and_active(p_database_name_2);
+
+	--Return the tests with populated values.
 	return(replace(replace(replace(replace(replace(replace(replace(replace(q'[
 			--#1: Run from a Method5 administrator account, to drop and recreate test users.
 			--These tests will create users, which may generate emails to administrators
