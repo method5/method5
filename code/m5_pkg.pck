@@ -1013,7 +1013,8 @@ begin
 				execute immediate q'##QUOTE_DELIMITER3##
 					begin
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(##SYS_REPLACE_WITH_ENCRYPTED_BEGIN##q'##QUOTE_DELIMITER2##
-							create function m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
+							--"DETERMINISTIC" is required for 18c, which executes functions twice when called in a CTAS.
+							create function m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user deterministic is
 								--Required for DDL over database link.
 								pragma autonomous_transaction;
 
