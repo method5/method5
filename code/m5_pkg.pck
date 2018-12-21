@@ -1244,7 +1244,7 @@ begin
 
 						--Create function to run code.
 						sys.dbms_utility.exec_ddl_statement@##DB_LINK_NAME##(q'##QUOTE_DELIMITER2##
-							create function m5_temp_sandbox_##SEQUENCE##.m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user is
+							create function m5_temp_sandbox_##SEQUENCE##.m5_temp_function_##SEQUENCE## return ##CLOB_OR_VARCHAR2## authid current_user deterministic is
 								--Required for DDL over database link.
 								pragma autonomous_transaction;
 
