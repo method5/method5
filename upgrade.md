@@ -3,6 +3,21 @@ Upgrade Method5
 
 Follow the below steps to upgrade your installation.  The steps are incremental.
 
+Almost every installation starts with these two steps:
+1. Download and unzip the latest file from https://github.com/method5/method5.
+2. CD to the Method5 directory.
+
+
+
+9.3.1 --> 9.3.2: 
+-------------------------------------
+
+As either DBA or SYS, run these commands on the master server, in SQL*Plus:
+	alter session set current_schema=method5;
+	@code/plsql_lexer/packages/plsql_lexer.plsql
+	@code/plsql_lexer/packages/statement_classifier.plsql
+
+
 
 9.2.4 --> 9.3.1: Added Snare and DB_DOMAIN bug fixes.
 -------------------------------------

@@ -231,25 +231,29 @@ function get_reserved_words return string_table is
 	v_dummy varchar2(1);
 	v_reserved_words string_table := string_table();
 	v_potential_reserved_words string_table;
+	c_base_reserved_words constant string_table := string_table(
+		'!','!=','$','&','(',')','*','+',',','-','.','/',':',';','<','<<','<=','=','=>',
+		'>','>=','?','@','ACCESS','ADD','ALL','ALTER','AND','ANY','AS','ASC','AUDIT',
+		'BETWEEN','BY','CHAR','CHECK','CLUSTER','COLUMN','COMMENT','COMPRESS','CONNECT',
+		'CREATE','CURRENT','DATE','DECIMAL','DEFAULT','DELETE','DESC','DISTINCT','DROP',
+		'ELSE','EXCLUSIVE','EXISTS','FILE','FLOAT','FOR','FROM','GRANT','GROUP','HAVING',
+		'IDENTIFIED','IMMEDIATE','IN','INCREMENT','INDEX','INITIAL','INSERT','INTEGER',
+		'INTERSECT','INTO','IS','LEVEL','LIKE','LOCK','LONG','MAXEXTENTS','MINUS',
+		'MLSLABEL','MODE','MODIFY','NOAUDIT','NOCOMPRESS','NOT','NOWAIT','NULL','NUMBER',
+		'OF','OFFLINE','ON','ONLINE','OPTION','OR','ORDER','PCTFREE','PRIOR','PUBLIC',
+		'RAW','RENAME','RESOURCE','REVOKE','ROW','ROWID','ROWNUM','ROWS','SELECT',
+		'SESSION','SET','SHARE','SIZE','SMALLINT','START','SUCCESSFUL','SYNONYM',
+		'SYSDATE','TABLE','THEN','TO','TRIGGER','UID','UNION','UNIQUE','UPDATE','USER',
+		'VALIDATE','VALUES','VARCHAR','VARCHAR2','VIEW','WHENEVER','WHERE','WITH','[',
+		']','^','{','|','}');
 begin
 	--Use pre-generated list for specific versions.
 	if dbms_db_version.version||'.'||dbms_db_version.release = '12.1' then
-		v_reserved_words := string_table(
-			'!','!=','$','&','(',')','*','+',',','-','.','/',':',';','<','<<','<=','=','=>',
-			'>','>=','?','@','ACCESS','ADD','ALL','ALTER','AND','ANY','AS','ASC','AUDIT',
-			'BETWEEN','BY','CHAR','CHECK','CLUSTER','COLUMN','COMMENT','COMPRESS','CONNECT',
-			'CREATE','CURRENT','DATE','DECIMAL','DEFAULT','DELETE','DESC','DISTINCT','DROP',
-			'ELSE','EXCLUSIVE','EXISTS','FILE','FLOAT','FOR','FROM','GRANT','GROUP','HAVING',
-			'IDENTIFIED','IMMEDIATE','IN','INCREMENT','INDEX','INITIAL','INSERT','INTEGER',
-			'INTERSECT','INTO','IS','LEVEL','LIKE','LOCK','LONG','MAXEXTENTS','MINUS',
-			'MLSLABEL','MODE','MODIFY','NOAUDIT','NOCOMPRESS','NOT','NOWAIT','NULL','NUMBER',
-			'OF','OFFLINE','ON','ONLINE','OPTION','OR','ORDER','PCTFREE','PRIOR','PUBLIC',
-			'RAW','RENAME','RESOURCE','REVOKE','ROW','ROWID','ROWNUM','ROWS','SELECT',
-			'SESSION','SET','SHARE','SIZE','SMALLINT','START','SUCCESSFUL','SYNONYM',
-			'SYSDATE','TABLE','THEN','TO','TRIGGER','UID','UNION','UNIQUE','UPDATE','USER',
-			'VALIDATE','VALUES','VARCHAR','VARCHAR2','VIEW','WHENEVER','WHERE','WITH','[',
-			']','^','{','|','}'
-		);
+		v_reserved_words := c_base_reserved_words;
+	elsif dbms_db_version.version||'.'||dbms_db_version.release = '12.2' then
+		v_reserved_words := c_base_reserved_words;
+		v_reserved_words.extend;
+		v_reserved_words(v_reserved_words.count) := 'HIERARCHIES';
 	--TODO: Pre-generate for 11.2
 	--Otherwise dynamically determine list.
 	else
@@ -263,7 +267,7 @@ begin
 				v_reserved_words.extend;
 				v_reserved_words(v_reserved_words.count) := v_potential_reserved_words(i);
 				--For testing.
-				--dbms_output.put_line('Failed: '||reserved_words.keyword||', Reserved: '||reserved_words.reserved);
+				--dbms_output.put_line('Reserved: '||v_potential_reserved_words(i));
 			end;
 		end loop;
 	end if;
@@ -698,6 +702,65 @@ exception when no_data_found then
 end verify_user_get_real_name;
 
 
+--Print a more user-friendly error message of the path.  Useful for debugging.
+procedure print_path(p_error in varchar2) is
+	v_previous_newline number := 1;
+	v_next_newline number;
+	v_line varchar2(32767);
+	v_line_number number;
+	v_object_name varchar2(128);
+	v_path varchar2(32767);
+begin
+	--Split, get line number, then convert into object name.
+	for i in 1 .. regexp_count(p_error, chr(10)) + 1 loop
+		--Get the error line.
+		v_next_newline := instr(p_error, chr(10), 1, i);
+		if v_next_newline = 0 then
+			v_next_newline := length(p_error) + 1;
+		end if;
+		v_line := replace(substr(p_error, v_previous_newline, v_next_newline - v_previous_newline), chr(10));
+		--test
+		--dbms_output.put_line(v_line);
+		v_previous_newline := v_next_newline;
+
+		--Get the line number from the error message.
+		--Ignore the last "line 1".
+		if v_line like 'ORA-06512%' and v_line not like '%at line 1' then
+			v_line_number := regexp_replace(v_line, '.* ');
+			--test
+			--dbms_output.put_line(v_line_number);
+
+			--Parse the parser... how meta.
+			--Convert into function names.
+			--This assumes that functions and procedures always starte like this: function|procedure name ...
+			select object_name
+			into v_object_name
+			from
+			(
+				select
+					user_source.*, replace(regexp_replace(regexp_replace(replace(replace(text, 'function '), 'procedure '), '\(.*'), ' .*'), chr(10)) object_name
+					,row_number() over (order by line desc) last_when_1
+				from user_source
+				where name = 'PLSQL_PARSER'
+					and type = 'PACKAGE BODY'
+					and (text like 'function %' or text like 'procedure %')
+					and line <= v_line_number
+				order by line
+			)
+			where last_when_1 = 1;
+
+			v_path := v_object_name || '->' || v_path;
+			--test
+			--dbms_output.put_line(v_object_name);
+		end if;
+	end loop;
+
+	--Remove the last "->" and print everything.
+	dbms_output.put_line(substr(v_path, 1, length(v_path)-2));
+	dbms_output.put_line(p_error);
+end;
+
+
 
 
 
@@ -873,7 +936,8 @@ begin
 	v_parse_context := push(C_CASE_EXPRESSION, p_parent_id);
 
 	if match_terminal('CASE', v_parse_context.new_node_id) then
-		if simple_case_expression(v_parse_context.new_node_id) or searched_case_expression(v_parse_context.new_node_id) then
+		--Put searched first, even though it's listed second on docs.  It's easier to find a "WHEN".
+		if searched_case_expression(v_parse_context.new_node_id) or simple_case_expression(v_parse_context.new_node_id)  then
 			g_optional := else_clause(v_parse_context.new_node_id);
 			if match_terminal('END', v_parse_context.new_node_id) then
 				return true;
@@ -3326,15 +3390,20 @@ function t_alias(p_parent_id number) return boolean is
 begin
 	v_parse_context := push(C_T_ALIAS, p_parent_id);
 
-	--"model", "fetch", and "offset" are ambiguously table aliases or beginning of another clause.
+	--"join", "model", "fetch", and "offset" are ambiguously table aliases or beginning of another clause.
 	--For example:
+	--	select 1 from dual join; --valid
+	--	select 1 from dual join join dual ...; --invalid.
+	--
 	--	select 1 from dual offset;
 	--	select 1 from dual offset 1 rows;
 	--
 	--The other valid clauses start with a keyword, like "where", so they are easily handled.
 	--Other potentially ambiguous non-reserved keywords, like "right" and "outer", are handled in the from_clause.
 	if is_unreserved_word(0) then
-		if next_value(0) = 'FETCH' and next_value(1) in ('FIRST', 'NEXT') then
+		if next_value(0) = 'JOIN' and next_value(1) is not null then
+			return pop(v_parse_context);
+		elsif next_value(0) = 'FETCH' and next_value(1) in ('FIRST', 'NEXT') then
 			return pop(v_parse_context);
 		--These may look like expressions, but are really the beginning of new clauses.
 		elsif next_value(0) = 'OFFSET' and next_value(1) in ('OFFSET', 'FETCH', 'MODEL') then
@@ -3628,6 +3697,7 @@ begin
 		end if;
 	end loop;
 
+	--Parse.
 	if statement(null) then
 		null;
 	else
@@ -3646,6 +3716,9 @@ begin
 	resolve_ambiguous_nodes(v_precise_username);
 
 	return g_nodes;
+exception when others then
+	print_path(dbms_utility.format_error_backtrace);
+	raise;
 end parse;
 
 end;

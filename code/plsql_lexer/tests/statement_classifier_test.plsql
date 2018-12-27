@@ -207,7 +207,7 @@ begin
 		ANALYZE,ASSOCIATE STATISTICS,AUDIT,COMMENT,CREATE,DISASSOCIATE STATISTICS,
 		DROP,FLASHBACK,GRANT,NOAUDIT,PURGE,RENAME,REVOKE,TRUNCATE
 	DML
-		CALL,DELETE,EXPLAIN PLAN,INSERT,LOCK TABLE,MERGE,SELECT,UPDATE
+		CALL,DELETE,EXPLAIN PLAN,EXPLAIN WORK,INSERT,LOCK TABLE,MERGE,SELECT,UPDATE
 	Transaction Control
 		COMMIT,ROLLBACK,SAVEPOINT,SET TRANSACTION,SET CONSTRAINT
 	Session Control
@@ -234,6 +234,8 @@ begin
 
 	classify(q'[alter database cdb1 mount]', v_output); assert_equals('ALTER DATABASE', 'DDL|ALTER|ALTER DATABASE|35', concat(v_output));
 
+	classify(q'[alter database dictionary encrypt credentials]', v_output); assert_equals('ALTER DATABASE DICTIONARY', 'DDL|ALTER|ALTER DATABASE DICTIONARY|252', concat(v_output));
+
 	classify(q'[alter shared public database link my_link connect to me identified by "password";]', v_output); assert_equals('ALTER DATABASE LINK', 'DDL|ALTER|ALTER DATABASE LINK|225', concat(v_output));
 
 	classify(q'[ alter dimENSION my_dimension#12 compile;]', v_output); assert_equals('ALTER DIMENSION', 'DDL|ALTER|ALTER DIMENSION|175', concat(v_output));
@@ -254,7 +256,7 @@ begin
 
 	classify(q'[ALTER INDEXTYPE  my_schema.my_indextype compile;]', v_output); assert_equals('ALTER INDEXTYPE', 'DDL|ALTER|ALTER INDEXTYPE|166', concat(v_output));
 
-	classify(q'[ALTER inmemory  join group my_group add (mytable(mycolumn));]', v_output); assert_equals('ALTER INDEXTYPE', 'DDL|ALTER|ALTER INMEMORY JOIN GROUP|-101', concat(v_output));
+	classify(q'[ALTER inmemory  join group my_group add (mytable(mycolumn));]', v_output); assert_equals('ALTER INMEMORY', 'DDL|ALTER|ALTER INMEMORY JOIN GROUP|254', concat(v_output));
 
 	classify(q'[ALTER java  source my_schema.some_object compile;]', v_output); assert_equals('ALTER JAVA', 'DDL|ALTER|ALTER JAVA|161', concat(v_output));
 
@@ -449,11 +451,12 @@ begin
 	classify(q'[CREATE INDEX on table1(a);]', v_output); assert_equals('CREATE INDEX', 'DDL|CREATE|CREATE INDEX|9', concat(v_output));
 	classify(q'[CREATE unique INDEX on table1(a);]', v_output); assert_equals('CREATE INDEX', 'DDL|CREATE|CREATE INDEX|9', concat(v_output));
 	classify(q'[CREATE bitmap INDEX on table1(a);]', v_output); assert_equals('CREATE INDEX', 'DDL|CREATE|CREATE INDEX|9', concat(v_output));
+	classify(q'[CREATE search INDEX index_name on table1(a) for json parameters...]', v_output); assert_equals('CREATE INDEX', 'DDL|CREATE|CREATE INDEX|9', concat(v_output));
 
 	classify(q'[CREATE INDEXTYPE my_schema.my_indextype for indtype(a number) using my_type;]', v_output); assert_equals('CREATE INDEXTYPE', 'DDL|CREATE|CREATE INDEXTYPE|164', concat(v_output));
 	classify(q'[CREATE or replace INDEXTYPE my_schema.my_indextype for indtype(a number) using my_type;]', v_output); assert_equals('CREATE INDEXTYPE', 'DDL|CREATE|CREATE INDEXTYPE|164', concat(v_output));
 
-	classify(q'[CREATE inmemory join group my_group (my_table(my_column));]', v_output); assert_equals('CREATE INMEMORY JOIN GROUP', 'DDL|CREATE|CREATE INMEMORY JOIN GROUP|-102', concat(v_output));
+	classify(q'[CREATE inmemory join group my_group (my_table(my_column));]', v_output); assert_equals('CREATE INMEMORY JOIN GROUP', 'DDL|CREATE|CREATE INMEMORY JOIN GROUP|253', concat(v_output));
 
 	--12 combinations of initial keywords.  COMPILE is optional here, but not elsewhere so it requires special handling.
 	classify(q'[CREATE and resolve noforce JAVA CLASS USING BFILE (java_dir, 'Agent.class') --]'||chr(10)||'/', v_output); assert_equals('CREATE JAVA', 'DDL|CREATE|CREATE JAVA|160', concat(v_output));
@@ -525,6 +528,7 @@ begin
 	classify(q'[CREATE PROFILE my_profile limit sessions_per_user 50;]', v_output); assert_equals('CREATE PROFILE', 'DDL|CREATE|CREATE PROFILE|65', concat(v_output));
 
 	classify(q'[CREATE RESTORE POINT before_change gaurantee flashback database;]', v_output); assert_equals('CREATE RESTORE POINT', 'DDL|CREATE|CREATE RESTORE POINT|206', concat(v_output));
+	classify(q'[CREATE clean RESTORE POINT before_change gaurantee flashback database;]', v_output); assert_equals('CREATE RESTORE POINT', 'DDL|CREATE|CREATE RESTORE POINT|206', concat(v_output));
 
 	classify(q'[CREATE ROLE my_role;]', v_output); assert_equals('CREATE ROLE', 'DDL|CREATE|CREATE ROLE|52', concat(v_output));
 
@@ -560,6 +564,7 @@ begin
 	classify(q'[CREATE global temporary TABLE my_table(a number);]', v_output); assert_equals('CREATE TABLE 2', 'DDL|CREATE|CREATE TABLE|1', concat(v_output));
 	classify(q'[CREATE sharded TABLE my_table(a number);]', v_output); assert_equals('CREATE TABLE 3', 'DDL|CREATE|CREATE TABLE|1', concat(v_output));
 	classify(q'[CREATE duplicated TABLE my_table(a number);]', v_output); assert_equals('CREATE TABLE 4', 'DDL|CREATE|CREATE TABLE|1', concat(v_output));
+	classify(q'[CREATE private temporary table ora$ptt_temp(a number);]', v_output); assert_equals('CREATE TABLE 4', 'DDL|CREATE|CREATE TABLE|1', concat(v_output));
 
 	classify(q'[create tablespace set my_set;]', v_output); assert_equals('CREATE TABLESPACE SET', 'DDL|CREATE|CREATE TABLESPACE SET|-202', concat(v_output));
 
@@ -674,7 +679,7 @@ begin
 
 	classify(q'[DROP INDEXTYPE my_indextype force;]', v_output); assert_equals('DROP INDEXTYPE', 'DDL|DROP|DROP INDEXTYPE|165', concat(v_output));
 
-	classify(q'[DROP inmemory  join  group my_group;]', v_output); assert_equals('DROP INMEMORY JOIN GROUP', 'DDL|DROP|DROP INMEMORY JOIN GROUP|-103', concat(v_output));
+	classify(q'[DROP inmemory  join  group my_group;]', v_output); assert_equals('DROP INMEMORY JOIN GROUP', 'DDL|DROP|DROP INMEMORY JOIN GROUP|255', concat(v_output));
 
 	classify(q'[DROP JAVA resourse some_resource;]', v_output); assert_equals('DROP JAVA', 'DDL|DROP|DROP JAVA|162', concat(v_output));
 
@@ -745,11 +750,18 @@ begin
 	--classify(q'[Do not use 185]', v_output); assert_equals('Do not use 185', 'DDL|ALTER|Do not use 185|185', concat(v_output));
 	--classify(q'[Do not use 186]', v_output); assert_equals('Do not use 186', 'DDL|ALTER|Do not use 186|186', concat(v_output));
 
-	classify(q'[EXPLAIN plan set statement_id='asdf' for select * from dual]', v_output); assert_equals('EXPLAIN 1', 'DML|EXPLAIN PLAN|EXPLAIN|50', concat(v_output));
-	classify(q'[explain plan for with function f return number is begin return 1; end; select f from dual;]', v_output); assert_equals('EXPLAIN 2', 'DML|EXPLAIN PLAN|EXPLAIN|50', concat(v_output));
+	classify(q'[EXPLAIN plan set statement_id='asdf' for select * from dual]', v_output); assert_equals('EXPLAIN PLAN 1', 'DML|EXPLAIN PLAN|EXPLAIN|50', concat(v_output));
+	classify(q'[explain plan for with function f return number is begin return 1; end; select f from dual;]', v_output); assert_equals('EXPLAIN PLAN 2', 'DML|EXPLAIN PLAN|EXPLAIN|50', concat(v_output));
+
+	--EXPLAIN WORK is odd - it shares the same command name and type as EXPLAIN PLAN.
+	--That doesn't really make sense but it probably doesn't matter - EXPLAIN WORK can
+	--only be run as SYSASM and will probably never be used in real life.
+	classify(q'[EXPLAIN work set statement_id='asdf' for alter diskgroup fradg rebalance]', v_output); assert_equals('EXPLAIN WORK 1', 'DML|EXPLAIN WORK|EXPLAIN|50', concat(v_output));
+	classify(q'[explain work for alter diskgroup fradg rebalance]', v_output); assert_equals('EXPLAIN WORK 2', 'DML|EXPLAIN WORK|EXPLAIN|50', concat(v_output));
 
 	classify(q'[FLASHBACK DATABASE to restore point my_restore_point]', v_output); assert_equals('FLASHBACK DATABASE', 'DDL|FLASHBACK|FLASHBACK DATABASE|204', concat(v_output));
 	classify(q'[FLASHBACK standby DATABASE to restore point my_restore_point]', v_output); assert_equals('FLASHBACK DATABASE', 'DDL|FLASHBACK|FLASHBACK DATABASE|204', concat(v_output));
+	classify(q'[FLASHBACK standby pluggable DATABASE to restore point my_restore_point]', v_output); assert_equals('FLASHBACK DATABASE', 'DDL|FLASHBACK|FLASHBACK DATABASE|204', concat(v_output));
 
 	classify(q'[FLASHBACK TABLE my_schema.my_table to timestamp timestamp '2015-01-01 12:00:00']', v_output); assert_equals('FLASHBACK TABLE', 'DDL|FLASHBACK|FLASHBACK TABLE|205', concat(v_output));
 

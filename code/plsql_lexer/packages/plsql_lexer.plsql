@@ -1,6 +1,6 @@
 create or replace package plsql_lexer is
 --Copyright (C) 2017 Jon Heller.  This program is licensed under the LGPLv3.
-C_VERSION constant varchar2(10) := '1.4.1';
+C_VERSION constant varchar2(10) := '1.4.2';
 
 --Main functions:
 function lex(p_source in clob) return token_table;

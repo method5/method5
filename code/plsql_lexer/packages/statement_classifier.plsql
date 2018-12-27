@@ -100,7 +100,7 @@ Lex SQLERRM   :
       ANALYZE,ASSOCIATE STATISTICS,AUDIT,COMMENT,CREATE,DISASSOCIATE STATISTICS,
       DROP,FLASHBACK,GRANT,NOAUDIT,PURGE,RENAME,REVOKE,TRUNCATE
     DML
-      CALL,DELETE,EXPLAIN PLAN,INSERT,LOCK TABLE,MERGE,SELECT,UPDATE
+      CALL,DELETE,EXPLAIN PLAN,EXPLAIN WORK,INSERT,LOCK TABLE,MERGE,SELECT,UPDATE
     Transaction Control
       COMMIT,ROLLBACK,SAVEPOINT,SET TRANSACTION,SET CONSTRAINT
     Session Control
@@ -121,9 +121,7 @@ Lex SQLERRM   :
     as defind by V$SQLCOMMAND.
     Also includes custom values -1 (Invalid) and -2 (Nothing).
     Also includes these made-up values because they don't exist in V$SQLCOMMAND:
-        -101 (ALTER INMEMORY JOIN GROUP)
-        -102 (CREATE INMEMORY JOIN GROUP)
-        -103 (DROP INMEMORY JOIN GROUP)
+	(See Bug 27629117 : V$SQLCOMMAND VIEW MISSES SOME NEW COMMAND TYPES)
         -201 (ALTER TABLESPACE SET)
         -202 (CREATE TABLESPACE SET)
         -203 (DROP TABLESPACE SET)
@@ -346,6 +344,8 @@ begin
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER CLUSTER'; p_command_type := 5;
 	elsif v_words_1_to_3 = 'ALTER DATABASE LINK' then --Moved above "ALTER DATABASE" to capture more specific case first.
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER DATABASE LINK'; p_command_type := 225;
+	elsif v_words_1_to_3 = 'ALTER DATABASE DICTIONARY' then
+		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER DATABASE DICTIONARY'; p_command_type := 252;
 	elsif v_words_1_to_2 = 'ALTER DATABASE' then
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER DATABASE'; p_command_type := 35;
 	elsif v_words_1_to_2 = 'ALTER DIMENSION' then
@@ -366,9 +366,8 @@ begin
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER INDEX'; p_command_type := 11;
 	elsif v_words_1_to_2 = 'ALTER INDEXTYPE' then
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER INDEXTYPE'; p_command_type := 166;
-	--WARNING: There is no "ALTER INMEMORY JOIN GROUP" in V$SQLCOMMAND.  The -101 is made-up.
 	elsif v_words_1_to_4 = 'ALTER INMEMORY JOIN GROUP' then
-		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER INMEMORY JOIN GROUP'; p_command_type := -101;
+		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER INMEMORY JOIN GROUP'; p_command_type := 254;
 	elsif v_words_1_to_2 = 'ALTER JAVA' then
 		p_category := C_DDL; p_statement_type := 'ALTER'; p_command_name := 'ALTER JAVA'; p_command_type := 161;
 	elsif v_words_1_to_2 = 'ALTER LIBRARY' then
@@ -557,10 +556,12 @@ begin
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE HIERARCHY'; p_command_type := 246;
 	elsif v_words_1_to_2 = 'CREATE INDEX' then
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE INDEX'; p_command_type := 9;
+	elsif v_words_1_to_3 = 'CREATE SEARCH INDEX' then
+		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE INDEX'; p_command_type := 9;
 	elsif v_words_1_to_2 = 'CREATE INDEXTYPE' then
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE INDEXTYPE'; p_command_type := 164;
 	elsif v_words_1_to_4 = 'CREATE INMEMORY JOIN GROUP' then
-		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE INMEMORY JOIN GROUP'; p_command_type := -102;
+		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE INMEMORY JOIN GROUP'; p_command_type := 253;
 	--COMPILE is optional here, but not elsewhere.
 	--Since it's not always thrown out, it must be handled here.
 	elsif v_words_1_to_2 = 'CREATE JAVA' or v_words_1_to_3 = 'CREATE COMPILE JAVA' then
@@ -591,6 +592,8 @@ begin
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE PROCEDURE'; p_command_type := 24;
 	elsif v_words_1_to_2 = 'CREATE PROFILE' then
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE PROFILE'; p_command_type := 65;
+	elsif v_words_1_to_4 = 'CREATE CLEAN RESTORE POINT' then
+		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE RESTORE POINT'; p_command_type := 206;
 	elsif v_words_1_to_3 = 'CREATE RESTORE POINT' then
 		p_category := C_DDL; p_statement_type := 'CREATE'; p_command_name := 'CREATE RESTORE POINT'; p_command_type := 206;
 	elsif v_words_1_to_2 = 'CREATE ROLE' then
@@ -672,7 +675,7 @@ begin
 	elsif v_words_1_to_2 = 'DROP INDEXTYPE' then
 		p_category := C_DDL; p_statement_type := 'DROP'; p_command_name := 'DROP INDEXTYPE'; p_command_type := 165;
 	elsif v_words_1_to_4 = 'DROP INMEMORY JOIN GROUP' then
-		p_category := C_DDL; p_statement_type := 'DROP'; p_command_name := 'DROP INMEMORY JOIN GROUP'; p_command_type := -103;
+		p_category := C_DDL; p_statement_type := 'DROP'; p_command_name := 'DROP INMEMORY JOIN GROUP'; p_command_type := 255;
 	elsif v_words_1_to_2 = 'DROP JAVA' then
 		p_category := C_DDL; p_statement_type := 'DROP'; p_command_name := 'DROP JAVA'; p_command_type := 162;
 	elsif v_words_1_to_2 = 'DROP LIBRARY' then
@@ -741,9 +744,15 @@ begin
 	elsif v_words_1_to_4 = 'Do not use 186' then
 		p_category := C_DDL; p_statement_type := 'Do'; p_command_name := 'Do not use 186'; p_command_type := 186;
 	*/
-	elsif v_words_1 = 'EXPLAIN' then --Statement type is more specific than command name.
+	--EXPLAIN is odd.  The statement type is more specific than the command name.
+	--And EXPLAIN PLAN and EXPLAIN WORK share the same command name and ID.
+	--That doesn't really make sense but it probably doesn't matter - EXPLAIN WORK can
+	--only be run as SYSASM and will probably never be used in real life.
+	elsif v_words_1_to_2 = 'EXPLAIN PLAN' then --Statement type is more specific than command name.
 		p_category := C_DML; p_statement_type := 'EXPLAIN PLAN'; p_command_name := 'EXPLAIN'; p_command_type := 50;
-	elsif v_words_1_to_2 = 'FLASHBACK DATABASE' then
+	elsif v_words_1_to_2 = 'EXPLAIN WORK' then --Statement type is more specific than command name.
+		p_category := C_DML; p_statement_type := 'EXPLAIN WORK'; p_command_name := 'EXPLAIN'; p_command_type := 50;
+	elsif v_words_1_to_2 = 'FLASHBACK DATABASE' or v_words_1_to_3 = 'FLASHBACK PLUGGABLE DATABASE' then
 		p_category := C_DDL; p_statement_type := 'FLASHBACK'; p_command_name := 'FLASHBACK DATABASE'; p_command_type := 204;
 	elsif v_words_1_to_2 = 'FLASHBACK TABLE' then
 		p_category := C_DDL; p_statement_type := 'FLASHBACK'; p_command_name := 'FLASHBACK TABLE'; p_command_type := 205;
