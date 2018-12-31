@@ -16,6 +16,7 @@ As either DBA or SYS, run these commands on the master server, in SQL*Plus:
 	alter session set current_schema=method5;
 	@code/plsql_lexer/packages/plsql_lexer.plsql
 	@code/plsql_lexer/packages/statement_classifier.plsql
+	alter table method5.m5_user add constraint m5_user_username_cannot_be_m5 check(lower(oracle_username) <> 'm5');
 
 
 

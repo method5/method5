@@ -201,7 +201,9 @@ create table method5.m5_user
 	constraint m5_user_pk primary key(oracle_username),
 	constraint is_m5_admin_ck check(is_m5_admin in ('Yes', 'No')),
 	constraint can_use_sql_for_targets_ck check (can_use_sql_for_targets in ('Yes', 'No')),
-	constraint can_drop_tab_in_other_schem_ck check (can_drop_tab_in_other_schema in ('Yes', 'No'))
+	constraint can_drop_tab_in_other_schem_ck check (can_drop_tab_in_other_schema in ('Yes', 'No')),
+	--An Oracle username "M5" will conflict with the public synonym and cause weird problems.
+	constraint m5_user_username_cannot_be_m5 check(lower(oracle_username) <> 'm5')
 );
 comment on table method5.m5_user                               is 'Method5 users.';
 comment on column method5.m5_user.oracle_username              is 'Individual Oracle account used to access Method5.  Do not use a shared account.';
