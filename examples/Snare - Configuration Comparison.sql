@@ -9,12 +9,12 @@
 Snare is a Method5 extension that lets you quickly gather and compare
 Oracle database configuration information over time.
 
-By default, Snare runs daily and gathers information about:
+Snare runs daily and gathers information about:
 * Components
 * Crontab
 * Invalid objects
 * Last patch
-* Misc database settings
+* Miscellaneous database settings
 * M5_DATABASE
 * V$PARAMETER
 
@@ -25,18 +25,38 @@ You can also gather and delete custom snapshots, and you can change the default
 configuration items gathered through a simple table of queries.
 
 How to use this file:
-	#1 shows how to compare snapshots.
-	#2 shows how to create custom snapshots.
-	#3 shows how to maintain snapshots and jobs.
-	#4 shows how to disable and re-enable Snare.
+	#1 Enable Snare (it is disabled by default).
+	#2 Compare snapshots.
+	#3 Create custom snapshots.
+	#4 Maintain snapshots and jobs.
+	#5 Disable Snare.
 
-Version: 1.0.0
+Version: 1.0.1
 *******************************************************************************/
 
 
 
 --------------------------------------------------------------------------------
---#1: Compare snapshots.
+--#1: Enable Snare.
+--------------------------------------------------------------------------------
+
+--Enable Snare job.
+declare
+	v_owner varchar2(128);
+begin
+	select owner
+	into v_owner
+	from dba_scheduler_jobs
+	where job_name = 'SNARE_DAILY_JOB';
+
+	dbms_scheduler.enable('"'||v_owner||'".SNARE_DAILY_JOB');
+end;
+/
+
+
+
+--------------------------------------------------------------------------------
+--#2: Compare snapshots.
 --------------------------------------------------------------------------------
 
 --Compare configuration snapshots and display a summary.
@@ -51,7 +71,7 @@ from dual;
 
 
 --------------------------------------------------------------------------------
---#2: Create custom snapshots.
+--#3: Create custom snapshots.
 --	You probably don't need to do this since there's already a job that gather
 --	all the data once a day.
 --------------------------------------------------------------------------------
@@ -119,7 +139,7 @@ select * from configs;
 
 
 --------------------------------------------------------------------------------
---#3: Maintain tables and check on job status.
+--#4: Maintain tables and check on job status.
 --------------------------------------------------------------------------------
 
 --A: (OPTIONAL, run every few months) Move the table to compress it and save disk space.
@@ -144,7 +164,7 @@ select * from configs order by config_type;
 
 
 --------------------------------------------------------------------------------
---#4: Disable or re-enable Snare.
+--#5: Disable Snare.
 --------------------------------------------------------------------------------
 
 --Disable Snare job.
@@ -157,22 +177,5 @@ begin
 	where job_name = 'SNARE_DAILY_JOB';
 
 	dbms_scheduler.disable('"'||v_owner||'".SNARE_DAILY_JOB');
-end;
-/
-
-
---OR:
-
-
---Re-enable Snare job.
-declare
-	v_owner varchar2(128);
-begin
-	select owner
-	into v_owner
-	from dba_scheduler_jobs
-	where job_name = 'SNARE_DAILY_JOB';
-
-	dbms_scheduler.enable('"'||v_owner||'".SNARE_DAILY_JOB');
 end;
 /

@@ -9,12 +9,13 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 
 **Advanced Examples**
 
-1. [Compare Everything Everywhere.sql](#compare_everything_everywhere)
-2. [ASM Forecast.sql](#asm_forecast)
-3. [Active Sessions.sql](#active_sessions)
-4. [Compare Parameters.sql](#compare_parameters)
-5. [Space Treemap.sql](#space_treemap)
-6. [Synchronize DBA Users Job.sql](#synchronize_dba_users_job)
+1. [Snare - Configuration Comparison.sql](#snare)
+2. [Compare Everything Everywhere.sql](#compare_everything_everywhere)
+3. [ASM Forecast.sql](#asm_forecast)
+4. [Active Sessions.sql](#active_sessions)
+5. [Compare Parameters.sql](#compare_parameters)
+6. [Space Treemap.sql](#space_treemap)
+7. [Synchronize DBA Users Job.sql](#synchronize_dba_users_job)
 
 **Simple Examples**
 
@@ -24,6 +25,32 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 4. [Load OEM data into M5_DATABASE.sql](#load_oem_data_into_m5_database)
 
 ---
+
+<a name="snare"/>
+
+## Snare
+
+Snare lets you quickly gather and compare Oracle database configuration information over time.  
+
+The default configuration contains information about components, crontab, invalid objects, last patch time, miscellaneous database settings, M5_DATABASE, and V$PARAMETER.  For example, if someone modifies a system parameter Snare will let you easily find out when it was changed.
+
+By default the job is installed but disabled.  See the first section of the SQL file for simple instructions to enable the jobs.
+
+Below are examples of how to call Snare.  These simple queries are enough to replace expensive enterprise solutions.
+
+	--Compare configuration snapshots and display a summary.
+	select snare.compare_summary(
+		p_snapshot_before => 'EVERYTHING_20180710',
+		p_snapshot_after  => 'EVERYTHING_20180712'
+	)
+	from dual;
+
+	--Compare configuration snapshots and display details.
+	select * from table(snare.compare_details(
+		p_snapshot_before => 'EVERYTHING_20180710',
+		p_snapshot_after  => 'EVERYTHING_20180712'
+	));
+
 
 <a name="compare_everything_everywhere"/>
 

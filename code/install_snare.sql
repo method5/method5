@@ -202,7 +202,7 @@ create public synonym configs           for method5.configs;
 
 
 --------------------------------------------------------------------------------
---#6: Schedule job.
+--#6: Schedule job (but leave it disabled so it doesn't run unless people want it.)
 --------------------------------------------------------------------------------
 
 begin
@@ -211,7 +211,7 @@ begin
 		job_name        => 'SNARE_DAILY_JOB',
 		job_type        => 'PLSQL_BLOCK',
 		start_date      => systimestamp at time zone 'US/Eastern',
-		enabled         => true,
+		enabled         => false,
 		repeat_interval => 'FREQ=DAILY; BYHOUR=3; BYMINUTE=0;',
 		job_action      =>
 		q'[
