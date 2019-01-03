@@ -17,7 +17,8 @@ As either DBA or SYS, run these commands on the master server, in SQL*Plus:
 	@code/plsql_lexer/packages/plsql_lexer.plsql
 	@code/plsql_lexer/packages/statement_classifier.plsql
 	alter table method5.m5_user add constraint m5_user_username_cannot_be_m5 check(lower(oracle_username) <> 'm5');
-
+	@code/method5_admin.pck
+	@code/m5_pkg.pck
 
 
 9.2.4 --> 9.3.1: Added Snare and DB_DOMAIN bug fixes.

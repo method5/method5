@@ -69,6 +69,15 @@ end get_db_domain_suffix;
 
 
 --------------------------------------------------------------------------------
+--Purpose: Get a clean link name - trim whitespace, convert to upper case, and
+--	remove everything after the first period to remove any current or old DB_DOMAIN.
+function get_trim_upper_clean_link_name(p_db_link varchar2) return varchar2 is
+begin
+	return trim(upper(regexp_replace(p_db_link, '\..*')));
+end get_trim_upper_clean_link_name;
+
+
+--------------------------------------------------------------------------------
 --Purpose: Generate a script to install Method5 on remote databases.
 function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob
 is
@@ -1075,9 +1084,14 @@ end generate_remote_install_script;
 --Create a local and remote key for SYS access.
 procedure set_local_and_remote_sys_key(p_db_link in varchar2) is
 	v_count number;
-	v_clean_db_link varchar2(128) := replace(trim(upper(p_db_link)), get_db_domain_suffix);
+	v_clean_db_link varchar2(128) := get_trim_upper_clean_link_name(p_db_link);
 	v_sys_key raw(32);
 begin
+	--Throw error if the name does not start with M5_.
+	if substr(v_clean_db_link, 1, 3) <> 'M5_' then
+		raise_application_error(-20208, 'The database link name must start with "M5_".');
+	end if;
+
 	--Throw error if the sys key already exists locally.
 	select count(*) into v_count from method5.m5_sys_key where db_link = v_clean_db_link;
 	if v_count = 1 then
