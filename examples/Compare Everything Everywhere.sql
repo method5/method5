@@ -1,9 +1,9 @@
 --------------------------------------------------------------------------------
 -- Purpose: Compare schema objects across many databases, all in one view.
 -- How to use:
---    Run steps #1 through #5 to generate and query results.
 --    Run step #6 to install objects (one-time step).
--- Version: 2.1.4
+--    Run steps #1 through #5 to generate and query results.
+-- Version: 2.1.5
 --------------------------------------------------------------------------------
 
 
@@ -247,6 +247,9 @@ begin
 								'RULE SET',           'PROCOBJ',
 								'RULE',               'PROCOBJ',
 								'EVALUATION CONTEXT', 'PROCOBJ',
+								'CREDENTIAL',         'PROCOBJ',
+								'CHAIN',              'PROCOBJ',
+								'PROGRAM',            'PROCOBJ',
 								'PACKAGE',            'PACKAGE_SPEC',
 								'PACKAGE BODY',       'PACKAGE_BODY',
 								'TYPE',               'TYPE_SPEC',
@@ -257,6 +260,7 @@ begin
 								'JAVA TYPE',          'JAVA_TYPE',
 								'JAVA SOURCE',        'JAVA_SOURCE',
 								'JAVA RESOURCE',      'JAVA_RESOURCE',
+								'XML SCHEMA',         'XMLSCHEMA',
 								object_type) object_type,
 							object_name,
 							1 ddl_1_dependent_2_granted_3

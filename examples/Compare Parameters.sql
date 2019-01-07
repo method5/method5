@@ -1,12 +1,12 @@
 --------------------------------------------------------------------------------
--- Purpose: Compare database parameters across lifecycles.  Run on GRCTPR02.
+-- Purpose: Compare database parameters across lifecycles.
 -- How to use:
 --    Run #3 (one-time) to install procedure.
 --      Optionally change code like `when 'pr' then 5` to match your database naming standards.
 --      That code only affects order databases are displayed in.
 --    Run #1 to generate a view.
 --    Run #2 to see the results. 
--- Version: 4.0.0
+-- Version: 4.0.1
 --------------------------------------------------------------------------------
 
 
