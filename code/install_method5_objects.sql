@@ -543,12 +543,12 @@ end m5_proc;
 /
 
 
---Install user synchronize procedure that depends on above objects.
-@code/m5_synch_user.prc
-
-
---Install Snare objects and packages.
-@code/install_snare.sql
+--Install addons that depend on above objects.
+@code/addons/m5_synch_user.prc
+@code/addons/install_snare.sql
+@code/addons/install_compare_everything_everywhere.sql
+@code/addons/install_space_treemap.sql
+@code/addons/install_compare_parameters.sql
 
 
 ---------------------------------------

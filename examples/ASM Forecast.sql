@@ -1,9 +1,10 @@
 --------------------------------------------------------------------------------
 -- Purpose: Forecast ASM growth.
 -- How to use: Follow steps #2 and #3 to install.  Follow steps #1 to check job status.
+--   This example requires a lot of configuration and is not automatically installed.
 -- Prerequisites: A configured target group named "AWR" for selecting one database
 --                from every AWR instance.
--- Version: 2.0.0
+-- Version: 2.0.1
 --------------------------------------------------------------------------------
 
 

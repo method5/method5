@@ -186,7 +186,7 @@ create or replace type method5.config_nt is table of method5.config_rec;
 --#4: Create package.
 --------------------------------------------------------------------------------
 
-@code/snare.pck
+@code/addons/snare.pck
 
 
 --------------------------------------------------------------------------------

@@ -1,4 +1,4 @@
---Purpose: Synchronize accounts, passwords, and some privileges for DBAs.
+--Purpose: Periodically synchronize accounts, passwords, and some privileges for DBAs.
 --How to use: Run steps #2 and #3 and #4 to install, Run step #1 to periodically check job status.
 --Prerequisites: The user running this script must be able to use Method5.
 --Version: 3.0.0

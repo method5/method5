@@ -42,8 +42,9 @@ Run that generated script on *every* new database, as SYSDBA.  This is the only 
 
 Run these commands on the management server as a DBA and view the results.
 
-	--This will create new database links.
-	--Don't panic if this step fails - you may need to customize links in step #3.
+	--Create new database links.
+	--Check DBMS_OUTPUT for any warnings about low parallel settings.
+	--Don't panic if this step fails - you may need to use step #3 to customize links.
 	begin
 		m5_proc(p_code => 'select * from dual', p_asynchronous => false);
 	end;

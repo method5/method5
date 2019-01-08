@@ -3581,6 +3581,9 @@ end;
 				v_running_jobs = 0
 				or
 				(systimestamp - p_start_timestamp) > interval '1' second * p_max_seconds_to_wait;
+
+			--Don't flood the system with queries.
+			dbms_lock.sleep(seconds => 0.2);
 		end loop;
 	end wait_for_jobs_to_finish;
 
