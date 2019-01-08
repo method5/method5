@@ -14,7 +14,7 @@ create or replace package method5.method5_admin authid current_user is
 end;
 /
 create or replace package body method5.method5_admin is
---Copyright (C) 2018 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
+--Copyright (C) 2019 Jon Heller, Ventech Solutions, and CMS.  This program is licensed under the LGPLv3.
 --See https://method5.github.io/ for more information.
 
 
@@ -463,7 +463,7 @@ is
 					raise_application_error(-20204, 'The SYS key already exists on the remote database.  '||
 						'If you want to reset the SYS key, run these steps:'||chr(10)||
 						'1. On the remote database, as SYS: DROP DATABASE LINK M5_SYS_KEY;'||chr(10)||
-						'2. On the local database: re-run this procedure.');
+						'2. On the master database: re-run this procedure.');
 				end if;
 
 				--Create database link.
@@ -1081,7 +1081,7 @@ end generate_remote_install_script;
 
 
 --------------------------------------------------------------------------------
---Create a local and remote key for SYS access.
+--Create a master and remote key for SYS access.
 procedure set_local_and_remote_sys_key(p_db_link in varchar2) is
 	v_count number;
 	v_clean_db_link varchar2(128) := get_trim_upper_clean_link_name(p_db_link);
@@ -1097,9 +1097,9 @@ begin
 	if v_count = 1 then
 		raise_application_error(-20208, 'The SYS key for this DB_LINK already exists on the master database.  '||
 			'If you want to reset the SYS keys, run these steps:'||chr(10)||
-			'1. On the local database: DELETE FROM METHOD5.M5_SYS_KEY WHERE DB_LINK = '''||	v_clean_db_link||''';'||chr(10)||
+			'1. On the master database: DELETE FROM METHOD5.M5_SYS_KEY WHERE DB_LINK = '''||	v_clean_db_link||''';'||chr(10)||
 			'2. On the remote database, as SYS: DROP DATABASE LINK M5_SYS_KEY;'||chr(10)||
-			'3. On the local database: re-run this procedure.');
+			'3. On the master database: re-run this procedure.');
 	end if;
 
 	--Create new SYS key.
