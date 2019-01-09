@@ -16,17 +16,27 @@ declare
 	--Password contains mixed case, number, and special characters.
 	--This should meet most password complexity requirements.
 	--It uses multiple sources for a truly random password.
-	v_password_youll_never_know varchar2(30) :=
-		replace(replace(dbms_random.string('p', 10), '"', null), '''', null)||
-		rawtohex(dbms_crypto.randombytes(5))||
-		substr(to_char(systimestamp, 'FF9'), 1, 6)||
-		'#$*@';
-	v_table_or_view_does_not_exist exception;
-	pragma exception_init(v_table_or_view_does_not_exist, -942);
+	v_password_youll_never_know      varchar2 (30);
+	v_table_or_view_does_not_exist   exception;
+	pragma exception_init (v_table_or_view_does_not_exist, -942);
 begin
+	--Regenerate the password until it meets requirements for ORA12C_STRONG_VERIFY_FUNCTION
+	while v_password_youll_never_know is null
+		or regexp_count(v_password_youll_never_know, '[a-z]') < 2
+		or regexp_count(v_password_youll_never_know, '[A-Z]') < 2
+		or regexp_count(v_password_youll_never_know, '[0-9]') < 2
+		or regexp_count(v_password_youll_never_know, '[^a-zA-Z0-9]') < 2
+	loop
+		v_password_youll_never_know :=
+			--Remove ", ', @, ; since they don't work on all systems.
+			regexp_replace(dbms_random.string('p', 10), '["''/@;]', null)||
+			rawtohex(dbms_crypto.randombytes(5))||
+			substr(to_char(systimestamp, 'FF9'), 1, 6)||
+			'#$*';
+	end loop;
+
 	--Create user, grant it privileges.
 	execute immediate 'create user method5 identified by "'||v_password_youll_never_know||'"';
-
 
 	--Necessary master Method5 system privileges and why they are needed:
 		--If a user creates object in a different schema Method5 must grant them access to write to it.
