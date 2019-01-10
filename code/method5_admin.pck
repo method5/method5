@@ -154,19 +154,25 @@ is
 		from dba_users
 		where username = 'METHOD5';
 
-		return replace(replace(replace(replace(replace(replace(replace(
+		return replace(replace(replace(replace(replace(replace(
 		q'[
 			--Create the Method5 user with the appropriate hash.
 			declare
 				v_sec_case_sensitive_logon varchar2(4000);
+				v_method5_user_count number;
 			begin
 				select upper(value)
 				into v_sec_case_sensitive_logon
 				from v$parameter
 				where name = 'sec_case_sensitive_logon';
 
-				--Do nothing if this is the management database - the user already exists.
-				if lower(sys_context('userenv', 'db_name')) = '#DB_NAME#' then
+				select count(*)
+				into v_method5_user_count
+				from dba_users
+				where username = 'METHOD5';
+
+				--Do nothing if the user already exists.
+				if v_method5_user_count >= 1 then
 					null;
 				else
 					--Change the hash for 10g and 11g.
@@ -193,7 +199,6 @@ is
 		, '#10G_HASH#', v_10g_hash)
 		, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
 		, '#PROFILE#', v_profile)
-		, '#DB_NAME#', lower(sys_context('userenv', 'db_name')))
 		, chr(10)||'			', chr(10))||chr(10)||chr(10);
 	end;
 
@@ -1640,7 +1645,7 @@ begin
 			where name = 'sec_case_sensitive_logon';
 
 			--Do nothing if this is the management database - the user already exists.
-			if lower(sys_context('userenv', 'db_name')) = '#DB_NAME#' then
+			if lower(sys_context('userenv', 'db_unique_name')) = '#DATABASE_NAME#' then
 				null;
 			else
 				--Change the hash for 10g and 11g.
@@ -1666,7 +1671,7 @@ begin
 	, '#11G_HASH_WITHOUT_DES#', v_11g_hash_without_des)
 	, '#11G_HASH_WITH_DES#', v_11g_hash_with_des)
 	, '#10G_HASH#', v_10g_hash)
-	, '#DATABASE_NAME#', lower(sys_context('userenv', 'db_name')));
+	, '#DATABASE_NAME#', lower(sys_context('userenv', 'db_unique_name')));
 
 	--Change password on all databases.
 	method5.m5_pkg.run(p_code => v_password_change_plsql, p_targets => '%');
