@@ -19,7 +19,7 @@ Read and understand these requirements:
 
 2. You must have SYSDBA access to all databases to install and administer Method5, although most steps only require DBA.  Access requirements are labeled on each step.  If you are using the multitenant architecture, Method5 currently only runs on pluggable databases and not container databases.
 
-3. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you will almost certainly want to use a GUI for administration steps and running Method5.
+3. You must have access to both SQL*Plus and an Integrated Development Environment, such as SQL Developer, Toad, PL/SQL Developer, etc.  SQL*Plus is great for running the installation scripts but you need a GUI for administration steps and running Method5.
 
 4. Run this script on the central management server, in SQL*Plus, as SYS.  For example:
 
@@ -45,9 +45,9 @@ Run this script on the management server as SYS.  It's a small script, you can e
 3: Install Method5 objects.
 ---------------------------
 
-Run this script on the management server as a user with the DBA role, in SQL*Plus.  This user will be the default Method5 administrator so you should use a personal account.  Ths script should not generate any errors.
+Run this script on the management server as a user with the DBA role, in SQL*Plus.  This user will be the default Method5 administrator so you should use a personal account.  The only argument is the port of the master database.  (If you get the port wrong it can be fixed later when the database links are customized.)  Ths script should not generate any errors.
 
-	SQL> @code/install_method5_objects.sql
+	SQL> @code/install_method5_objects.sql 1521
 	SQL> quit
 
 

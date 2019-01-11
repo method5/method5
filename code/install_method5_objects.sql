@@ -2,7 +2,8 @@ prompt Creating Method5 objects...
 
 
 ---------------------------------------
---#0: Check the user.
+--#0: Save input parameters and check the user.
+define v_port = &1;
 @code/check_user must_not_run_as_sys_and_has_dba
 
 
@@ -59,7 +60,7 @@ create table method5.m5_database
 	constraint m5_database_numbers_only_ck check (regexp_like(target_version, '^[0-9\.]*$')),
 	constraint m5_database_is_active_ck check (is_active in ('Yes', 'No'))
 );
-comment on table method5.m5_database is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.';
+comment on table method5.m5_database is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.  Changes to M5_DEFAULT_CONNECT_STRING will cause the database links to be automatically regenerated on the next run.';
 
 comment on column method5.m5_database.host_name                  is 'The name of the machine the database instance runs on.  The name will be used for links and other schema objects so it must be small and follow schema object naming rules.  (These limits do not apply to host names used in connection strings.)';
 comment on column method5.m5_database.database_name              is 'The DB_NAME (for traditional architecture) or the container name (for multi-tenant architecture).  This short string will identify the database and will be used for database links, temporary objects, and the "DATABASE_NAME" column in the results and error tables.  The name must follow schema object naming rules.';
@@ -72,66 +73,10 @@ comment on column method5.m5_database.cluster_name               is 'The Real Ap
 comment on column method5.m5_database.description                is 'Any additional description or comments about the database.';
 comment on column method5.m5_database.point_of_contact           is 'The persons or teams that own or are responsible for these databases.  This may help with contacting people to get permission for an outage.';
 comment on column method5.m5_database.app_connect_string         is 'The connection string an application would use to connect to this database.';
-comment on column method5.m5_database.m5_default_connect_string  is 'The default connection string Method5 uses to connect to this database.  This value is only used once to create the database link, after that you must follow the steps in administer_method5.md to change database links.  This value is set by the trigger METHOD5.M5_DATABASE_TRG.  You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column (for each entry, use the text after the first equal sign).  You may want to remove spaces and newlines, it is easier to compare the strings without them.  It is OK if not all CONNECT_STRING values are 100% perfect, problems can be manually adjusted later if necessary.';
+comment on column method5.m5_database.m5_default_connect_string  is 'Change this value to modify the database links.  When this value is changed Method5 will reset the database and host link the next time Method5 is run for those targets.  The initial value for this column is set by the trigger METHOD5.M5_DATABASE_TRG, which makes guesses based on the database name, host name, and original port.  You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column.  (Remember to use the text after the first equal sign).  You may want to remove spaces and newlines, it is easier to compare the strings without them.  It is OK if not all CONNECT_STRING values are 100% perfect initially, problems can be manually adjusted later.';
 comment on column method5.m5_database.is_active                  is 'Is this target active and available for use in Method5?  Either Yes or No.';
 comment on column method5.m5_database.changed_by                 is 'The last user who changed this row.';
 comment on column method5.m5_database.changed_by                 is 'The last date someone changed this row.';
-
---Create new trigger to set some values.
-create or replace trigger method5.m5_database_trg
-before insert or update
-on method5.m5_database
-for each row
---Purpose: Automatically set M5_DEFAULT_CONNECT_STRING, CHANGED_BY, and CHANGED_DATE if they were not set.
---  You may want to customize the M5_DEFAULT_CONNECT_STRING to match your environment's connection policies.
-begin
-	if inserting then
-		if :new.m5_default_connect_string is null then
-			--
-			-- BEGIN CUSTOMIZE HERE
-			--
-			--You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column
-			--(for each entry, use the text after the first equal sign).
-			--You may want to remove spaces and newlines, it is easier to compare the strings without them.
-			--It is OK if not all CONNECT_STRING values are 100% perfect, problems can be manually adjusted later if necessary.
-			:new.m5_default_connect_string :=
-				lower(replace(replace(
-						'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SERVICE_NAME=$instance_name))) '
-						--SID may work better for some organizations:
-						--'(DESCRIPTION=(ADDRESS=(PROTOCOL=TCP)(HOST=$host_name)(PORT=1521))(CONNECT_DATA=(SID=$instance_name))) ',
-					,'$instance_name', :new.instance_name)
-					,'$host_name', :new.host_name)
-				);
-			--
-			-- END CUSTOMIZE HERE
-			--
-		end if;
-
-		if :new.changed_by is null then
-			--Get the user from APEX if it was used.
-			:new.changed_by := 	coalesce(
-				sys_context('APEX$SESSION','app_user')
-				,regexp_substr(sys_context('userenv','client_identifier'),'^[^:]*')
-				,sys_context('userenv','session_user'));
-		end if;
-
-		if :new.changed_date is null then
-			:new.changed_date := sysdate;
-		end if;
-	end if;
-
-	if not updating('CHANGED_BY') then
-		:new.changed_by := 	coalesce(
-			--Get the user from APEX if it was used.
-			sys_context('APEX$SESSION','app_user')
-			,regexp_substr(sys_context('userenv','client_identifier'),'^[^:]*')
-			,sys_context('userenv','session_user'));
-	end if;
-	if not updating('CHANGED_DATE') then
-		:new.changed_date := sysdate;
-	end if;
-end m5_database_trg;
-/
 
 --Create view necessary to insert 4 sample rows:
 create or replace view method5.db_name_or_con_name_vw as
@@ -161,7 +106,8 @@ comment on table method5.db_name_or_con_name_vw is 'Get either the DB_NAME (for 
 insert into method5.m5_database
 (
 	host_name, database_name, instance_name, lifecycle_status, line_of_business,
-	target_version, operating_system, m5_default_connect_string
+	target_version, operating_system, m5_default_connect_string,
+	is_active, changed_by, changed_date
 )
 with database_info as
 (
@@ -170,18 +116,21 @@ with database_info as
 		(select database_name from method5.db_name_or_con_name_vw) database_name,
 		(select version from v$instance) version,
 		(SELECT replace(replace(product, 'TNS for '), ':') FROM product_component_version where product like 'TNS%') operating_system,
-		'(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(service_name=' ||
+		'(description=(address=(protocol=tcp)(host=localhost)(port=&v_port))(connect_data=(server=dedicated)(service_name=' ||
 			(select database_name from method5.db_name_or_con_name_vw) ||
 			case when sys_context('userenv', 'db_domain') is not null then '.' || sys_context('userenv', 'db_domain') else null end ||
 		')))' m5_default_connect_string
 	from dual
 )
-select host_name        , 'testdb1'         database_name, 'testdb1'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select host_name        , 'testdb2'         database_name, 'testdb2'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select 'Weird_HName_#$1', 'Weird_DName_#$1' database_name, 'Weird_DName_#$1' instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string from database_info union all
-select host_name        , database_name     database_name, database_name instance_name    , '????' lifecycle_status, '????' line_of_business, version, operating_system, m5_default_connect_string from database_info;
+select host_name        , 'testdb1'         database_name, 'testdb1'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string, 'Yes', user, sysdate from database_info union all
+select host_name        , 'testdb2'         database_name, 'testdb2'         instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string, 'Yes', user, sysdate from database_info union all
+select 'Weird_HName_#$1', 'Weird_DName_#$1' database_name, 'Weird_DName_#$1' instance_name, 'test' lifecycle_status, 'ACME' line_of_business, version, operating_system, m5_default_connect_string, 'Yes', user, sysdate from database_info union all
+select host_name        , database_name     database_name, database_name instance_name    , '????' lifecycle_status, '????' line_of_business, version, operating_system, m5_default_connect_string, 'Yes', user, sysdate from database_info;
 
 commit;
+
+--Create trigger on M5_DATABASE to set some values.
+@code/m5_database_trg.trg &v_port
 
 create table method5.m5_database_hist as
 select sysdate the_date, m5_database.*

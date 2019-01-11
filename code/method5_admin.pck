@@ -5,6 +5,7 @@ create or replace package method5.method5_admin authid current_user is
 	function generate_password_reset_one_db return clob;
 	function generate_link_test_script(p_link_name varchar2, p_database_name varchar2, p_host_name varchar2, p_port_number number) return clob;
 	procedure drop_m5_db_links_for_user(p_username varchar2);
+	procedure drop_m5_db_link_for_m5(p_db_link varchar2);
 	procedure refresh_m5_ptime(p_targets varchar2);
 	function refresh_all_user_m5_db_links return clob;
 	procedure change_m5_user_password;
@@ -111,7 +112,7 @@ is
 			#SLASH#
 			whenever sqlerror continue;
 		]'
-		, '			', null)||chr(10)
+		, chr(10)||'			', chr(10))||chr(10)
 		, '#SLASH#', '/');
 	end;
 
@@ -1041,15 +1042,70 @@ is
 	end create_db_name_or_con_name_vw;
 
 
+	function create_password_expire_check return clob is
+	begin
+		return replace(replace(
+		q'[
+			--Check METHOD5 profile.
+			declare
+				v_message varchar2(4000);
+			begin
+				--Check profile.
+				select
+					case
+						when limit = 'UNLIMITED' then
+							'PASS'
+						else
+							'WARNING: The Method5 schema is in a profile that will cause the password to expire, which may cause problems in the future.'||chr(10)||
+							'The installation was successful but to prevent future problems you might want to run one of these commands:'||chr(10)||
+							'alter profile '||profile||' limit password_life_time unlimited;'||chr(10)||
+							'or:'||chr(10)||
+							'alter user method5 profile <SOME_OTHER_PROFILE>;'||chr(10)
+					end warning
+				into v_message
+				from
+				(
+					--Password profile data.
+					select
+						case when limit = 'DEFAULT' then 'DEFAULT' else profile
+						end profile,
+						case when limit = 'DEFAULT' then
+							(
+								select max(limit)
+								from dba_profiles
+								where profile = 'DEFAULT'
+									and resource_name = 'PASSWORD_LIFE_TIME'
+							)
+							else limit
+						end limit
+					from dba_profiles
+					where resource_name = 'PASSWORD_LIFE_TIME'
+						and profile = (select profile from dba_users where username = 'METHOD5')
+					order by 1,2
+				) profile_data;
+
+				--Raise error if there is a warning.  The error will stop the script.
+				if v_message like 'WARNING%' then
+					raise_application_error(-20000, v_message);
+				end if;
+			end;
+			#SLASH#]'||chr(10)
+		, chr(10)||'			', chr(10))
+		,'#SLASH#', '/');
+	end create_password_expire_check;
+
+
 	function create_footer return clob is
 	begin
 		return replace(
 		q'[
+			prompt SUCCESS.  Method5 was successfully installed on the remote target.
+
 			----------------------------------------
 			--End of Method5 remote target install.
 			----------------------------------------]'||chr(10)
 		, '			', null);
-	end;
+	end create_footer;
 
 begin
 	--Validate input.
@@ -1079,6 +1135,7 @@ begin
 		v_script := v_script || create_sys_m5_run_shell_script;
 	end if;
 	v_script := v_script || create_db_name_or_con_name_vw;
+	v_script := v_script || create_password_expire_check;
 	v_script := v_script || create_footer;
 
 	return v_script;
@@ -1498,6 +1555,40 @@ begin
 		end if;
 	end loop;
 end drop_m5_db_links_for_user;
+
+
+--------------------------------------------------------------------------------
+--Purpose: Drop a database link owned by Method5, in order for it to be regenerated later.
+--This procedure is called by the trigger
+procedure drop_m5_db_link_for_m5(p_db_link varchar2) is
+	v_count number;
+begin
+	--Do nothing if the link doesn't exist.
+	select count(*)
+	into v_count
+	from dba_db_links
+	where owner = 'METHOD5'
+		and db_link <> 'M5_INSTALL_DB_LINK'
+		and db_link = upper(trim(p_db_link));	
+
+	--Drop the Method5 link if it exists.
+	if v_count >= 1 then
+		--Create the procedure.
+		execute immediate
+			replace(q'[
+				create or replace procedure method5.temp_drop_db_link is
+				begin
+					execute immediate 'drop database link #DB_LINK#';
+				end;
+			]', '#DB_LINK#', p_db_link);
+
+		--Call the procedure.
+		execute immediate 'begin method5.temp_drop_db_link; end;';
+
+		--Drop the procedure.
+		execute immediate 'drop procedure method5.temp_drop_db_link';
+	end if;
+end;
 
 
 --------------------------------------------------------------------------------

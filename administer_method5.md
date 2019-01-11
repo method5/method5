@@ -76,6 +76,26 @@ Run this command on the management server as a DBA, but then run the output on t
 3: Ad hoc statements to customize database links.
 -------------------------------------------------
 
+3A: New, simpler technique using the trigger.
+
+Update METHOD5.M5_DATABASE.M5_DEFAULT_CONNECT_STRING:
+
+	update method5.m5_database
+	set m5_default_connect_string='(description=(address=(protocol=tcp)(host=localhost)(port=1521))(connect_data=(server=dedicated)(service_name=orcl)))'
+	where database_name = 'orcl';
+
+	commit;
+
+Recreate and test the link by calling it through M5:
+
+	select * from table(m5('select * from dual', 'orcl'));
+
+
+**OR**
+
+
+3B: Old technique using PL/SQL blocks.
+
 This command generates PL/SQL blocks to test database links.  Enter the link name, database name, host name, and port number before running it.
 
 You will probably need to modify some of the SQL*Net settings to match your environment.
