@@ -1568,8 +1568,8 @@ begin
 	into v_count
 	from dba_db_links
 	where owner = 'METHOD5'
-		and db_link <> 'M5_INSTALL_DB_LINK'
-		and db_link = upper(trim(p_db_link));	
+		and db_link not like 'M5_INSTALL_DB_LINK%'
+		and regexp_replace(db_link, '\..*') = upper(trim(p_db_link));	
 
 	--Drop the Method5 link if it exists.
 	if v_count >= 1 then

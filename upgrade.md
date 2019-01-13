@@ -12,7 +12,7 @@ Almost every installation starts with these two steps:
 9.3.1 --> 9.3.2: 
 -------------------------------------
 
-As either DBA or SYS, run these commands on the master server, in SQL*Plus:
+As either DBA or SYS, run the below commands on the master server, in SQL*Plus.  Change the "1521" below to the master database port.
 	alter session set current_schema=method5;
 	@code/plsql_lexer/packages/plsql_lexer.plsql
 	@code/plsql_lexer/packages/statement_classifier.plsql
@@ -20,7 +20,7 @@ As either DBA or SYS, run these commands on the master server, in SQL*Plus:
 	@code/method5_admin.pck
 	@code/m5_pkg.pck
 	@code/addons/install_compare_everything_everywhere.sql
-	@code/m5_database_trg.trg
+	@code/m5_database_trg.trg 1521
 	comment on table method5.m5_database is 'This table is used for selecting the target databases and creating database links.  The columns are similar to the Oracle Enterprise Manager tables SYSMAN.MGMT$DB_DBNINSTANCEINFO and SYSMAN.EM_GLOBAL_TARGET_PROPERTIES.  It is OK if this table contains some "extra" databases - they can be filtered out later.  To keep the filtering logical, try to keep the column values distinct.  For example, do not use "PROD" for both a LIFECYCLE_STATUS and a HOST_NAME.  Changes to M5_DEFAULT_CONNECT_STRING will cause the database links to be automatically regenerated on the next run.';
 	comment on column method5.m5_database.m5_default_connect_string  is 'Change this value to modify the database links.  When this value is changed Method5 will reset the database and host link the next time Method5 is run for those targets.  The initial value for this column is set by the trigger METHOD5.M5_DATABASE_TRG, which makes guesses based on the database name, host name, and original port.  You may want to use an existing TNSNAMES.ORA file as a guide for how to populate this column.  (Remember to use the text after the first equal sign).  You may want to remove spaces and newlines, it is easier to compare the strings without them.  It is OK if not all CONNECT_STRING values are 100% perfect initially, problems can be manually adjusted later.';
 
