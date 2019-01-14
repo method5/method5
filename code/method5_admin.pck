@@ -110,7 +110,6 @@ is
 				end if;
 			end;
 			#SLASH#
-			whenever sqlerror continue;
 		]'
 		, chr(10)||'			', chr(10))||chr(10)
 		, '#SLASH#', '/');
@@ -385,13 +384,32 @@ is
 		return replace(replace(replace(
 		q'[
 			--Create table to hold Session GUIDs.
-			create table sys.m5_sys_session_guid
-			(
-				session_guid raw(16),
-				constraint m5_sys_session_guid_pk primary key(session_guid)
-			);
-			comment on table sys.m5_sys_session_guid is 'Session GUID to prevent Method5 SYS replay attacks.';
-
+			declare
+				v_count number;
+			begin
+				select count(*)
+				into v_count
+				from dba_tables
+				where owner = 'SYS'
+					and table_name = 'M5_SYS_SESSION_GUID';
+				
+				if v_count = 0 then
+					execute immediate
+					'
+						create table sys.m5_sys_session_guid
+						(
+							session_guid raw(16),
+							constraint m5_sys_session_guid_pk primary key(session_guid)
+						)
+					';
+					
+					execute immediate
+					q'!
+						comment on table sys.m5_sys_session_guid is 'Session GUID to prevent Method5 SYS replay attacks.'
+					!';
+				end if;
+			end;
+			#SLASH#
 
 			--Create package to enable remote execution of commands as SYS.
 			create or replace package sys.m5_runner is
@@ -1057,7 +1075,7 @@ is
 							'PASS'
 						else
 							'WARNING: The Method5 schema is in a profile that will cause the password to expire, which may cause problems in the future.'||chr(10)||
-							'The installation was successful but to prevent future problems you might want to run one of these commands:'||chr(10)||
+							'The installation was successful, but to prevent future problems you might want to run one of these commands:'||chr(10)||
 							'alter profile '||profile||' limit password_life_time unlimited;'||chr(10)||
 							'or:'||chr(10)||
 							'alter user method5 profile <SOME_OTHER_PROFILE>;'||chr(10)
