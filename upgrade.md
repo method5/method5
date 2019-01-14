@@ -9,10 +9,10 @@ Almost every installation starts with these two steps:
 
 
 
-9.3.1 --> 9.3.2: 
+9.3.1 --> 9.3.2: Bug fixes for 18c support.
 -------------------------------------
 
-As either DBA or SYS, run the below commands on the master server, in SQL*Plus.  Change the "1521" below to the master database port.
+As a DBA user, run the below commands on the master server, in SQL*Plus.  Change the "1521" below to the master database port.
 	alter session set current_schema=method5;
 	@code/plsql_lexer/packages/plsql_lexer.plsql
 	@code/plsql_lexer/packages/statement_classifier.plsql
