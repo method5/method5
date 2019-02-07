@@ -64,8 +64,8 @@ It is strongly recommended that you not change the default privileges for Method
 The file code/install_method5_sys_components_pre.sql lists all required and optional privileges granted to the Method5 schema on the master database, and why they are granted.  Search for the word "optional" to find privileges that you could theoretically revoke.
 
 
-#2: Privileges for Method5 on the master database
--------------------------------------------------
+#2: Privileges for Method5 on the remote databases
+--------------------------------------------------
 
 It is recommended that you not change the default privileges for Method5 on the remote databases.  Method5 is designed to run "anything" and it needs full privileges to do so.  If your organization cannot allow that there are two ways to limit these privileges.
 
