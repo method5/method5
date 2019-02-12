@@ -1,5 +1,11 @@
 create or replace package method5.method5_admin authid current_user is
-	function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob;
+	function generate_remote_install_script
+	(
+		p_allow_run_as_sys varchar2 default 'YES',
+		p_allow_run_shell_script varchar2 default 'YES',
+		--Currently supported values: NORMAL and RDS.
+		p_database_type varchar2 default 'NORMAL'
+	) return clob;
 	procedure set_local_and_remote_sys_key(p_db_link in varchar2);
 	function set_all_missing_sys_keys return clob;
 	function generate_password_reset_one_db return clob;
@@ -80,7 +86,13 @@ end get_trim_upper_clean_link_name;
 
 --------------------------------------------------------------------------------
 --Purpose: Generate a script to install Method5 on remote databases.
-function generate_remote_install_script(p_allow_run_as_sys varchar2 default 'YES', p_allow_run_shell_script varchar2 default 'YES') return clob
+function generate_remote_install_script
+(
+	p_allow_run_as_sys varchar2 default 'YES',
+	p_allow_run_shell_script varchar2 default 'YES',
+	--Currently supported values: NORMAL and RDS.
+	p_database_type varchar2 default 'NORMAL'
+) return clob
 is
 	v_script clob;
 
@@ -92,11 +104,27 @@ is
 			--Install Method5 on remote target.
 			--Run this script as SYS using SQL*Plus.
 			--Do NOT save this output - it contains password hashes and should be regenerated each time.
+			--(This script is intended for non-RDS databases.)
 			----------------------------------------
-		]', '			', null)||chr(10);
-	end;
+		]'
+		, '			', null)||chr(10);
+	end create_header;
 
-	function create_user_check return clob is
+	function create_rds_header return clob is
+	begin
+		return replace(
+		q'[
+			----------------------------------------
+			--Install Method5 on remote target.
+			--Run this script as a user with the DBA role, using SQL*Plus.
+			--Do NOT save this output - it contains password hashes and should be regenerated each time.
+			--(This script is intended for RDS databases.)
+			----------------------------------------
+		]'
+		, '			', null)||chr(10);
+	end create_rds_header;
+
+	function create_check_is_sys return clob is
 	begin
 		return replace(replace(
 		q'[
@@ -113,7 +141,39 @@ is
 		]'
 		, chr(10)||'			', chr(10))||chr(10)
 		, '#SLASH#', '/');
-	end;
+	end create_check_is_sys;
+
+	function create_check_is_rds_dba return clob is
+	begin
+		return replace(replace(
+		q'[
+			--Check the user.  This script will only work for DBA with ADMIN option.
+			whenever sqlerror exit;
+
+			declare
+				v_has_dba_role number;
+				v_has_admin_option number;
+			begin
+				--Check that the current user has been granted DBA with the ADMIN_OPTION.
+				select
+					count(*) has_dba_role,
+					sum(case when admin_option = 'YES' then 1 else 0 end) has_admin_option
+				into v_has_dba_role, v_has_admin_option
+				from dba_role_privs
+				where grantee = user
+					and granted_role = 'DBA';
+
+				if v_has_dba_role = 0 then
+					raise_application_error(-20000, 'Your user must have the DBA role to install Method5.');
+				elsif v_has_admin_option = 0 then
+					raise_application_error(-20000, 'Your user must have the DBA role granted with the ADMIN option to install Method5.');
+				end if;
+			end;
+			#SLASH#
+		]'
+		, chr(10)||'			', chr(10))||chr(10)
+		, '#SLASH#', '/');
+	end create_check_is_rds_dba;
 
 	function create_profile return clob is
 		v_profile varchar2(128);
@@ -274,7 +334,7 @@ is
 				--less powerful.  For example, you could make a read-only Method5 with these two commented out lines:
 				--	grant select any table to m5_optional_remote_privs;
 				--	grant select any dictionary to m5_optional_remote_privs;
-				grant dba to m5_optional_remote_privs;
+				grant dba to m5_optional_remote_privs with admin option;
 
 				--OPTIONAL, but recommended: Grant access to a table useful for password management and synchronization.
 				grant select on sys.user$ to m5_optional_remote_privs;
@@ -302,7 +362,74 @@ is
 				/]'||chr(10)||chr(10)
 			,'				', null)
 			,'#SLASH#', '/');
-	end;
+	end create_grants;
+
+	--This function is very similar to CREATE_GRANTS.
+	--But there are some things RDS cannot have, and some things RDS is guaranteed to have and don't need to be re-granted.
+	function create_rds_grants return clob is
+	begin
+		return replace(replace(q'[
+				--REQUIRED: Create and grant role of minimum Method5 remote target privileges.
+				--Do NOT remove or change this block or Method5 will not work properly.
+				declare
+					v_role_conflicts exception;
+					pragma exception_init(v_role_conflicts, -1921);
+				begin
+					begin
+						execute immediate 'create role m5_minimum_remote_privs';
+					exception when v_role_conflicts then null;
+					end;
+
+					execute immediate 'grant m5_minimum_remote_privs to method5';
+
+					execute immediate 'grant create session to m5_minimum_remote_privs';
+					execute immediate 'grant create table to m5_minimum_remote_privs';
+					execute immediate 'grant create procedure to m5_minimum_remote_privs';
+				end;
+				#SLASH#
+
+				--REQUIRED: Grant Method5 unlimited access to the default tablespace.
+				--You can change the quota or tablespace but Method5 must have at least a little space.
+				declare
+					v_default_tablespace varchar2(128);
+				begin
+					select property_value
+					into v_default_tablespace
+					from database_properties
+					where property_name = 'DEFAULT_PERMANENT_TABLESPACE';
+
+					execute immediate 'alter user method5 quota unlimited on '||v_default_tablespace;
+				end;
+				#SLASH#
+
+				--REQUIRED: Create and grant role for additional Method5 remote target privileges.
+				--Do NOT remove or change this block or Method5 will not work properly.
+				declare
+					v_role_conflicts exception;
+					pragma exception_init(v_role_conflicts, -1921);
+				begin
+					begin
+						execute immediate 'create role m5_optional_remote_privs';
+					exception when v_role_conflicts then null;
+					end;
+
+					execute immediate 'grant m5_optional_remote_privs to method5';
+				end;
+				#SLASH#
+
+				--OPTIONAL, but recommended: Grant DBA to Method5 role.
+				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
+				--  If you only want to block specific users from having DBA look at the table M5_USER.
+				--
+				--If you don't trust Method5 or are not allowed to grant DBA, you can manually modify this block.
+				--Simply removing it would make Method5 worthless.  But you may want to replace it with something
+				--less powerful.  For example, you could make a read-only Method5 with these two commented out lines:
+				--	grant select any table to m5_optional_remote_privs;
+				--	grant select any dictionary to m5_optional_remote_privs;
+				grant dba to m5_optional_remote_privs with admin option;]'||chr(10)||chr(10)
+			,'				', null)
+			,'#SLASH#', '/');
+	end create_rds_grants;
 
 	function create_audits return clob is
 	begin
@@ -312,11 +439,11 @@ is
 		,'			', null);
 	end;
 
-	function create_trigger return clob is
+	function create_trigger(p_trigger_owner varchar2) return clob is
 	begin
-		return replace(replace(q'[
+		return replace(replace(replace(q'[
 			--Prevent Method5 from connecting directly.
-			create or replace trigger sys.m5_prevent_direct_logon
+			create or replace trigger #OWNER#.m5_prevent_direct_logon
 			after logon on method5.schema
 			/*
 				Purpose: Prevent anyone from connecting directly as Method5.
@@ -375,6 +502,7 @@ is
 				$end
 			end;
 			/]'||chr(10)||chr(10)
+		,'#OWNER#', p_trigger_owner)
 		,'#HOST#', lower(sys_context('userenv', 'server_host')))
 		,chr(10)||'			', chr(10));
 	end;
@@ -1136,25 +1264,49 @@ begin
 	if lower(trim(p_allow_run_as_sys)) = 'no' and lower(trim(p_allow_run_shell_script)) = 'yes' then
 		raise_application_error(-20000, 'The RUN_AS_SYS feature must be enabled in order to use the shell script feature.');
 	end if;
+	if lower(trim(p_database_type)) not in ('normal', 'rds') then
+		raise_application_error(-20000, 'The parameter P_DATABASE_TYPE must be either NORMAL or RDS.');
+	end if;
 
 	do_not_allow_sqlplus;
 
-	v_script := v_script || create_header;
-	v_script := v_script || create_user_check;
-	v_script := v_script || create_profile;
-	v_script := v_script || create_user;
-	v_script := v_script || create_grants;
-	v_script := v_script || create_audits;
-	v_script := v_script || create_trigger;
-	if lower(trim(p_allow_run_as_sys)) = 'yes' then
-		v_script := v_script || create_sys_m5_runner;
+	if lower(trim(p_database_type)) = 'normal' then
+
+		v_script := v_script || create_header;
+		v_script := v_script || create_check_is_sys;
+		v_script := v_script || create_profile;
+		v_script := v_script || create_user;
+		v_script := v_script || create_grants;
+		v_script := v_script || create_audits;
+		v_script := v_script || create_trigger('SYS');
+		if lower(trim(p_allow_run_as_sys)) = 'yes' then
+			v_script := v_script || create_sys_m5_runner;
+		end if;
+		if lower(trim(p_allow_run_shell_script)) = 'yes' then
+			v_script := v_script || create_sys_m5_run_shell_script;
+		end if;
+		v_script := v_script || create_db_name_or_con_name_vw;
+		v_script := v_script || create_password_expire_check;
+		v_script := v_script || create_footer;
+	elsif lower(trim(p_database_type)) = 'rds' then
+
+		v_script := v_script || create_rds_header;
+		v_script := v_script || create_check_is_rds_dba;
+		v_script := v_script || create_profile;
+		v_script := v_script || create_user;
+		v_script := v_script || create_rds_grants;
+		v_script := v_script || create_audits;
+		v_script := v_script || create_trigger('METHOD5');
+		--if lower(trim(p_allow_run_as_sys)) = 'yes' then
+		--	v_script := v_script || create_sys_m5_runner;
+		--end if;
+		--if lower(trim(p_allow_run_shell_script)) = 'yes' then
+		--	v_script := v_script || create_sys_m5_run_shell_script;
+		--end if;
+		--v_script := v_script || create_db_name_or_con_name_vw;
+		v_script := v_script || create_password_expire_check;
+		v_script := v_script || create_footer;
 	end if;
-	if lower(trim(p_allow_run_shell_script)) = 'yes' then
-		v_script := v_script || create_sys_m5_run_shell_script;
-	end if;
-	v_script := v_script || create_db_name_or_con_name_vw;
-	v_script := v_script || create_password_expire_check;
-	v_script := v_script || create_footer;
 
 	return v_script;
 end generate_remote_install_script;
