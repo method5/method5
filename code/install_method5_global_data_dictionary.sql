@@ -37,10 +37,10 @@ begin
 					',
 					p_table_name          => 'method5.m5_dba_users',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false
+					p_asynchronous        => false,
+					p_targets             => '%'
 				);
 			end;
-
 		>'
 	);
 end;

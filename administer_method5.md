@@ -36,11 +36,14 @@ Use a GUI program like Oracle SQL Developer to run these steps.  Method5 display
 
 First, run the below command on the management server, as a DBA, to generate a SQL*Plus script.  It's a big script, use a GUI program like Oracle SQL Developer so you can easily save the output.  (If you're using Oracle SQL Developer, use the "Run Statement" button, not the "Run Script" button.)
 
-Run that generated script on *every* new database, as SYSDBA.  This is the only step that must be run on every database, and it only needs to be run once.  This may take a while, you can start with a few databases and come back to this step later.  The script feedback should always end with the word "SUCCESS".
+Run that generated script on *every* new database, as SYSDBA (or as a DBA if installing on RDS).  This is the only step that must be run on every database, and it only needs to be run once.  This may take a while, you can start with a few databases and come back to this step later.  The script feedback should always end with the word "SUCCESS".
 
-
-	select method5.method5_admin.generate_remote_install_script() from dual;
-
+	select method5.method5_admin.generate_remote_install_script(
+		p_allow_run_as_sys       => 'Yes',
+		p_allow_run_shell_script => 'Yes',
+		--Choose either "normal" or "rds":
+		p_database_type          => 'normal')
+	from dual;
 
 Next, run these commands on the management server as a DBA and view the results.
 
@@ -52,6 +55,7 @@ Next, run these commands on the management server as a DBA and view the results.
 	end;
 	/
 	--This will create a SYS key for all database links missing keys.
+	--(These steps won't work for RDS databases, which don't support SYS.)
 	select method5.method5_admin.set_all_missing_sys_keys() from dual;
 	
 	--Or run this to create a SYS key for just one new database.

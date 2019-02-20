@@ -1285,7 +1285,9 @@ begin
 		if lower(trim(p_allow_run_shell_script)) = 'yes' then
 			v_script := v_script || create_sys_m5_run_shell_script;
 		end if;
-		v_script := v_script || create_db_name_or_con_name_vw;
+		if lower(trim(p_allow_run_as_sys)) = 'yes' or lower(trim(p_allow_run_shell_script)) = 'yes' then
+			v_script := v_script || create_db_name_or_con_name_vw;
+		end if;
 		v_script := v_script || create_password_expire_check;
 		v_script := v_script || create_footer;
 	elsif lower(trim(p_database_type)) = 'rds' then

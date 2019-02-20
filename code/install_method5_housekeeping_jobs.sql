@@ -341,7 +341,99 @@ end;
 
 
 ---------------------------------------
---#8: Run jobs immediately to test them.
+--#8: Create JOB to drop unused database links.
+begin
+	dbms_scheduler.create_job
+	(
+		job_name        => 'method5.cleanup_unused_m5_links_job',
+		job_type        => 'PLSQL_BLOCK',
+		start_date      => systimestamp at time zone 'US/Eastern',
+		repeat_interval => 'freq=daily; byhour=0; byminute=25; bysecond=0',
+		enabled         => true,
+		comments        => 'Drop M5 links for inactive users or inactive targets.',
+		job_action      =>
+		q'<
+			--Drop links for inactive users or inactive targets.
+			begin
+				--Drop Method5 links for users who are no longer authorized to use Method5.
+				for unauthorized_links in
+				(
+					--Users that are not authorized to have Method5 links.
+					--
+					--Method5 users with links.
+					select distinct owner username
+					from dba_db_links
+					where db_link like 'M5%'
+						and username = 'METHOD5'
+						and db_link not like 'M5_SYS_KEY%'
+						and db_link not like 'M5_INSTALL_DB_LINK%'
+						and owner not in ('METHOD5', 'SYS', 'M5_TEST_DIRECT')
+					minus
+					--Authorized Method5 users
+					select upper(trim(oracle_username)) from method5.m5_user
+					order by 1
+				) loop
+					method5.method5_admin.drop_m5_db_links_for_user(unauthorized_links.username);
+				end loop;
+
+
+				--Drop Method5 links for databases or hosts that are no longer active.
+				for links_to_drop in
+				(
+					--Links that shouldn't exist.
+					select owner, partial_db_link, full_db_link
+					from
+					(
+						--Active links.
+						select owner, regexp_replace(db_link, '\..*') partial_db_link, db_link full_db_link
+						from dba_db_links
+						where db_link like 'M5%'
+							and db_link not like 'M5_SYS_KEY%'
+							and db_link not like 'M5_INSTALL_DB_LINK%'
+					)
+					where partial_db_link not in
+					(
+						--Allowed links
+						select distinct upper(trim('M5_' || host_name)) partial_name
+						from m5_database
+						where is_active = 'Yes'
+						union all
+						select distinct upper(trim('M5_' || database_name))
+						from m5_database
+						where is_active = 'Yes'
+					)
+					order by 1,2
+				) loop
+					--Create the procedure.
+					execute immediate
+						replace(replace(q'[
+							create or replace procedure #OWNER#.temp_drop_db_link is
+							begin
+								execute immediate 'drop database link #DB_LINK#';
+							end;
+						]'
+						, '#DB_LINK#', links_to_drop.full_db_link)
+						, '#OWNER#', links_to_drop.owner);
+
+					--Call the procedure.
+					execute immediate replace('
+						begin #OWNER#.temp_drop_db_link; end;
+					', '#OWNER#', links_to_drop.owner);
+
+					--Drop the procedure.
+					execute immediate replace('
+						drop procedure #OWNER#.temp_drop_db_link
+					', '#OWNER#', links_to_drop.owner);
+				end loop;
+			end;
+		>'
+	);
+end;
+/
+
+
+---------------------------------------
+--#9: Run jobs immediately to test them.
 --Run job immediately to test the job.
 prompt Running jobs...
 
@@ -373,6 +465,10 @@ begin
 	dbms_scheduler.run_job('method5.backup_m5_database_job');
 end;
 /
+begin
+	dbms_scheduler.run_job('method5.cleanup_unused_m5_links_job');
+end;
+/
 
 
 prompt Checking job statuses (these should all say SUCCEEDED)...
@@ -397,7 +493,8 @@ from
 		'CLEANUP_REMOTE_M5_OBJECTS_JOB',
 		'EMAIL_M5_DAILY_SUMMARY_JOB',
 		'STOP_TIMED_OUT_JOBS_JOB',
-		'BACKUP_M5_DATABASE_JOB'
+		'BACKUP_M5_DATABASE_JOB',
+		'CLEANUP_UNUSED_M5_LINKS_JOB'
 	))
 ) expected_jobs
 left join
@@ -416,7 +513,8 @@ left join
 			'CLEANUP_REMOTE_M5_OBJECTS_JOB',
 			'EMAIL_M5_DAILY_SUMMARY_JOB',
 			'STOP_TIMED_OUT_JOBS_JOB',
-			'BACKUP_M5_DATABASE_JOB'
+			'BACKUP_M5_DATABASE_JOB',
+			'CLEANUP_UNUSED_M5_LINKS_JOB'
 		)
 	)
 	where last_when_1 = 1
