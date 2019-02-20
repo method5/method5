@@ -3549,7 +3549,9 @@ end;
 				enabled    => true,
 				--Used to prevent the same user from writing to the same table with multiple processes.
 				comments   => 'TABLE:'||p_table_name||'"CALLER:'||sys_context('userenv', 'session_user'),
-				number_of_arguments => 0
+				number_of_arguments => 0,
+				--If master database is RAC all jobs must be on the same node to read the pipes.
+				instance_id => sys_context('userenv', 'instance')
 			);
 		end loop;
 

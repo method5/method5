@@ -187,6 +187,7 @@ begin
 				m5_proc(
 					p_table_name => 'cleanup_remote_m5_objects',
 					p_table_exists_action => 'DROP',
+					p_targets => '%',
 					p_code => 
 					q'[
 						begin

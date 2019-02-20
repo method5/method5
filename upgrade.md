@@ -9,7 +9,7 @@ Almost every installation starts with these two steps:
 
 
 
-9.3.2 --> 9.4.0: Add RDS support and trigger cleanup job.
+9.3.2 --> 9.4.0: Add RDS support and trigger cleanup job, fix RAC scheduler bug, change jobs to use '%' targets.
 -------------------------------------
 
 As a DBA user, run the below commands on the master server, in SQL*Plus.
