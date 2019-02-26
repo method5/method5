@@ -71,7 +71,8 @@ begin
 					',
 					p_table_name           => 'method5.m5_v$parameter',
 					p_table_exists_action  => 'DELETE',
-					p_asynchronous         => false
+					p_asynchronous         => false,
+					p_targets             => '%'
 				);
 			end;
 		>'
@@ -97,19 +98,22 @@ begin
 					p_code                => 'select grantee, owner, table_name, grantor, privilege, grantable, hierarchy from dba_tab_privs',
 					p_table_name          => 'method5.m5_dba_tab_privs',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false
+					p_asynchronous        => false,
+					p_targets             => '%'
 				);
 				m5_proc(
 					p_code                => 'select grantee, granted_role, admin_option, default_role from dba_role_privs',
 					p_table_name          => 'method5.m5_dba_role_privs',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false
+					p_asynchronous        => false,
+					p_targets             => '%'
 				);
 				m5_proc(
 					p_code                => 'select grantee, privilege, admin_option from dba_sys_privs',
 					p_table_name          => 'method5.m5_dba_sys_privs',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false
+					p_asynchronous        => false,
+					p_targets             => '%'
 				);
 			end;
 		>'
@@ -142,7 +146,8 @@ begin
 					',
 					p_table_name          => 'method5.m5_user$',
 					p_table_exists_action => 'DELETE',
-					p_asynchronous        => false
+					p_asynchronous        => false,
+					p_targets             => '%'
 				);
 			end;
 		>'
@@ -181,7 +186,8 @@ order by job_name;
 ---------------------------------------
 --#6: Create public synonyms on the tables.
 prompt Registering global data dictionary tables...
-insert into method5.m5_global_data_dictionary
+insert /*+ ignore_row_on_dupkey_index(m5_global_data_dictionary, m5_global_data_dictionary_uq) */
+into method5.m5_global_data_dictionary
 select 'METHOD5' owner, 'M5_DBA_USERS'      table_name from dual union all
 select 'METHOD5' owner, 'M5_V$PARAMETER'    table_name from dual union all
 select 'METHOD5' owner, 'M5_DBA_TAB_PRIVS'  table_name from dual union all
@@ -195,29 +201,29 @@ commit;
 --#7: Create public synonyms on the tables.
 prompt Creating public synonyms for global data dictionary...
 
-create public synonym m5_dba_users for method5.m5_dba_users;
-create public synonym m5_dba_users_meta for method5.m5_dba_users_meta;
-create public synonym m5_dba_users_err for method5.m5_dba_users_err;
+create or replace public synonym m5_dba_users for method5.m5_dba_users;
+create or replace public synonym m5_dba_users_meta for method5.m5_dba_users_meta;
+create or replace public synonym m5_dba_users_err for method5.m5_dba_users_err;
 
-create public synonym m5_v$parameter for method5.m5_v$parameter;
-create public synonym m5_v$parameter_meta for method5.m5_v$parameter_meta;
-create public synonym m5_v$parameter_err for method5.m5_v$parameter_err;
+create or replace public synonym m5_v$parameter for method5.m5_v$parameter;
+create or replace public synonym m5_v$parameter_meta for method5.m5_v$parameter_meta;
+create or replace public synonym m5_v$parameter_err for method5.m5_v$parameter_err;
 
-create public synonym m5_dba_tab_privs for method5.m5_dba_tab_privs;
-create public synonym m5_dba_tab_privs_meta for method5.m5_dba_tab_privs_meta;
-create public synonym m5_dba_tab_privs_err for method5.m5_dba_tab_privs_err;
+create or replace public synonym m5_dba_tab_privs for method5.m5_dba_tab_privs;
+create or replace public synonym m5_dba_tab_privs_meta for method5.m5_dba_tab_privs_meta;
+create or replace public synonym m5_dba_tab_privs_err for method5.m5_dba_tab_privs_err;
 
-create public synonym m5_dba_role_privs for method5.m5_dba_role_privs;
-create public synonym m5_dba_role_privs_meta for method5.m5_dba_role_privs_meta;
-create public synonym m5_dba_role_privs_err for method5.m5_dba_role_privs_err;
+create or replace public synonym m5_dba_role_privs for method5.m5_dba_role_privs;
+create or replace public synonym m5_dba_role_privs_meta for method5.m5_dba_role_privs_meta;
+create or replace public synonym m5_dba_role_privs_err for method5.m5_dba_role_privs_err;
 
-create public synonym m5_dba_sys_privs for method5.m5_dba_sys_privs;
-create public synonym m5_dba_sys_privs_meta for method5.m5_dba_sys_privs_meta;
-create public synonym m5_dba_sys_privs_err for method5.m5_dba_sys_privs_err;
+create or replace public synonym m5_dba_sys_privs for method5.m5_dba_sys_privs;
+create or replace public synonym m5_dba_sys_privs_meta for method5.m5_dba_sys_privs_meta;
+create or replace public synonym m5_dba_sys_privs_err for method5.m5_dba_sys_privs_err;
 
-create public synonym m5_user$ for method5.m5_user$;
-create public synonym m5_user$_meta for method5.m5_user$_meta;
-create public synonym m5_user$_err for method5.m5_user$_err;
+create or replace public synonym m5_user$ for method5.m5_user$;
+create or replace public synonym m5_user$_meta for method5.m5_user$_meta;
+create or replace public synonym m5_user$_err for method5.m5_user$_err;
 
 
 prompt Done.

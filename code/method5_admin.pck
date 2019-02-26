@@ -440,7 +440,15 @@ is
 	end;
 
 	function create_trigger(p_trigger_owner varchar2) return clob is
+		v_host_list varchar2(4000);
 	begin
+		execute immediate
+		q'[
+			select '(' || listagg(''''||lower(host_name)||'''', ',') within group (order by host_name) || ') ' host_list
+			from gv$instance
+		]'
+		into v_host_list;
+
 		return replace(replace(replace(q'[
 			--Prevent Method5 from connecting directly.
 			create or replace trigger #OWNER#.m5_prevent_direct_logon
@@ -478,7 +486,7 @@ is
 			begin
 				--Check that the connection comes from the management server.
 				if sys_context('userenv', 'session_user') = 'METHOD5'
-				   and lower(sys_context('userenv', 'host')) not like '%#HOST#%' then
+				   and lower(sys_context('userenv', 'host')) not in #HOST_LIST# then
 					raise internal_exception;
 				end if;
 
@@ -503,12 +511,20 @@ is
 			end;
 			/]'||chr(10)||chr(10)
 		,'#OWNER#', p_trigger_owner)
-		,'#HOST#', lower(sys_context('userenv', 'server_host')))
+		,'#HOST_LIST#', v_host_list)
 		,chr(10)||'			', chr(10));
 	end;
 
 	function create_sys_m5_runner return clob is
+		v_host_list varchar2(4000);
 	begin
+		execute immediate
+		q'[
+			select '(' || listagg(''''||lower(host_name)||'''', ',') within group (order by host_name) || ') ' host_list
+			from gv$instance
+		]'
+		into v_host_list;
+
 		return replace(replace(replace(
 		q'[
 			--Create table to hold Session GUIDs.
@@ -577,7 +593,7 @@ is
 			begin
 				--Check that the connection comes from the management server.
 				if sys_context('userenv', 'session_user') = 'METHOD5'
-					and lower(sys_context('userenv', 'host')) not like '%#HOST#%' then
+					and lower(sys_context('userenv', 'host')) not in #HOST_LIST# then
 						raise_application_error(-20201, 'This procedure was called incorrectly.');
 				end if;
 
@@ -747,7 +763,7 @@ is
 
 			grant execute on sys.m5_runner to method5;]'||chr(10)||chr(10)
 		, chr(10)||'			', chr(10))
-		,'#HOST#', lower(sys_context('userenv', 'server_host')))
+		,'#HOST_LIST#', v_host_list)
 		,'#SLASH#', '/');
 	end create_sys_m5_runner;
 
@@ -2180,6 +2196,7 @@ procedure send_daily_summary_email is
 		select
 			'		CLEANUP_M5_TEMP_TABLES_JOB: '   ||case when temp_tables        = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_tables   ||'</span>' end||'<br>'||chr(10)||
 			'		CLEANUP_M5_TEMP_TRIGGERS_JOB: ' ||case when temp_triggers      = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||temp_triggers ||'</span>' end||'<br>'||chr(10)||
+			'		CLEANUP_UNUSED_M5_LINKS_JOB: '  ||case when unused_links       = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||unused_links  ||'</span>' end||'<br>'||chr(10)||
 			'		CLEANUP_REMOTE_M5_OBJECTS_JOB: '||case when remote_objects     = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||remote_objects||'</span>' end||'<br>'||chr(10)||
 			'		DIRECT_M5_GRANTS_JOB: '         ||case when direct_grants      = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||direct_grants ||'</span>' end||'<br>'||chr(10)||
 			'		STOP_TIMED_OUT_JOBS_JOB: '      ||case when timed_out_jobs     = 'SUCCEEDED' then '<span class="ok">SUCCEEDED</span>' else '<span class="error">'||timed_out_jobs||'</span>' end||'<br>'||chr(10)||
@@ -2192,6 +2209,7 @@ procedure send_daily_summary_email is
 			select
 				nvl(max(case when job_name = 'CLEANUP_M5_TEMP_TABLES_JOB'    then status else null end), 'Job did not run') temp_tables,
 				nvl(max(case when job_name = 'CLEANUP_M5_TEMP_TRIGGERS_JOB'  then status else null end), 'Job did not run') temp_triggers,
+				nvl(max(case when job_name = 'CLEANUP_UNUSED_M5_LINKS_JOB'   then status else null end), 'Job did not run') unused_links,
 				nvl(max(case when job_name = 'CLEANUP_REMOTE_M5_OBJECTS_JOB' then status else null end), 'Job did not run') remote_objects,
 				nvl(max(case when job_name = 'DIRECT_M5_GRANTS_JOB'          then status else null end), 'Job did not run') direct_grants,
 				nvl(max(case when job_name = 'STOP_TIMED_OUT_JOBS_JOB'       then status else null end), 'Job did not run') timed_out_jobs,
@@ -2210,7 +2228,8 @@ procedure send_daily_summary_email is
 						'CLEANUP_REMOTE_M5_OBJECTS_JOB',
 						'DIRECT_M5_GRANTS_JOB',
 						'STOP_TIMED_OUT_JOBS_JOB',
-						'BACKUP_M5_DATABASE_JOB'
+						'BACKUP_M5_DATABASE_JOB',
+						'CLEANUP_UNUSED_M5_LINKS_JOB'
 					)
 			)
 			where last_when_1 = 1

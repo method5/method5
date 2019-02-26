@@ -57,4 +57,4 @@ Special thanks to the following people:
 
 * Adrian Billington for creating [DLA](https://github.com/oracle-developer/dla), which is used for Method4 SQL.
 * My coworkers at General Dynamics and Ventech Solutions, who provided a lot of feedback and testing.  Especially Jon, Rhonda, Bob, Amie, Ryan, and Patrick.
-* Mike Gangler, Wayne Sharp, Zach Hudock, and various people at conferences like ECO, RMOUG, GLOC, and KScope, who found bugs or asked questions that helped improve the program.
+* Mike Gangler, Wayne Sharp, Zach Hudock, Karthik Chigururu, and various people at conferences like ECO, RMOUG, GLOC, and KScope, who found bugs or asked questions that helped improve the program.

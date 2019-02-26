@@ -16,8 +16,11 @@ As a DBA user, run the below commands on the master server, in SQL*Plus.
 
 	@code/method5_admin.pck
 	@code/m5_pkg.pck
+	@code/m5_purge_sql_from_shared_pool.prc
 	@code/remove_method5_housekeeping_jobs.sql
 	@code/install_method5_housekeeping_jobs.sql
+	@code/remove_method5_global_data_dictionary.sql
+	@code/install_method5_global_data_dictionary.sql
 
 
 9.3.1 --> 9.3.2: Bug fixes for 18c support.

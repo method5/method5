@@ -45,7 +45,7 @@ Run this script on the management server as SYS.  It's a small script, you can e
 3: Install Method5 objects.
 ---------------------------
 
-Run this script on the management server as a user with the DBA role, in SQL*Plus.  This user will be the default Method5 administrator so you should use a personal account.  The only argument is the port of the master database.  (If you get the port wrong it can be fixed later when the database links are customized.)  Ths script should not generate any errors.
+Run this script on the management server as a user with the DBA role, in SQL*Plus.  This user will be the default Method5 administrator so you should use a personal account.  The only argument is the port of the master database.  There are several ways to find the port, such as running the command "lsnrctl status".  (If you get the port wrong it can be fixed later when the database links are customized.)  Ths script should not generate any errors.
 
 	SQL> @code/install_method5_objects.sql 1521
 	SQL> quit
