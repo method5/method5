@@ -369,25 +369,6 @@ is
 	function create_rds_grants return clob is
 	begin
 		return replace(replace(q'[
-				--REQUIRED: Create and grant role of minimum Method5 remote target privileges.
-				--Do NOT remove or change this block or Method5 will not work properly.
-				declare
-					v_role_conflicts exception;
-					pragma exception_init(v_role_conflicts, -1921);
-				begin
-					begin
-						execute immediate 'create role m5_minimum_remote_privs';
-					exception when v_role_conflicts then null;
-					end;
-
-					execute immediate 'grant m5_minimum_remote_privs to method5';
-
-					execute immediate 'grant create session to m5_minimum_remote_privs';
-					execute immediate 'grant create table to m5_minimum_remote_privs';
-					execute immediate 'grant create procedure to m5_minimum_remote_privs';
-				end;
-				#SLASH#
-
 				--REQUIRED: Grant Method5 unlimited access to the default tablespace.
 				--You can change the quota or tablespace but Method5 must have at least a little space.
 				declare
@@ -402,20 +383,15 @@ is
 				end;
 				#SLASH#
 
-				--REQUIRED: Create and grant role for additional Method5 remote target privileges.
-				--Do NOT remove or change this block or Method5 will not work properly.
-				declare
-					v_role_conflicts exception;
-					pragma exception_init(v_role_conflicts, -1921);
-				begin
-					begin
-						execute immediate 'create role m5_optional_remote_privs';
-					exception when v_role_conflicts then null;
-					end;
+				--NOTE: Permissions work slightly different in RDS than normal databases.
+				--These privileges must be granted directly to Method5 using the "WITH ADMIN OPTION"
+				--  or they will not work.
 
-					execute immediate 'grant m5_optional_remote_privs to method5';
-				end;
-				#SLASH#
+				--REQUIRED: Create and grant role of minimum Method5 remote target privileges.
+				--Do NOT remove or change this block or Method5 will not work properly.
+				grant create session to method5 with admin option;
+				grant create table to method5 with admin option;
+				grant create procedure to method5 with admin option;
 
 				--OPTIONAL, but recommended: Grant DBA to Method5 role.
 				--WARNING: The privilege granted here is the upper-limit applied to ALL users.
@@ -424,9 +400,9 @@ is
 				--If you don't trust Method5 or are not allowed to grant DBA, you can manually modify this block.
 				--Simply removing it would make Method5 worthless.  But you may want to replace it with something
 				--less powerful.  For example, you could make a read-only Method5 with these two commented out lines:
-				--	grant select any table to m5_optional_remote_privs;
-				--	grant select any dictionary to m5_optional_remote_privs;
-				grant dba to m5_optional_remote_privs with admin option;]'||chr(10)||chr(10)
+				--	grant select any table to method5 with admin option;
+				--	grant select any dictionary to method5 with admin option;
+				grant dba to method5 with admin option;]'||chr(10)||chr(10)
 			,'				', null)
 			,'#SLASH#', '/');
 	end create_rds_grants;
