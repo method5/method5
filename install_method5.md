@@ -102,7 +102,7 @@ Run these scripts on the management server as a user with the DBA role, in SQL*P
 
 
 9: Run integration tests to verify installation. (optional - only for developers)
------------------------------------------------------------
+---------------------------------------------------------------------------------
 
 Run this code on the management server, as a user who has the DBA role and is a Method5 administrator.
 
