@@ -12,7 +12,7 @@ And the advanced examples show the full power of Method5.  When the data gatheri
 1. [Snare - Configuration Comparison.sql](#snare)
 2. [Compare Everything Everywhere.sql](#compare_everything_everywhere)
 3. [ASM Forecast.sql](#asm_forecast)
-4. [Active Sessions.sql](#active_sessions)
+4. [Active Sessions.sql](#active_session_counts)
 5. [Compare Parameters.sql](#compare_parameters)
 6. [Space Treemap.sql](#space_treemap)
 7. [Synchronize DBA Users Job.sql](#synchronize_dba_users_job)
